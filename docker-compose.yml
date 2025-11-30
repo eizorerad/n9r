@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: n9r-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: n9r
+      POSTGRES_PASSWORD: n9r_dev_password
+      POSTGRES_DB: n9r
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U n9r -d n9r"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: n9r-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: n9r-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+
+  minio:
+    image: minio/minio:latest
+    container_name: n9r-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+
+networks:
+  default:
+    name: n9r-network
+  # SECURITY: Isolated network for sandbox containers (for future Egress Proxy solution)
+  # Currently sandbox uses network_mode="none" for complete isolation
+  # This network is prepared for when we add Squid proxy for filtered internet access
+  sandbox-isolated:
+    name: n9r-sandbox-isolated
+    internal: true  # No external connectivity
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

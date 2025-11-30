@@ -1,0 +1,128 @@
+# Production Docker Compose configuration for n9r
+#
+# This file extends docker-compose.yml with production services:
+# - Backend API (FastAPI)
+# - Celery workers (with Docker-in-Docker support)
+# - Celery Beat scheduler
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   1. Build backend image: docker build -t n9r-backend ./backend
+#   2. Create sandbox_data directory: mkdir -p ./sandbox_data
+#   3. Set HOST_SANDBOX_PATH in .env to absolute path of sandbox_data
+#
+# Security Notes:
+#   - Docker socket is mounted for sibling container spawning (healing sandbox)
+#   - Sandbox containers run with network_mode="none" for isolation
+#   - See docs/sandbox_security_research.md for full security analysis
+
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: n9r-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - DEBUG=false
+      - DATABASE_URL=postgresql://n9r:n9r_dev_password@postgres:5432/n9r
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=minio:9000
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+      - backend_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Celery Worker for Analysis, Embeddings, Healing, Notifications
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: n9r-celery-worker
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://n9r:n9r_dev_password@postgres:5432/n9r
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - QDRANT_HOST=qdrant
+      - MINIO_ENDPOINT=minio:9000
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      # Sandbox configuration for Docker-in-Docker
+      # SANDBOX_ROOT_DIR: Where worker creates sandbox workdirs (inside this container)
+      # HOST_SANDBOX_PATH: Corresponding path on Docker HOST (for sibling container volumes)
+      - SANDBOX_ROOT_DIR=/app/sandbox_data
+      - HOST_SANDBOX_PATH=${HOST_SANDBOX_PATH:-/tmp/n9r-sandbox}
+    volumes:
+      - ./backend:/app
+      - backend_cache:/app/.cache
+      # Shared sandbox data directory
+      # This MUST be the same path as HOST_SANDBOX_PATH on the Docker host
+      - ${HOST_SANDBOX_PATH:-./sandbox_data}:/app/sandbox_data
+      # Docker socket for spawning sibling sandbox containers
+      # SECURITY: This gives the worker ability to create containers on host
+      # Sandbox containers are isolated with network_mode="none"
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Run all queues including healing
+    command: >
+      celery -A app.core.celery worker
+      -Q default,analysis,embeddings,healing,notifications
+      -c 4
+      --loglevel=info
+    # Add docker group for socket access (may need adjustment based on host)
+    user: root
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: n9r-celery-beat
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=postgresql://n9r:n9r_dev_password@postgres:5432/n9r
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_HOST=redis
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    volumes:
+      - ./backend:/app
+      - backend_cache:/app/.cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery beat --loglevel=info
+
+volumes:
+  backend_cache:
+    name: n9r-backend-cache

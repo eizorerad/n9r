@@ -1,0 +1,55 @@
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.log
+docs/
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+celerybeat-schedule.db
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+
+# Node / Frontend
+node_modules/
+.next/
+build/
+dist/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Docker / Data
+postgres_data/
+redis_data/
+qdrant_data/
+minio_data/
+
+
+# compressed repo
+
+repomix-output.xml
+repomix-output.md
+
+# lizard
+lizard_output.json
+
+# radon
+radon_output.json
+
