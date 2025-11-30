@@ -3,10 +3,10 @@
 import { useState, use } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { 
-  ArrowLeft, 
-  MessageSquare, 
-  GitPullRequest, 
+import {
+  ArrowLeft,
+  MessageSquare,
+  GitPullRequest,
   FileCode,
   X,
   PanelLeftClose,
@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 // Lazy load Monaco Editor components to improve initial page load
 const CodeEditor = dynamic(
   () => import('@/components/code-editor').then(mod => mod.CodeEditor),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="h-full w-full flex items-center justify-center bg-gray-900">
@@ -32,7 +32,7 @@ const CodeEditor = dynamic(
 
 const DiffEditor = dynamic(
   () => import('@/components/code-editor').then(mod => mod.DiffEditor),
-  { 
+  {
     ssr: false,
     loading: () => (
       <div className="h-full w-full flex items-center justify-center bg-gray-900">
@@ -112,26 +112,26 @@ export function processData(data: any[]) {
 `,
 }
 
-export default function IDEPage({ 
-  params 
-}: { 
-  params: Promise<{ id: string }> 
+export default function IDEPage({
+  params
+}: {
+  params: Promise<{ id: string }>
 }) {
   const { id } = use(params)
-  
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [openTabs, setOpenTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
   const [showChat, setShowChat] = useState(false)
   const [showFileTree, setShowFileTree] = useState(true)
   const [showDiff, setShowDiff] = useState(false)
-  
+
   const fileTree = buildFileTree(mockFiles)
-  
+
   const handleFileSelect = (path: string, type: 'file' | 'directory') => {
     if (type === 'file') {
       setSelectedFile(path)
-      
+
       // Add to tabs if not already open
       if (!openTabs.find(t => t.path === path)) {
         const name = path.split('/').pop() || path
@@ -141,7 +141,7 @@ export default function IDEPage({
       setActiveTab(path)
     }
   }
-  
+
   const handleCloseTab = (path: string, e: React.MouseEvent) => {
     e.stopPropagation()
     setOpenTabs(prev => prev.filter(t => t.path !== path))
@@ -150,67 +150,67 @@ export default function IDEPage({
       setActiveTab(remaining.length > 0 ? remaining[remaining.length - 1].path : null)
     }
   }
-  
+
   const activeTabData = openTabs.find(t => t.path === activeTab)
-  
+
   return (
-    <div className="h-screen flex flex-col bg-gray-950 text-white">
+    <div className="h-screen flex flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="h-12 border-b border-gray-800 bg-gray-900/50 flex items-center px-4 gap-4 flex-shrink-0">
-        <Link 
+      <header className="h-12 border-b border-border bg-muted/30 flex items-center px-4 gap-4 flex-shrink-0">
+        <Link
           href={`/dashboard/repository/${id}`}
-          className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
           <span className="text-sm">Back</span>
         </Link>
-        
-        <div className="h-4 w-px bg-gray-700" />
-        
+
+        <div className="h-4 w-px bg-border" />
+
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-gradient-to-br from-green-400 to-emerald-600 rounded flex items-center justify-center font-bold text-xs">
+          <div className="w-6 h-6 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded flex items-center justify-center font-bold text-xs shadow-sm">
             n9
           </div>
           <span className="font-medium text-sm">Web IDE</span>
         </div>
-        
+
         <div className="flex-1" />
-        
+
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowDiff(!showDiff)}
-            className={cn(showDiff && 'bg-gray-800')}
+            className={cn(showDiff && 'bg-muted')}
           >
             <GitPullRequest className="h-4 w-4 mr-1" />
             Diff View
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowChat(!showChat)}
-            className={cn(showChat && 'bg-gray-800')}
+            className={cn(showChat && 'bg-muted')}
           >
             <MessageSquare className="h-4 w-4 mr-1" />
             Chat
           </Button>
         </div>
       </header>
-      
+
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* File Tree Sidebar */}
         {showFileTree && (
-          <aside className="w-64 border-r border-gray-800 bg-gray-900/30 flex flex-col flex-shrink-0">
-            <div className="h-10 px-3 flex items-center justify-between border-b border-gray-800">
-              <span className="text-xs font-medium text-gray-400 uppercase">Explorer</span>
+          <aside className="w-64 border-r border-border bg-muted/10 flex flex-col flex-shrink-0">
+            <div className="h-10 px-3 flex items-center justify-between border-b border-border">
+              <span className="text-xs font-medium text-muted-foreground uppercase">Explorer</span>
               <button
                 onClick={() => setShowFileTree(false)}
-                className="p-1 hover:bg-gray-800 rounded transition-colors"
+                className="p-1 hover:bg-muted rounded transition-colors"
               >
-                <PanelLeftClose className="h-4 w-4 text-gray-500" />
+                <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -222,42 +222,42 @@ export default function IDEPage({
             </div>
           </aside>
         )}
-        
+
         {/* Toggle sidebar button when hidden */}
         {!showFileTree && (
           <button
             onClick={() => setShowFileTree(true)}
-            className="w-10 border-r border-gray-800 bg-gray-900/30 flex items-center justify-center hover:bg-gray-800 transition-colors"
+            className="w-10 border-r border-border bg-muted/10 flex items-center justify-center hover:bg-muted transition-colors"
           >
-            <PanelLeft className="h-4 w-4 text-gray-500" />
+            <PanelLeft className="h-4 w-4 text-muted-foreground" />
           </button>
         )}
-        
+
         {/* Editor Area */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col overflow-hidden bg-background">
           {/* Tabs */}
-          <div className="h-10 bg-gray-900/50 border-b border-gray-800 flex items-center overflow-x-auto flex-shrink-0">
+          <div className="h-10 bg-muted/30 border-b border-border flex items-center overflow-x-auto flex-shrink-0">
             {openTabs.map((tab) => (
               <button
                 key={tab.path}
                 onClick={() => setActiveTab(tab.path)}
                 className={cn(
-                  'h-full px-4 flex items-center gap-2 border-r border-gray-800 text-sm hover:bg-gray-800/50 transition-colors',
-                  activeTab === tab.path ? 'bg-gray-800 text-white' : 'text-gray-400'
+                  'h-full px-4 flex items-center gap-2 border-r border-border text-sm hover:bg-muted/50 transition-colors',
+                  activeTab === tab.path ? 'bg-background text-foreground border-t-2 border-t-primary' : 'text-muted-foreground bg-muted/30'
                 )}
               >
                 <FileCode className="h-4 w-4" />
                 <span>{tab.name}</span>
                 <button
                   onClick={(e) => handleCloseTab(tab.path, e)}
-                  className="p-0.5 hover:bg-gray-700 rounded ml-1"
+                  className="p-0.5 hover:bg-muted rounded ml-1"
                 >
                   <X className="h-3 w-3" />
                 </button>
               </button>
             ))}
           </div>
-          
+
           {/* Editor Content */}
           <div className="flex-1 overflow-hidden">
             {showDiff && activeTabData ? (
@@ -277,19 +277,19 @@ export default function IDEPage({
                 highlightLines={[15, 16, 17]}
               />
             ) : (
-              <div className="h-full flex items-center justify-center text-gray-500">
+              <div className="h-full flex items-center justify-center text-muted-foreground">
                 <div className="text-center">
-                  <FileCode className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <FileCode className="h-12 w-12 mx-auto mb-4 opacity-20" />
                   <p>Select a file to view</p>
                 </div>
               </div>
             )}
           </div>
         </main>
-        
+
         {/* Chat Panel */}
         {showChat && (
-          <aside className="w-96 flex-shrink-0">
+          <aside className="w-96 flex-shrink-0 border-l border-border bg-background">
             <ChatPanel
               repositoryId={id}
               contextFile={activeTab || undefined}

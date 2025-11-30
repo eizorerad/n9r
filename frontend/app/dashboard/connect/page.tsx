@@ -7,6 +7,8 @@ import { ArrowLeft, GitBranch, Lock, Globe, Loader2, RefreshCw } from 'lucide-re
 import { connectRepository, getAvailableRepositories } from '@/app/actions/repository'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 
 interface Repository {
   id?: number
@@ -63,11 +65,11 @@ export default function ConnectRepositoryPage() {
 
   if (state.success) {
     return (
-      <div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">
-        <Card className="bg-gray-900/50 border-gray-800 max-w-md w-full">
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <Card className="glass-panel border-border/50 max-w-md w-full">
           <CardHeader className="text-center">
-            <div className="w-16 h-16 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-              <GitBranch className="w-8 h-8 text-green-500" />
+            <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/20">
+              <GitBranch className="w-8 h-8 text-emerald-500" />
             </div>
             <CardTitle>Repository Connected!</CardTitle>
             <CardDescription>
@@ -85,29 +87,29 @@ export default function ConnectRepositoryPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-900/50">
-        <div className="container mx-auto px-4 py-4">
+      <header className="sticky top-0 z-50 glass-header border-b border-border/40">
+        <div className="container mx-auto px-6 py-4">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="p-2 hover:bg-gray-800 rounded-lg transition">
+            <Link href="/dashboard" className="p-2 hover:bg-muted rounded-lg transition-colors text-muted-foreground hover:text-foreground">
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-green-400 to-emerald-600 rounded-lg flex items-center justify-center font-bold text-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20">
                 n9
               </div>
-              <span className="text-xl font-semibold">n9r</span>
+              <span className="text-xl font-bold tracking-tight">n9r</span>
             </div>
-            <span className="text-gray-400">/</span>
-            <span className="text-gray-300">Connect Repository</span>
+            <span className="text-muted-foreground/50 text-xl font-light">/</span>
+            <span className="text-muted-foreground font-medium">Connect Repository</span>
           </div>
         </div>
       </header>
 
       {/* Content */}
-      <main className="container mx-auto px-4 py-8 max-w-2xl">
-        <Card className="bg-gray-900/50 border-gray-800">
+      <main className="container mx-auto px-6 py-10 max-w-3xl">
+        <Card className="glass-panel border-border/50">
           <CardHeader>
             <CardTitle>Connect a Repository</CardTitle>
             <CardDescription>
@@ -116,49 +118,49 @@ export default function ConnectRepositoryPage() {
           </CardHeader>
           <CardContent>
             {state.error && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
+              <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm font-medium">
                 {state.error}
               </div>
             )}
 
             {loadError && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm flex items-center justify-between">
+              <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm flex items-center justify-between">
                 <span>{loadError}</span>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={loadRepositories}
-                  className="text-red-400 hover:text-red-300"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  <RefreshCw className="h-4 w-4 mr-1" />
+                  <RefreshCw className="h-4 w-4 mr-2" />
                   Retry
                 </Button>
               </div>
             )}
 
             {loading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-                <span className="ml-3 text-gray-400">Loading repositories...</span>
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Loader2 className="h-10 w-10 animate-spin mb-4 text-primary" />
+                <span>Loading repositories...</span>
               </div>
             ) : repos.length === 0 && !loadError ? (
-              <div className="text-center py-12 text-gray-400">
-                <GitBranch className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No repositories found.</p>
-                <p className="text-sm mt-2">Make sure you have repositories on your GitHub account.</p>
+              <div className="text-center py-16 text-muted-foreground">
+                <GitBranch className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                <p className="font-medium">No repositories found</p>
+                <p className="text-sm mt-2 opacity-60">Make sure you have repositories on your GitHub account.</p>
               </div>
             ) : (
-              <form action={formAction} className="space-y-6">
+              <form action={formAction} className="space-y-8">
                 {/* Repository Selection */}
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-gray-300">
-                    Select Repository ({repos.length} available)
+                <div className="space-y-4">
+                  <label className="text-sm font-medium text-foreground block">
+                    Select Repository <span className="text-muted-foreground ml-1">({repos.length} available)</span>
                   </label>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                     {repos.map((repo) => (
                       <label
                         key={repo.id || repo.github_id}
-                        className="flex items-center gap-3 p-3 border border-gray-800 rounded-lg cursor-pointer hover:border-gray-700 transition has-[:checked]:border-green-500 has-[:checked]:bg-green-500/5"
+                        className="flex items-center gap-4 p-4 border border-border rounded-xl cursor-pointer hover:bg-muted/30 hover:border-border/80 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm group"
                       >
                         <input
                           type="radio"
@@ -166,25 +168,30 @@ export default function ConnectRepositoryPage() {
                           value={repo.github_id || repo.id}
                           className="sr-only"
                         />
-                        <GitBranch className="h-5 w-5 text-gray-400 flex-shrink-0" />
+                        <div className="p-2 rounded-lg bg-muted group-has-[:checked]:bg-primary/10 group-has-[:checked]:text-primary transition-colors">
+                          <GitBranch className="h-5 w-5 text-muted-foreground group-has-[:checked]:text-primary" />
+                        </div>
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{repo.full_name}</div>
+                          <div className="font-medium truncate text-foreground">{repo.full_name}</div>
                           {repo.description && (
-                            <div className="text-xs text-gray-500 truncate">{repo.description}</div>
+                            <div className="text-xs text-muted-foreground truncate mt-0.5">{repo.description}</div>
                           )}
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-2">
                             {repo.language && (
-                              <span className="text-xs px-2 py-0.5 bg-gray-800 rounded text-gray-400">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 font-normal">
                                 {repo.language}
-                              </span>
+                              </Badge>
                             )}
-                            <span className="text-xs text-gray-500">{repo.default_branch}</span>
+                            <span className="text-xs text-muted-foreground flex items-center gap-1">
+                              <GitBranch className="h-3 w-3" />
+                              {repo.default_branch}
+                            </span>
                           </div>
                         </div>
                         {repo.private ? (
-                          <Lock className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                          <Lock className="h-4 w-4 text-muted-foreground/50 flex-shrink-0" />
                         ) : (
-                          <Globe className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                          <Globe className="h-4 w-4 text-muted-foreground/50 flex-shrink-0" />
                         )}
                       </label>
                     ))}
@@ -195,12 +202,12 @@ export default function ConnectRepositoryPage() {
                 <input type="hidden" name="full_name" id="full_name" />
 
                 {/* Mode Selection */}
-                <div className="space-y-3">
-                  <label className="text-sm font-medium text-gray-300">
+                <div className="space-y-4">
+                  <label className="text-sm font-medium text-foreground block">
                     Analysis Mode
                   </label>
-                  <div className="grid grid-cols-3 gap-3">
-                    <label className="flex flex-col items-center p-4 border border-gray-800 rounded-lg cursor-pointer hover:border-gray-700 transition has-[:checked]:border-green-500 has-[:checked]:bg-green-500/5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <label className="flex flex-col items-center p-4 border border-border rounded-xl cursor-pointer hover:bg-muted/30 hover:border-border/80 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm text-center">
                       <input
                         type="radio"
                         name="mode"
@@ -208,34 +215,34 @@ export default function ConnectRepositoryPage() {
                         defaultChecked
                         className="sr-only"
                       />
-                      <span className="text-sm font-medium">View Only</span>
-                      <span className="text-xs text-gray-500 mt-1">Read & analyze</span>
+                      <span className="text-sm font-medium mb-1">View Only</span>
+                      <span className="text-xs text-muted-foreground">Read & analyze code without making changes</span>
                     </label>
-                    <label className="flex flex-col items-center p-4 border border-gray-800 rounded-lg cursor-pointer hover:border-gray-700 transition has-[:checked]:border-green-500 has-[:checked]:bg-green-500/5">
+                    <label className="flex flex-col items-center p-4 border border-border rounded-xl cursor-pointer hover:bg-muted/30 hover:border-border/80 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm text-center">
                       <input
                         type="radio"
                         name="mode"
                         value="assisted"
                         className="sr-only"
                       />
-                      <span className="text-sm font-medium">Assisted</span>
-                      <span className="text-xs text-gray-500 mt-1">Suggest fixes</span>
+                      <span className="text-sm font-medium mb-1">Assisted</span>
+                      <span className="text-xs text-muted-foreground">Get suggestions and fix issues manually</span>
                     </label>
-                    <label className="flex flex-col items-center p-4 border border-gray-800 rounded-lg cursor-pointer hover:border-gray-700 transition has-[:checked]:border-green-500 has-[:checked]:bg-green-500/5">
+                    <label className="flex flex-col items-center p-4 border border-border rounded-xl cursor-pointer hover:bg-muted/30 hover:border-border/80 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-sm text-center">
                       <input
                         type="radio"
                         name="mode"
                         value="auto_fix"
                         className="sr-only"
                       />
-                      <span className="text-sm font-medium">Auto-Fix</span>
-                      <span className="text-xs text-gray-500 mt-1">Create PRs</span>
+                      <span className="text-sm font-medium mb-1">Auto-Fix</span>
+                      <span className="text-xs text-muted-foreground">Automatically create PRs for fixes</span>
                     </label>
                   </div>
                 </div>
 
                 {/* Submit */}
-                <div className="flex gap-3">
+                <div className="flex gap-4 pt-4">
                   <Link href="/dashboard" className="flex-1">
                     <Button variant="outline" className="w-full" type="button">
                       Cancel
@@ -244,9 +251,16 @@ export default function ConnectRepositoryPage() {
                   <Button
                     type="submit"
                     disabled={pending || repos.length === 0}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
+                    className="flex-1 bg-[#008236] hover:bg-[#008236]/90 text-white shadow-lg shadow-[#008236]/20"
                   >
-                    {pending ? 'Connecting...' : 'Connect Repository'}
+                    {pending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      'Connect Repository'
+                    )}
                   </Button>
                 </div>
               </form>

@@ -12,6 +12,14 @@ import {
   type SortingState,
   type ColumnFiltersState,
 } from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ArrowUpDown, MoreHorizontal, GitBranch, AlertCircle, GitPullRequest } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -136,15 +144,15 @@ export function RepositoriesTable({ data, isLoading, onRowClick }: RepositoriesT
               row.original.mode === "auto_fix"
                 ? "bg-green-500/10 text-green-500"
                 : row.original.mode === "assisted"
-                ? "bg-blue-500/10 text-blue-500"
-                : "bg-gray-500/10 text-gray-400"
+                  ? "bg-blue-500/10 text-blue-500"
+                  : "bg-gray-500/10 text-gray-400"
             )}
           >
             {row.original.mode === "auto_fix"
               ? "Auto-Fix"
               : row.original.mode === "assisted"
-              ? "Assisted"
-              : "View Only"}
+                ? "Assisted"
+                : "View Only"}
           </span>
         ),
       },
@@ -197,59 +205,57 @@ export function RepositoriesTable({ data, isLoading, onRowClick }: RepositoriesT
 
   if (isLoading) {
     return (
-      <div className="rounded-lg border border-gray-800 bg-gray-900/50">
-        <div className="p-8 text-center text-gray-400">Loading repositories...</div>
+      <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+        <div className="p-8 text-center text-muted-foreground">Loading repositories...</div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-gray-800 bg-gray-900/50 overflow-hidden">
-      <table className="w-full">
-        <thead className="bg-gray-800/50">
+    <div className="rounded-md border border-border glass-panel">
+      <Table>
+        <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id}>
+            <TableRow key={headerGroup.id} className="hover:bg-transparent border-border/50">
               {headerGroup.headers.map((header) => (
-                <th
-                  key={header.id}
-                  className="px-4 py-3 text-left text-sm font-medium text-gray-400"
-                >
+                <TableHead key={header.id}>
                   {header.isPlaceholder
                     ? null
                     : flexRender(header.column.columnDef.header, header.getContext())}
-                </th>
+                </TableHead>
               ))}
-            </tr>
+            </TableRow>
           ))}
-        </thead>
-        <tbody>
+        </TableHeader>
+        <TableBody>
           {table.getRowModel().rows.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className="px-4 py-8 text-center text-gray-400">
+            <TableRow>
+              <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
                 No repositories found
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ) : (
             table.getRowModel().rows.map((row) => (
-              <tr
+              <TableRow
                 key={row.id}
+                data-state={row.getIsSelected() && "selected"}
                 onClick={() => onRowClick?.(row.original)}
-                className="border-t border-gray-800 hover:bg-gray-800/30 cursor-pointer transition-colors"
+                className="cursor-pointer border-border/50 hover:bg-muted/30"
               >
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3 text-sm">
+                  <TableCell key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
+                  </TableCell>
                 ))}
-              </tr>
+              </TableRow>
             ))
           )}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800">
-        <div className="text-sm text-gray-400">
+      <div className="flex items-center justify-between px-4 py-3 border-t border-border/50">
+        <div className="text-sm text-muted-foreground">
           {table.getFilteredRowModel().rows.length} repositories
         </div>
         <div className="flex items-center gap-2">

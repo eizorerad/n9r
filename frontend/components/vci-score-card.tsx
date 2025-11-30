@@ -1,6 +1,7 @@
 'use client'
 
 import { cn } from '@/lib/utils'
+import { Card, CardContent } from '@/components/ui/card'
 
 interface VCIScoreCardProps {
   score: number | null
@@ -10,17 +11,17 @@ interface VCIScoreCardProps {
 }
 
 const gradeColors: Record<string, string> = {
-  A: 'from-green-500 to-emerald-600',
+  A: 'from-emerald-500 to-emerald-600',
   B: 'from-blue-500 to-cyan-600',
-  C: 'from-yellow-500 to-amber-600',
+  C: 'from-amber-500 to-orange-600',
   D: 'from-orange-500 to-red-500',
   F: 'from-red-600 to-rose-700',
 }
 
 const gradeTextColors: Record<string, string> = {
-  A: 'text-green-400',
+  A: 'text-emerald-400',
   B: 'text-blue-400',
-  C: 'text-yellow-400',
+  C: 'text-amber-400',
   D: 'text-orange-400',
   F: 'text-red-400',
 }
@@ -28,62 +29,62 @@ const gradeTextColors: Record<string, string> = {
 export function VCIScoreCard({ score, grade, trend, className }: VCIScoreCardProps) {
   const displayGrade = grade || '—'
   const displayScore = score !== null ? score : '—'
-  const gradientClass = grade ? gradeColors[grade] : 'from-gray-600 to-gray-700'
-  const textColor = grade ? gradeTextColors[grade] : 'text-gray-400'
+  const gradientClass = grade ? gradeColors[grade] : 'from-muted to-muted/50'
+  const textColor = grade ? gradeTextColors[grade] : 'text-muted-foreground'
 
   return (
-    <div className={cn('relative overflow-hidden rounded-xl border border-gray-800 bg-gray-900/50', className)}>
+    <Card className={cn('relative overflow-hidden border-border/50 glass-panel', className)}>
       {/* Background gradient */}
       <div className={cn(
-        'absolute inset-0 opacity-10 bg-gradient-to-br',
+        'absolute inset-0 opacity-5 bg-gradient-to-br',
         gradientClass
       )} />
-      
-      <div className="relative p-6">
+
+      <CardContent className="relative p-8">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-400 mb-1">Vibe-Code Index</p>
+            <p className="text-sm font-medium text-muted-foreground mb-2">Vibe-Code Index</p>
             <div className="flex items-baseline gap-2">
-              <span className={cn('text-5xl font-bold', textColor)}>
+              <span className={cn('text-6xl font-bold tracking-tighter', textColor)}>
                 {displayScore}
               </span>
-              <span className="text-lg text-gray-500">/100</span>
+              <span className="text-xl text-muted-foreground/60 font-medium">/100</span>
             </div>
           </div>
-          
+
           <div className={cn(
-            'w-20 h-20 rounded-full flex items-center justify-center bg-gradient-to-br',
+            'w-24 h-24 rounded-2xl flex items-center justify-center bg-gradient-to-br shadow-lg',
             gradientClass
           )}>
-            <span className="text-3xl font-bold text-white">{displayGrade}</span>
+            <span className="text-4xl font-bold text-white shadow-sm">{displayGrade}</span>
           </div>
         </div>
-        
+
         {trend && (
-          <div className="mt-4 flex items-center gap-2">
+          <div className="mt-6 flex items-center gap-2 p-2 rounded-lg bg-background/40 w-fit border border-border/50">
             {trend === 'improving' && (
               <>
-                <span className="text-green-400">↑</span>
-                <span className="text-sm text-green-400">Improving</span>
+                <span className="text-emerald-400">↑</span>
+                <span className="text-sm text-emerald-400 font-medium">Improving</span>
               </>
             )}
             {trend === 'stable' && (
               <>
-                <span className="text-gray-400">→</span>
-                <span className="text-sm text-gray-400">Stable</span>
+                <span className="text-muted-foreground">→</span>
+                <span className="text-sm text-muted-foreground font-medium">Stable</span>
               </>
             )}
             {trend === 'declining' && (
               <>
                 <span className="text-red-400">↓</span>
-                <span className="text-sm text-red-400">Needs attention</span>
+                <span className="text-sm text-red-400 font-medium">Needs attention</span>
               </>
             )}
           </div>
         )}
-        
+
         {grade && (
-          <p className="mt-3 text-sm text-gray-500">
+          <p className="mt-4 text-sm text-muted-foreground">
             {grade === 'A' && 'Excellent code health! Well maintained.'}
             {grade === 'B' && 'Good code health. Minor improvements possible.'}
             {grade === 'C' && 'Fair code health. Some areas need attention.'}
@@ -91,7 +92,7 @@ export function VCIScoreCard({ score, grade, trend, className }: VCIScoreCardPro
             {grade === 'F' && 'Poor health. Immediate attention required.'}
           </p>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }

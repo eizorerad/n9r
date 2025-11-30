@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { AlertCircle, AlertTriangle, Info, ChevronRight, FileCode, Wrench, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 
 interface Issue {
   id: string
@@ -28,23 +30,23 @@ interface IssuesListProps {
 const severityConfig = {
   high: {
     icon: AlertCircle,
-    color: 'text-red-400',
-    bg: 'bg-red-400/10',
-    border: 'border-red-400/30',
+    color: 'text-destructive',
+    bg: 'bg-destructive/10',
+    border: 'border-destructive/20',
     label: 'High',
   },
   medium: {
     icon: AlertTriangle,
-    color: 'text-yellow-400',
-    bg: 'bg-yellow-400/10',
-    border: 'border-yellow-400/30',
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-500/20',
     label: 'Medium',
   },
   low: {
     icon: Info,
-    color: 'text-blue-400',
-    bg: 'bg-blue-400/10',
-    border: 'border-blue-400/30',
+    color: 'text-blue-500',
+    bg: 'bg-blue-500/10',
+    border: 'border-blue-500/20',
     label: 'Low',
   },
 }
@@ -53,13 +55,15 @@ export function IssuesList({ issues, className, onIssueClick, onFixClick }: Issu
   const [fixingIssueId, setFixingIssueId] = useState<string | null>(null)
   if (!issues || issues.length === 0) {
     return (
-      <div className={cn('rounded-xl border border-gray-800 bg-gray-900/50 p-6', className)}>
-        <h3 className="text-sm font-medium text-gray-400 mb-4">Issues</h3>
-        <div className="text-center py-8 text-gray-500">
-          <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+      <Card className={cn('border-border/50 glass-panel', className)}>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-muted-foreground">Issues</CardTitle>
+        </CardHeader>
+        <CardContent className="text-center py-12 text-muted-foreground/50">
+          <AlertCircle className="h-10 w-10 mx-auto mb-3 opacity-50" />
           <p>No issues found</p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     )
   }
 
@@ -69,42 +73,44 @@ export function IssuesList({ issues, className, onIssueClick, onFixClick }: Issu
   const lowIssues = issues.filter(i => i.severity === 'low')
 
   return (
-    <div className={cn('rounded-xl border border-gray-800 bg-gray-900/50', className)}>
-      <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-400">Issues ({issues.length})</h3>
-        <div className="flex gap-3 text-xs">
-          {highIssues.length > 0 && (
-            <span className="flex items-center gap-1 text-red-400">
-              <AlertCircle className="h-3 w-3" />
-              {highIssues.length}
-            </span>
-          )}
-          {mediumIssues.length > 0 && (
-            <span className="flex items-center gap-1 text-yellow-400">
-              <AlertTriangle className="h-3 w-3" />
-              {mediumIssues.length}
-            </span>
-          )}
-          {lowIssues.length > 0 && (
-            <span className="flex items-center gap-1 text-blue-400">
-              <Info className="h-3 w-3" />
-              {lowIssues.length}
-            </span>
-          )}
+    <Card className={cn('border-border/50 glass-panel overflow-hidden', className)}>
+      <CardHeader className="py-4 border-b border-border/50 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground">Issues ({issues.length})</CardTitle>
+          <div className="flex gap-3 text-xs font-medium">
+            {highIssues.length > 0 && (
+              <span className="flex items-center gap-1.5 text-destructive">
+                <AlertCircle className="h-3.5 w-3.5" />
+                {highIssues.length}
+              </span>
+            )}
+            {mediumIssues.length > 0 && (
+              <span className="flex items-center gap-1.5 text-amber-500">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {mediumIssues.length}
+              </span>
+            )}
+            {lowIssues.length > 0 && (
+              <span className="flex items-center gap-1.5 text-blue-500">
+                <Info className="h-3.5 w-3.5" />
+                {lowIssues.length}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-      
-      <div className="divide-y divide-gray-800 max-h-96 overflow-y-auto">
+      </CardHeader>
+
+      <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
         {issues.map((issue) => {
           const config = severityConfig[issue.severity]
           const Icon = config.icon
           const isFixing = fixingIssueId === issue.id
           const isBeingFixed = issue.status === 'fixing' || issue.status === 'queued'
-          
+
           const handleFixClick = async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (!onFixClick || isFixing || isBeingFixed) return
-            
+
             setFixingIssueId(issue.id)
             try {
               await onFixClick(issue)
@@ -112,98 +118,98 @@ export function IssuesList({ issues, className, onIssueClick, onFixClick }: Issu
               setFixingIssueId(null)
             }
           }
-          
+
           return (
             <div
               key={issue.id}
-              className="w-full p-4 hover:bg-gray-800/50 transition-colors group"
+              className="w-full p-4 hover:bg-muted/30 transition-colors group"
             >
-              <div className="flex items-start gap-3">
+              <div className="flex items-start gap-4">
                 <button
                   onClick={() => onIssueClick?.(issue)}
-                  className="flex-1 text-left flex items-start gap-3"
+                  className="flex-1 text-left flex items-start gap-4"
                 >
                   <div className={cn(
-                    'mt-0.5 p-1.5 rounded-lg',
+                    'mt-0.5 p-2 rounded-lg shrink-0',
                     config.bg
                   )}>
                     <Icon className={cn('h-4 w-4', config.color)} />
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={cn(
-                        'text-xs px-2 py-0.5 rounded-full border',
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <Badge variant="outline" className={cn(
+                        'text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border',
                         config.bg, config.border, config.color
                       )}>
                         {config.label}
-                      </span>
-                      <span className="text-xs text-gray-500 truncate">
+                      </Badge>
+                      <span className="text-xs text-muted-foreground truncate font-mono">
                         {issue.type}
                       </span>
                       {issue.auto_fixable && issue.status === 'open' && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/30">
+                        <Badge variant="outline" className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
                           Auto-fixable
-                        </span>
+                        </Badge>
                       )}
                       {isBeingFixed && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-400/10 text-blue-400 border border-blue-400/30 flex items-center gap-1">
+                        <Badge variant="outline" className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border-blue-500/20 flex items-center gap-1">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Fixing...
-                        </span>
+                        </Badge>
                       )}
                       {issue.status === 'fix_pending' && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 border border-yellow-400/30">
+                        <Badge variant="outline" className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border-amber-500/20">
                           PR Pending
-                        </span>
+                        </Badge>
                       )}
                       {issue.status === 'fixed' && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-green-400/10 text-green-400 border border-green-400/30">
+                        <Badge variant="outline" className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
                           Fixed
-                        </span>
+                        </Badge>
                       )}
                     </div>
-                    
-                    <h4 className="text-sm font-medium text-white mb-1 line-clamp-1">
+
+                    <h4 className="text-sm font-medium text-foreground mb-1.5 line-clamp-1 group-hover:text-primary transition-colors">
                       {issue.title}
                     </h4>
-                    
+
                     {issue.file_path && (
-                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
                         <FileCode className="h-3 w-3" />
                         <span className="truncate">{issue.file_path}</span>
                         {issue.line_start && (
-                          <span>:{issue.line_start}</span>
+                          <span className="text-muted-foreground/60">:{issue.line_start}</span>
                         )}
                       </div>
                     )}
                   </div>
                 </button>
-                
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2 self-start mt-1">
                   {issue.auto_fixable && issue.status === 'open' && onFixClick && (
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={handleFixClick}
                       disabled={isFixing || isBeingFixed}
-                      className="h-8 px-3 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+                      className="h-8 px-3 text-xs border-emerald-500/30 text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-600 hover:border-emerald-500/50"
                     >
                       {isFixing ? (
-                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                        <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
                       ) : (
-                        <Wrench className="h-3 w-3 mr-1" />
+                        <Wrench className="h-3 w-3 mr-1.5" />
                       )}
                       Fix
                     </Button>
                   )}
-                  <ChevronRight className="h-4 w-4 text-gray-600 group-hover:text-gray-400 transition-colors" />
+                  <ChevronRight className="h-4 w-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
                 </div>
               </div>
             </div>
           )
         })}
       </div>
-    </div>
+    </Card>
   )
 }
