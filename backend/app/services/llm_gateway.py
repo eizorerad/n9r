@@ -33,8 +33,13 @@ def _ensure_litellm():
     if _litellm_initialized:
         return
     
+    import os
     import litellm
-    litellm.set_verbose = settings.debug
+    
+    # Use environment variable instead of deprecated set_verbose
+    if settings.debug:
+        os.environ['LITELLM_LOG'] = 'DEBUG'
+    
     litellm.drop_params = True  # Drop unsupported params instead of error
     _litellm_initialized = True
     logger.debug("LiteLLM initialized")

@@ -270,13 +270,16 @@ def analyze_repository(
             
             # Step 4: Collect files for embedding BEFORE temp dir is cleaned up
             publish_progress("generating_embeddings", 90, "Collecting files for embeddings...")
+            logger.info(f"Analyzer temp_dir: {analyzer.temp_dir}")
             files_for_embedding = _collect_files_for_embedding(analyzer.temp_dir)
+            logger.info(f"Collected {len(files_for_embedding)} files for embedding")
         
         # Step 3: Save results (after context manager exits, temp dir is cleaned)
         publish_progress("saving_results", 92, "Saving results...")
         _save_analysis_results(repository_id, analysis_id, result)
         
         # Step 5: Queue embedding generation
+        logger.info(f"files_for_embedding count: {len(files_for_embedding) if files_for_embedding else 0}")
         if files_for_embedding:
             publish_progress("queueing_embeddings", 95, "Queueing embedding generation...")
             try:

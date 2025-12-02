@@ -122,31 +122,41 @@ async def trigger_analysis(
         )
     
     # Atomic duplicate check with row locking to prevent race conditions.
-    # Uses FOR UPDATE to lock the repository row while checking for existing analyses.
+    # Uses FOR UPDATE NOWAIT to lock the repository row while checking for existing analyses.
     # This prevents two concurrent requests from both passing the check.
     from datetime import timedelta
     from sqlalchemy import and_
+    from sqlalchemy.exc import OperationalError
     
     now = datetime.now()
     stuck_threshold = now - timedelta(minutes=5)
     
-    # Lock the repository row to serialize concurrent analysis requests
-    # This ensures only one request can check-and-create at a time
-    await db.execute(
-        select(Repository)
-        .where(Repository.id == repository_id)
-        .with_for_update()
-    )
-    
-    # Now safely check for existing analyses (other requests are blocked)
-    result = await db.execute(
-        select(Analysis)
-        .where(
-            Analysis.repository_id == repository_id,
-            Analysis.status.in_(["pending", "running"]),
+    try:
+        # Lock the repository row to serialize concurrent analysis requests
+        # NOWAIT ensures we fail fast if another request holds the lock
+        await db.execute(
+            select(Repository)
+            .where(Repository.id == repository_id)
+            .with_for_update(nowait=True)
         )
-        .with_for_update()  # Also lock any existing analyses we find
-    )
+    
+        # Now safely check for existing analyses (other requests are blocked)
+        result = await db.execute(
+            select(Analysis)
+            .where(
+                Analysis.repository_id == repository_id,
+                Analysis.status.in_(["pending", "running"]),
+            )
+            .with_for_update(nowait=True)  # Also lock any existing analyses we find
+        )
+    except OperationalError:
+        # Another request is already processing - likely a race condition
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Another analysis request is being processed. Please try again.",
+        )
+    
     existing_analyses = result.scalars().all()
     
     for existing in existing_analyses:
