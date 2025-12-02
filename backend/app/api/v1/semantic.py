@@ -1052,3 +1052,94 @@ async def check_style_consistency(
     except Exception as e:
         logger.error(f"Style consistency check failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+# ============================================================================
+# Embedding Status
+# ============================================================================
+
+class EmbeddingStatusResponse(BaseModel):
+    """Response for embedding status."""
+    repository_id: str
+    status: str  # pending, running, completed, error, none
+    stage: str | None
+    progress: int
+    message: str | None
+    chunks_processed: int
+    vectors_stored: int
+
+
+@router.get("/repositories/{repository_id}/embedding-status")
+async def get_embedding_status(
+    repository_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+) -> EmbeddingStatusResponse:
+    """
+    Get current embedding generation status for a repository.
+    
+    Returns the progress of any ongoing embedding generation,
+    or the last known status if completed.
+    """
+    # Verify repository access
+    result = await db.execute(
+        select(Repository).where(
+            Repository.id == repository_id,
+            Repository.owner_id == user.id,
+        )
+    )
+    repository = result.scalar_one_or_none()
+    if not repository:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    
+    from app.core.redis import get_embedding_state
+    
+    # Get embedding state from Redis
+    state = await get_embedding_state(str(repository_id))
+    
+    if state:
+        return EmbeddingStatusResponse(
+            repository_id=str(repository_id),
+            status=state.get("status", "unknown"),
+            stage=state.get("stage"),
+            progress=state.get("progress", 0),
+            message=state.get("message"),
+            chunks_processed=state.get("chunks_processed", 0),
+            vectors_stored=state.get("vectors_stored", 0),
+        )
+    
+    # No state in Redis — check if vectors exist in Qdrant
+    try:
+        qdrant = get_qdrant_client()
+        count = qdrant.count(
+            collection_name=COLLECTION_NAME,
+            count_filter={
+                "must": [
+                    {"key": "repository_id", "match": {"value": str(repository_id)}}
+                ]
+            }
+        )
+        
+        if count.count > 0:
+            return EmbeddingStatusResponse(
+                repository_id=str(repository_id),
+                status="completed",
+                stage="completed",
+                progress=100,
+                message=f"{count.count} vectors available",
+                chunks_processed=count.count,
+                vectors_stored=count.count,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to check Qdrant: {e}")
+    
+    # No embeddings exist
+    return EmbeddingStatusResponse(
+        repository_id=str(repository_id),
+        status="none",
+        stage=None,
+        progress=0,
+        message="No embeddings generated yet",
+        chunks_processed=0,
+        vectors_stored=0,
+    )

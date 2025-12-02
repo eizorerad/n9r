@@ -91,16 +91,38 @@ class ClusterAnalyzer:
         # Run clustering
         labels = self._run_clustering(vectors)
         
+        # Count actual outliers BEFORE truncation (for accurate scoring)
+        actual_outlier_count = int(np.sum(labels == -1))
+        
         # Analyze results
         clusters = self._analyze_clusters(vectors, labels, payloads)
-        outliers = self._find_outliers(vectors, labels, payloads)
-        hotspots = self._find_coupling_hotspots(labels, payloads)
+        outliers = self._find_outliers(vectors, labels, payloads)  # Returns truncated list for display
         
-        # Calculate overall score
-        overall_score = self._calculate_overall_score(clusters, outliers, len(vectors))
+        # Build cluster ID to name mapping for hotspot display
+        cluster_id_to_name = {c.id: c.name for c in clusters}
+        hotspots = self._find_coupling_hotspots(labels, payloads, cluster_id_to_name)
         
         # Count unique files
         unique_files = set(p.get("file_path") for p in payloads if p.get("file_path"))
+        
+        # Calculate overall score with accurate counts
+        overall_score = self._calculate_overall_score(
+            clusters=clusters,
+            actual_outlier_count=actual_outlier_count,
+            total_chunks=len(vectors),
+            hotspot_count=len(hotspots),
+            total_files=len(unique_files),
+        )
+        
+        # Calculate weighted cohesion (larger clusters matter more)
+        if clusters:
+            total_in_clusters = sum(c.chunk_count for c in clusters)
+            weighted_cohesion = (
+                sum(c.cohesion * c.chunk_count for c in clusters) / total_in_clusters
+                if total_in_clusters > 0 else 0
+            )
+        else:
+            weighted_cohesion = 0
         
         return ArchitectureHealth(
             overall_score=overall_score,
@@ -110,9 +132,11 @@ class ClusterAnalyzer:
             total_chunks=len(vectors),
             total_files=len(unique_files),
             metrics={
-                "avg_cohesion": np.mean([c.cohesion for c in clusters]) if clusters else 0,
-                "outlier_percentage": len(outliers) / len(vectors) * 100 if len(vectors) > 0 else 0,
+                "avg_cohesion": round(weighted_cohesion, 3),
+                "outlier_percentage": round(actual_outlier_count / len(vectors) * 100, 1) if len(vectors) > 0 else 0,
                 "cluster_count": len(clusters),
+                "actual_outlier_count": actual_outlier_count,
+                "hotspot_count": len(hotspots),
             }
         )
     
@@ -315,9 +339,16 @@ class ClusterAnalyzer:
     def _find_coupling_hotspots(
         self, 
         labels: np.ndarray, 
-        payloads: list[dict]
+        payloads: list[dict],
+        cluster_id_to_name: dict[int, str] | None = None,
     ) -> list[CouplingHotspot]:
-        """Find files that bridge multiple clusters (god files)."""
+        """Find files that bridge multiple clusters (god files).
+        
+        Args:
+            labels: Cluster labels for each chunk
+            payloads: Metadata for each chunk
+            cluster_id_to_name: Mapping from cluster ID to human-readable name
+        """
         # Group chunks by file
         file_clusters: dict[str, set[int]] = defaultdict(set)
         
@@ -332,10 +363,16 @@ class ClusterAnalyzer:
         hotspots = []
         for file_path, clusters in file_clusters.items():
             if len(clusters) >= 3:  # Bridges 3+ clusters
+                # Use real cluster names if available, fallback to generic IDs
+                if cluster_id_to_name:
+                    names = [cluster_id_to_name.get(c, f"cluster_{c}") for c in sorted(clusters)]
+                else:
+                    names = [f"cluster_{c}" for c in sorted(clusters)]
+                
                 hotspots.append(CouplingHotspot(
                     file_path=file_path,
                     clusters_connected=len(clusters),
-                    cluster_names=[f"cluster_{c}" for c in sorted(clusters)],
+                    cluster_names=names,
                     suggestion="Consider splitting — this file has too many responsibilities",
                 ))
         
@@ -346,37 +383,62 @@ class ClusterAnalyzer:
     def _calculate_overall_score(
         self, 
         clusters: list[ClusterInfo], 
-        outliers: list[OutlierInfo],
-        total_chunks: int
+        actual_outlier_count: int,
+        total_chunks: int,
+        hotspot_count: int = 0,
+        total_files: int = 0,
     ) -> int:
-        """Calculate overall architecture health score (0-100)."""
+        """Calculate overall architecture health score (0-100).
+        
+        Components:
+        - Cohesion (35%): Weighted average of cluster cohesion by size
+        - Outliers (30%): Penalty for code not fitting any cluster
+        - Balance (25%): Gini coefficient of cluster sizes
+        - Coupling (10%): Penalty for god files bridging many clusters
+        """
         if total_chunks == 0:
             return 0
         
-        # Cohesion component (40%)
+        # Cohesion component (35%) - weighted by cluster size
         if clusters:
-            avg_cohesion = np.mean([c.cohesion for c in clusters])
-            cohesion_score = avg_cohesion * 40
+            total_in_clusters = sum(c.chunk_count for c in clusters)
+            if total_in_clusters > 0:
+                weighted_cohesion = sum(c.cohesion * c.chunk_count for c in clusters) / total_in_clusters
+            else:
+                weighted_cohesion = 0
+            cohesion_score = weighted_cohesion * 35
         else:
-            cohesion_score = 20  # Neutral if no clusters
+            cohesion_score = 17.5  # Neutral if no clusters
         
-        # Outlier component (30%)
-        outlier_ratio = len(outliers) / total_chunks
-        outlier_score = max(0, 30 - outlier_ratio * 100)
+        # Outlier component (30%) - uses ACTUAL count, not truncated list
+        outlier_ratio = actual_outlier_count / total_chunks
+        # 0% outliers = 30 points, 50%+ outliers = 0 points (linear scale)
+        outlier_score = max(0, 30 * (1 - outlier_ratio * 2))
         
-        # Cluster balance component (30%)
+        # Cluster balance component (25%)
         if len(clusters) >= 2:
-            sizes = [c.chunk_count for c in clusters]
-            # Gini coefficient for balance
-            sorted_sizes = sorted(sizes)
+            sizes = np.array([c.chunk_count for c in clusters], dtype=float)
+            sorted_sizes = np.sort(sizes)
             n = len(sorted_sizes)
-            cumsum = np.cumsum(sorted_sizes)
-            gini = (2 * np.sum((np.arange(1, n + 1) * sorted_sizes))) / (n * np.sum(sorted_sizes)) - (n + 1) / n
-            balance_score = (1 - abs(gini)) * 30
+            # Standard Gini coefficient formula
+            index = np.arange(1, n + 1)
+            gini = (2 * np.sum(index * sorted_sizes)) / (n * np.sum(sorted_sizes)) - (n + 1) / n
+            # Clamp to valid range [0, 1] for safety
+            gini = max(0.0, min(1.0, gini))
+            balance_score = (1 - gini) * 25
         else:
-            balance_score = 15  # Neutral
+            balance_score = 12.5  # Neutral
         
-        return int(min(100, max(0, cohesion_score + outlier_score + balance_score)))
+        # Coupling component (10%) - penalty for god files
+        if total_files > 0 and hotspot_count > 0:
+            hotspot_ratio = hotspot_count / total_files
+            # 0% hotspots = 10 points, 20%+ hotspots = 0 points
+            coupling_score = max(0, 10 * (1 - hotspot_ratio * 5))
+        else:
+            coupling_score = 10  # Full score if no hotspots
+        
+        total_score = cohesion_score + outlier_score + balance_score + coupling_score
+        return int(min(100, max(0, total_score)))
     
     def _empty_health(self, chunk_count: int) -> ArchitectureHealth:
         """Return empty health result for repos with insufficient data."""

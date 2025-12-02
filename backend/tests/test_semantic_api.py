@@ -20,7 +20,7 @@ class TestSemanticAPIRoutes:
     """Test that all semantic API routes are properly registered."""
     
     def test_all_routes_registered(self):
-        """Verify all 9 semantic endpoints are registered."""
+        """Verify all 10 semantic endpoints are registered."""
         from app.api.v1 import semantic
         
         routes = list(semantic.router.routes)
@@ -36,12 +36,13 @@ class TestSemanticAPIRoutes:
             "/repositories/{repository_id}/refactoring-suggestions",
             "/repositories/{repository_id}/tech-debt-heatmap",
             "/repositories/{repository_id}/style-consistency",
+            "/repositories/{repository_id}/embedding-status",
         ]
         
         for expected in expected_paths:
             assert expected in route_paths, f"Missing route: {expected}"
         
-        assert len(routes) == 9, f"Expected 9 routes, got {len(routes)}"
+        assert len(routes) == 10, f"Expected 10 routes, got {len(routes)}"
     
     def test_routes_are_get_methods(self):
         """Verify all routes use GET method."""

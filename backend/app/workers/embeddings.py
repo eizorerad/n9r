@@ -5,10 +5,11 @@ import logging
 from uuid import UUID
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct
+from qdrant_client.models import PointStruct, FilterSelector, Filter, FieldCondition, MatchValue
 
 from app.core.celery import celery_app
 from app.core.config import settings
+from app.core.redis import publish_embedding_progress
 from app.services.code_chunker import CodeChunk, get_code_chunker
 
 # Note: LLMGateway is imported lazily inside functions to avoid fork-safety issues
@@ -59,11 +60,22 @@ def generate_embeddings(
     """
     logger.info(f"Generating embeddings for repository {repository_id}")
     
-    try:
-        self.update_state(
-            state="PROGRESS",
-            meta={"stage": "initializing", "progress": 0}
+    def publish_progress(stage: str, progress: int, message: str | None = None, 
+                         status: str = "running", chunks: int = 0, vectors: int = 0):
+        """Helper to publish embedding progress."""
+        publish_embedding_progress(
+            repository_id=repository_id,
+            stage=stage,
+            progress=progress,
+            message=message,
+            status=status,
+            chunks_processed=chunks,
+            vectors_stored=vectors,
         )
+        self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
+    
+    try:
+        publish_progress("initializing", 5, "Starting embedding generation...")
         
         chunker = get_code_chunker()
         # Lazy import to avoid fork-safety issues with LiteLLM
@@ -74,6 +86,7 @@ def generate_embeddings(
         # If no files provided, this is a placeholder
         if not files:
             logger.warning("No files provided for embedding generation")
+            publish_progress("skipped", 100, "No files to process", status="completed")
             return {
                 "repository_id": repository_id,
                 "status": "skipped",
@@ -81,10 +94,7 @@ def generate_embeddings(
             }
         
         # Step 1: Chunk all files
-        self.update_state(
-            state="PROGRESS",
-            meta={"stage": "chunking", "progress": 10}
-        )
+        publish_progress("chunking", 10, f"Chunking {len(files)} files...")
         
         all_chunks: list[CodeChunk] = []
         for file_info in files:
@@ -110,8 +120,10 @@ def generate_embeddings(
                 logger.warning(f"Failed to chunk {file_path}: {e}")
         
         logger.info(f"Created {len(all_chunks)} chunks from {len(files)} files")
+        publish_progress("chunking", 20, f"Created {len(all_chunks)} chunks", chunks=len(all_chunks))
         
         if not all_chunks:
+            publish_progress("completed", 100, "No chunks to embed", status="completed")
             return {
                 "repository_id": repository_id,
                 "status": "completed",
@@ -120,16 +132,15 @@ def generate_embeddings(
             }
         
         # Step 2: Generate embeddings in batches
-        self.update_state(
-            state="PROGRESS",
-            meta={"stage": "embedding", "progress": 30}
-        )
+        publish_progress("embedding", 25, f"Generating embeddings for {len(all_chunks)} chunks...")
         
         batch_size = 20
         points: list[PointStruct] = []
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
         
         for i in range(0, len(all_chunks), batch_size):
             batch = all_chunks[i:i + batch_size]
+            batch_num = i // batch_size + 1
             
             # Prepare texts for embedding
             texts = []
@@ -182,32 +193,35 @@ def generate_embeddings(
                 ))
             
             # Update progress
-            progress = 30 + int(50 * (i + batch_size) / len(all_chunks))
-            self.update_state(
-                state="PROGRESS",
-                meta={"stage": "embedding", "progress": min(progress, 80)}
+            progress = 25 + int(55 * batch_num / total_batches)
+            publish_progress(
+                "embedding", 
+                min(progress, 80), 
+                f"Embedding batch {batch_num}/{total_batches}...",
+                chunks=len(all_chunks),
+                vectors=len(points)
             )
         
         logger.info(f"Generated {len(points)} embedding vectors")
         
         # Step 3: Store in Qdrant
-        self.update_state(
-            state="PROGRESS",
-            meta={"stage": "indexing", "progress": 85}
-        )
+        publish_progress("indexing", 85, "Storing vectors in Qdrant...", chunks=len(all_chunks), vectors=len(points))
         
         if points:
             try:
                 # Delete old embeddings for this repo first
                 qdrant.delete(
                     collection_name=COLLECTION_NAME,
-                    points_selector={
-                        "filter": {
-                            "must": [
-                                {"key": "repository_id", "match": {"value": repository_id}}
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="repository_id",
+                                    match=MatchValue(value=repository_id)
+                                )
                             ]
-                        }
-                    }
+                        )
+                    )
                 )
                 
                 # Upsert new points in batches
@@ -223,6 +237,7 @@ def generate_embeddings(
                 
             except Exception as e:
                 logger.error(f"Failed to store vectors in Qdrant: {e}")
+                publish_progress("error", 0, f"Failed to store vectors: {e}", status="error")
                 return {
                     "repository_id": repository_id,
                     "status": "error",
@@ -231,9 +246,13 @@ def generate_embeddings(
                     "vectors_generated": len(points),
                 }
         
-        self.update_state(
-            state="PROGRESS",
-            meta={"stage": "completed", "progress": 100}
+        # Publish completion
+        publish_progress(
+            "completed", 100, 
+            f"Generated {len(points)} embeddings",
+            status="completed",
+            chunks=len(all_chunks),
+            vectors=len(points)
         )
         
         results = {
@@ -249,6 +268,13 @@ def generate_embeddings(
         
     except Exception as e:
         logger.error(f"Embedding generation failed for repository {repository_id}: {e}")
+        publish_embedding_progress(
+            repository_id=repository_id,
+            stage="error",
+            progress=0,
+            message=str(e),
+            status="error",
+        )
         self.update_state(
             state="FAILURE",
             meta={"error": str(e)}
@@ -288,14 +314,14 @@ def update_embeddings(
         try:
             qdrant.delete(
                 collection_name=COLLECTION_NAME,
-                points_selector={
-                    "filter": {
-                        "must": [
-                            {"key": "repository_id", "match": {"value": repository_id}},
-                            {"key": "file_path", "match": {"value": file_path}},
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=[
+                            FieldCondition(key="repository_id", match=MatchValue(value=repository_id)),
+                            FieldCondition(key="file_path", match=MatchValue(value=file_path)),
                         ]
-                    }
-                }
+                    )
+                )
             )
         except Exception as e:
             logger.warning(f"Failed to delete old embeddings for {file_path}: {e}")
@@ -323,24 +349,24 @@ def delete_embeddings(repository_id: str) -> dict:
         # Count before deletion
         count_result = qdrant.count(
             collection_name=COLLECTION_NAME,
-            count_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": repository_id}}
+            count_filter=Filter(
+                must=[
+                    FieldCondition(key="repository_id", match=MatchValue(value=repository_id))
                 ]
-            }
+            )
         )
         vectors_count = count_result.count
         
         # Delete all vectors for this repository
         qdrant.delete(
             collection_name=COLLECTION_NAME,
-            points_selector={
-                "filter": {
-                    "must": [
-                        {"key": "repository_id", "match": {"value": repository_id}}
+            points_selector=FilterSelector(
+                filter=Filter(
+                    must=[
+                        FieldCondition(key="repository_id", match=MatchValue(value=repository_id))
                     ]
-                }
-            }
+                )
+            )
         )
         
         logger.info(f"Deleted {vectors_count} vectors for repository {repository_id}")

@@ -288,6 +288,134 @@ async def subscribe_to_channel(channel: str):
 
 
 # =============================================================================
+# Embedding Progress Tracking
+# =============================================================================
+
+EMBEDDING_PROGRESS_PREFIX = "embedding:progress:"
+EMBEDDING_STATE_PREFIX = "embedding:state:"
+EMBEDDING_STATE_TTL = 3600  # 1 hour
+
+
+def get_embedding_channel(repository_id: str) -> str:
+    """Get Redis channel name for embedding progress."""
+    return f"{EMBEDDING_PROGRESS_PREFIX}{repository_id}"
+
+
+def get_embedding_state_key(repository_id: str) -> str:
+    """Get Redis key for storing embedding progress state."""
+    return f"{EMBEDDING_STATE_PREFIX}{repository_id}"
+
+
+def publish_embedding_progress(
+    repository_id: str,
+    stage: str,
+    progress: int,
+    message: str | None = None,
+    status: str = "running",
+    chunks_processed: int = 0,
+    vectors_stored: int = 0,
+) -> None:
+    """Publish embedding progress to Redis channel and store state.
+    
+    Used by embeddings worker to report progress.
+    """
+    with get_sync_redis_context() as redis_client:
+        channel = get_embedding_channel(repository_id)
+        state_key = get_embedding_state_key(repository_id)
+        
+        payload_dict = {
+            "repository_id": repository_id,
+            "stage": stage,
+            "progress": progress,
+            "message": message,
+            "status": status,
+            "chunks_processed": chunks_processed,
+            "vectors_stored": vectors_stored,
+        }
+        
+        payload = json.dumps(payload_dict)
+        
+        # Store state for polling/late subscribers
+        redis_client.setex(state_key, EMBEDDING_STATE_TTL, payload)
+        
+        # Publish for real-time updates
+        redis_client.publish(channel, payload)
+        logger.debug(f"Published embedding progress: {stage} {progress}%")
+
+
+async def get_embedding_state(repository_id: str) -> dict | None:
+    """Get current embedding progress state (async, for FastAPI).
+    
+    Returns dict with progress info, or None if no embedding in progress.
+    """
+    async with aioredis.Redis(connection_pool=async_redis_pool) as client:
+        state_key = get_embedding_state_key(repository_id)
+        result = await client.get(state_key)
+        if result:
+            return json.loads(result)
+        return None
+
+
+async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int = 300):
+    """
+    Subscribe to embedding progress updates (async generator for SSE).
+    
+    Yields JSON-encoded progress updates.
+    """
+    import asyncio
+    
+    client = aioredis.Redis(connection_pool=async_redis_pool)
+    pubsub = client.pubsub()
+    channel = get_embedding_channel(repository_id)
+    
+    start_time = asyncio.get_event_loop().time()
+    
+    try:
+        await pubsub.subscribe(channel)
+        logger.info(f"Subscribed to embedding channel: {channel}")
+        
+        while True:
+            current_time = asyncio.get_event_loop().time()
+            
+            if current_time - start_time > timeout_seconds:
+                yield json.dumps({
+                    "repository_id": repository_id,
+                    "stage": "timeout",
+                    "status": "timeout",
+                    "message": "Embedding progress timed out",
+                })
+                break
+            
+            try:
+                message = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=5.0),
+                    timeout=6.0
+                )
+                
+                if message and message["type"] == "message":
+                    data = message["data"]
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+                    yield data
+                    
+                    # Check if completed or failed
+                    try:
+                        parsed = json.loads(data)
+                        if parsed.get("status") in ("completed", "failed", "error"):
+                            return
+                    except json.JSONDecodeError:
+                        pass
+                        
+            except asyncio.TimeoutError:
+                continue
+                
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.aclose()
+        await client.aclose()
+
+
+# =============================================================================
 # Playground Scan Storage (for multi-worker scalability)
 # =============================================================================
 
