@@ -153,3 +153,7 @@ body {
 .glass-header {
   @apply bg-zinc-950/80 backdrop-blur-xl border-b border-white/10;
 }
+
+.hover-lift {
+  @apply transition-all duration-300 hover:-translate-y-1 hover:shadow-lg;
+}

@@ -115,3 +115,61 @@ export const getSession = cache(async () => {
   const session = cookieStore.get('n9r_session')?.value
   return decrypt(session)
 })
+
+// Validate session with backend - checks if token is still valid
+export async function validateSession(): Promise<boolean> {
+  const session = await getSession()
+  if (!session?.accessToken) {
+    return false
+  }
+
+  try {
+    const API_BASE_URL = process.env.API_URL || 'http://localhost:8000/v1'
+    const response = await fetch(`${API_BASE_URL}/users/me`, {
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      // Token is invalid - clear the session
+      await deleteSession()
+      return false
+    }
+
+    return true
+  } catch {
+    // Network error - don't clear session, might be temporary
+    return false
+  }
+}
+
+// Get validated session - redirects if invalid
+export async function getValidatedSession() {
+  const session = await getSession()
+  if (!session?.accessToken) {
+    redirect('/login')
+  }
+
+  try {
+    const API_BASE_URL = process.env.API_URL || 'http://localhost:8000/v1'
+    const response = await fetch(`${API_BASE_URL}/users/me`, {
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) {
+      // Token is invalid - clear the session and redirect
+      await deleteSession()
+      redirect('/login')
+    }
+
+    return session
+  } catch {
+    // Network error - still return session (might be temporary issue)
+    return session
+  }
+}

@@ -6,6 +6,7 @@ import { VCITrendChart } from '@/components/vci-trend-chart'
 import { IssuesList } from '@/components/issues-list'
 import { RunAnalysisButton } from '@/components/run-analysis-button'
 import { AnalysisMetrics } from '@/components/analysis-metrics'
+import { SemanticAnalysisSection } from '@/components/semantic-analysis-section'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getRepository } from '@/lib/data/repositories'
@@ -93,23 +94,23 @@ async function RepositoryHeader({ id }: { id: string }) {
   const grade = repo.vci_score ? getGrade(repo.vci_score) : null
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="flex flex-col gap-4">
       <div>
-        <div className="flex items-center gap-3 mb-2">
-          <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors">
+        <div className="flex items-center gap-2 sm:gap-3 mb-2">
+          <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h1 className="text-2xl font-bold tracking-tight">{repo.full_name}</h1>
+          <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate">{repo.full_name}</h1>
           <a
             href={htmlUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
           >
             <ExternalLink className="h-4 w-4" />
           </a>
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <GitBranch className="h-4 w-4" />
             {repo.default_branch}
@@ -128,15 +129,15 @@ async function RepositoryHeader({ id }: { id: string }) {
           )}
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <RunAnalysisButton
           repositoryId={id}
           hasAnalysis={!!repo.last_analysis_at}
         />
         <Link href={`/dashboard/repository/${id}/ide`}>
-          <Button variant="outline" className="flex items-center gap-2 shadow-sm">
-            <RefreshCw className="h-4 w-4" />
-            Open IDE
+          <Button variant="outline" size="sm" className="flex items-center gap-2 shadow-sm text-xs sm:text-sm">
+            <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="hidden xs:inline">Open</span> IDE
           </Button>
         </Link>
       </div>
@@ -183,13 +184,15 @@ async function VCISection({ id }: { id: string }) {
   const grade = repo.vci_score ? getGrade(repo.vci_score) : null
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="space-y-4">
       <VCIScoreCard
         score={repo.vci_score || null}
         grade={grade}
         trend={history.trend}
       />
-      <VCITrendChart data={history.data_points} />
+      {history.data_points.length > 0 && (
+        <VCITrendChart data={history.data_points} />
+      )}
     </div>
   )
 }
@@ -214,6 +217,16 @@ async function IssuesSection({ id }: { id: string }) {
   return (
     <IssuesList issues={issues.data} />
   )
+}
+
+// Semantic Analysis Section Wrapper (passes token from server)
+async function SemanticAnalysisSectionWrapper({ id }: { id: string }) {
+  const session = await getSession()
+  if (!session?.accessToken) {
+    return <SemanticAnalysisSection repositoryId={id} />
+  }
+
+  return <SemanticAnalysisSection repositoryId={id} token={session.accessToken} />
 }
 
 // Loading skeletons
@@ -273,7 +286,7 @@ export default async function RepositoryPage({
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <header className="sticky top-0 z-50 glass-header border-b border-border/40">
-        <div className="container mx-auto px-6 py-4">
+        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <Link href="/dashboard" className="flex items-center gap-3 group w-fit">
             <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
               n9
@@ -284,34 +297,59 @@ export default async function RepositoryPage({
       </header>
 
       {/* Content */}
-      <main className="container mx-auto px-6 py-10">
-        <div className="space-y-10">
-          {/* Repository Header */}
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 max-w-[1600px]">
+        {/* Repository Header - Full Width */}
+        <div className="mb-6">
           <Suspense fallback={<HeaderSkeleton />}>
             <RepositoryHeader id={id} />
           </Suspense>
+        </div>
 
-          {/* VCI Section */}
-          <section>
-            <h2 className="text-2xl font-bold tracking-tight mb-6">Code Health</h2>
-            <Suspense fallback={<VCISkeleton />}>
+        {/* Bento Grid Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+          {/* Code Health (VCI Score) - Takes 1 column */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-primary/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Code Health</h2>
+            </div>
+            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
               <VCISection id={id} />
             </Suspense>
           </section>
 
-          {/* Metrics Section */}
-          <section>
-            <h2 className="text-2xl font-bold tracking-tight mb-6">Analysis Details</h2>
-            <Suspense fallback={<VCISkeleton />}>
-              <MetricsSection id={id} />
+          {/* Issues - Takes 1 column */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-amber-500/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Issues</h2>
+            </div>
+            <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+              <Suspense fallback={<IssuesSkeleton />}>
+                <IssuesSection id={id} />
+              </Suspense>
+            </div>
+          </section>
+
+          {/* Semantic Analysis - Takes 1 column on xl, full width on smaller */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-1 xl:row-span-2">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-purple-500/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Semantic Analysis</h2>
+            </div>
+            <Suspense fallback={<div className="h-96 bg-muted/30 rounded-lg animate-pulse" />}>
+              <SemanticAnalysisSectionWrapper id={id} />
             </Suspense>
           </section>
 
-          {/* Issues Section */}
-          <section>
-            <h2 className="text-2xl font-bold tracking-tight mb-6">Issues</h2>
-            <Suspense fallback={<IssuesSkeleton />}>
-              <IssuesSection id={id} />
+          {/* Analysis Details - Takes 2 columns */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-blue-500/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Analysis Details</h2>
+            </div>
+            <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
+              <MetricsSection id={id} />
             </Suspense>
           </section>
         </div>

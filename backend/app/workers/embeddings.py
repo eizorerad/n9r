@@ -172,6 +172,12 @@ def generate_embeddings(
                         "docstring": chunk.docstring,
                         "content": chunk.content[:2000],  # Limit stored content
                         "token_estimate": chunk.token_estimate,
+                        # NEW: Hierarchical and metrics fields
+                        "level": chunk.level,
+                        "qualified_name": chunk.qualified_name,
+                        "cyclomatic_complexity": chunk.cyclomatic_complexity,
+                        "line_count": chunk.line_count,
+                        "cluster_id": None,  # Will be set by cluster analysis
                     }
                 ))
             

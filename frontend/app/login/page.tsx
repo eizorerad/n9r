@@ -6,6 +6,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 function LoginForm({ error }: { error?: string }) {
+  // Map error codes to user-friendly messages
+  const errorMessage = error === 'session_expired' 
+    ? 'Your session has expired. Please sign in again.'
+    : error 
+      ? decodeURIComponent(error) 
+      : undefined
+
   return (
     <Card className="w-full max-w-md glass-panel border-border/50">
       <CardHeader className="text-center">
@@ -20,10 +27,10 @@ function LoginForm({ error }: { error?: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && (
+        {errorMessage && (
           <div className="flex items-center gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
-            <span>{decodeURIComponent(error)}</span>
+            <span>{errorMessage}</span>
           </div>
         )}
 

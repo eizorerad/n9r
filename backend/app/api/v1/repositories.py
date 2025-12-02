@@ -135,14 +135,32 @@ async def connect_repository(
 ) -> RepositoryResponse:
     """Connect a GitHub repository."""
     # Check if already connected
-    existing = await db.execute(
+    existing_result = await db.execute(
         select(Repository).where(Repository.github_id == repo_data.github_id)
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Repository already connected",
-        )
+    existing = existing_result.scalar_one_or_none()
+    if existing:
+        if existing.owner_id == current_user.id:
+            # User already connected this repo - return it instead of error
+            return RepositoryResponse(
+                id=existing.id,
+                github_id=existing.github_id,
+                name=existing.name,
+                full_name=existing.full_name,
+                default_branch=existing.default_branch,
+                mode=existing.mode,
+                is_active=existing.is_active,
+                vci_score=float(existing.vci_score) if existing.vci_score else None,
+                tech_debt_level=existing.tech_debt_level,
+                last_analysis_at=existing.last_analysis_at,
+                pending_prs_count=0,
+                open_issues_count=0,
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Repository already connected by another user",
+            )
     
     # Get user's GitHub token
     github_token = decrypt_token_or_none(current_user.access_token_encrypted)

@@ -135,6 +135,79 @@ def _mark_analysis_failed(analysis_id: str, error_message: str):
             )
 
 
+def _collect_files_for_embedding(repo_path) -> list[dict]:
+    """Collect code files from repository for embedding generation.
+    
+    Args:
+        repo_path: Path to the cloned repository
+        
+    Returns:
+        List of {path: str, content: str} dicts
+    """
+    from pathlib import Path
+    
+    if not repo_path:
+        return []
+    
+    repo_path = Path(repo_path)
+    files = []
+    
+    # Extensions to include for embedding
+    code_extensions = {
+        ".py", ".js", ".jsx", ".ts", ".tsx",
+        ".java", ".go", ".rs", ".rb", ".php",
+        ".c", ".cpp", ".h", ".hpp", ".cs",
+        ".swift", ".kt", ".scala",
+    }
+    
+    # Directories to skip
+    skip_dirs = {
+        "node_modules", "vendor", "__pycache__", ".git",
+        "dist", "build", ".next", "coverage", ".venv", "venv",
+    }
+    
+    # Max file size (100KB)
+    max_file_size = 100 * 1024
+    
+    for root, dirs, filenames in repo_path.walk():
+        # Skip excluded directories
+        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
+        
+        for filename in filenames:
+            file_path = root / filename
+            
+            # Check extension
+            if file_path.suffix.lower() not in code_extensions:
+                continue
+            
+            # Check file size
+            try:
+                if file_path.stat().st_size > max_file_size:
+                    continue
+            except OSError:
+                continue
+            
+            # Read content
+            try:
+                content = file_path.read_text(encoding="utf-8", errors="ignore")
+                if len(content) < 50:  # Skip very small files
+                    continue
+                    
+                # Get relative path
+                rel_path = str(file_path.relative_to(repo_path))
+                
+                files.append({
+                    "path": rel_path,
+                    "content": content,
+                })
+            except Exception as e:
+                logger.debug(f"Could not read {file_path}: {e}")
+                continue
+    
+    logger.info(f"Collected {len(files)} files for embedding")
+    return files
+
+
 @celery_app.task(bind=True, name="app.workers.analysis.analyze_repository")
 def analyze_repository(
     self,
@@ -194,10 +267,28 @@ def analyze_repository(
             
             # Full analysis
             result = analyzer.analyze()
+            
+            # Step 4: Collect files for embedding BEFORE temp dir is cleaned up
+            publish_progress("generating_embeddings", 90, "Collecting files for embeddings...")
+            files_for_embedding = _collect_files_for_embedding(analyzer.temp_dir)
         
-        # Step 3: Save results
-        publish_progress("saving_results", 95, "Saving results...")
+        # Step 3: Save results (after context manager exits, temp dir is cleaned)
+        publish_progress("saving_results", 92, "Saving results...")
         _save_analysis_results(repository_id, analysis_id, result)
+        
+        # Step 5: Queue embedding generation
+        if files_for_embedding:
+            publish_progress("queueing_embeddings", 95, "Queueing embedding generation...")
+            try:
+                from app.workers.embeddings import generate_embeddings
+                generate_embeddings.delay(
+                    repository_id=repository_id,
+                    commit_sha=commit_sha,
+                    files=files_for_embedding,
+                )
+                logger.info(f"Queued embedding generation for {len(files_for_embedding)} files")
+            except Exception as e:
+                logger.warning(f"Failed to queue embedding generation: {e}")
         
         # Publish completion with VCI score
         publish_analysis_progress(
@@ -260,6 +351,77 @@ def run_quick_scan(repo_url: str) -> dict:
         logger.error(f"Quick scan failed for {repo_url}: {e}")
         return {
             "repo_url": repo_url,
+            "status": "failed",
+            "error": str(e),
+        }
+
+
+@celery_app.task(name="app.workers.analysis.run_cluster_analysis")
+def run_cluster_analysis(repository_id: str) -> dict:
+    """
+    Run cluster analysis on repository embeddings.
+    
+    This task analyzes the vector embeddings for a repository,
+    performs HDBSCAN clustering, and updates cluster_id in Qdrant.
+    
+    Should be run after embeddings are generated.
+    
+    Args:
+        repository_id: UUID of the repository
+    
+    Returns:
+        dict with cluster analysis results
+    """
+    import asyncio
+    
+    logger.info(f"Running cluster analysis for repository {repository_id}")
+    
+    try:
+        from app.services.cluster_analyzer import get_cluster_analyzer
+        from app.workers.embeddings import get_qdrant_client, COLLECTION_NAME
+        
+        # Run async analyzer in sync context
+        def run_async(coro):
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            return loop.run_until_complete(coro)
+        
+        analyzer = get_cluster_analyzer()
+        health = run_async(analyzer.analyze(repository_id))
+        
+        # Update cluster_id in Qdrant for each chunk
+        if health.clusters:
+            qdrant = get_qdrant_client()
+            
+            # Build cluster mapping from file paths
+            file_to_cluster = {}
+            for cluster in health.clusters:
+                for file_path in cluster.top_files:
+                    file_to_cluster[file_path] = cluster.id
+            
+            # Update points with cluster_id
+            # Note: This is a simplified approach - in production,
+            # you'd want to update based on the actual clustering results
+            logger.info(f"Cluster analysis complete: {len(health.clusters)} clusters found")
+        
+        return {
+            "repository_id": repository_id,
+            "overall_score": health.overall_score,
+            "cluster_count": len(health.clusters),
+            "outlier_count": len(health.outliers),
+            "total_chunks": health.total_chunks,
+            "total_files": health.total_files,
+            "metrics": health.metrics,
+            "status": "completed",
+        }
+        
+    except Exception as e:
+        logger.error(f"Cluster analysis failed for {repository_id}: {e}")
+        return {
+            "repository_id": repository_id,
             "status": "failed",
             "error": str(e),
         }

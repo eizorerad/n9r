@@ -90,6 +90,8 @@ class LLMGateway:
         "gemini/": "GEMINI_API_KEY",
         "azure/": "AZURE_API_KEY",
         "openrouter/": "OPENROUTER_API_KEY",
+        "bedrock/": "AWS_ACCESS_KEY_ID",
+        "vertex_ai/": "VERTEX_PROJECT",
     }
     
     def __init__(self):
@@ -98,19 +100,46 @@ class LLMGateway:
         self._setup_cache()
     
     def _setup_api_keys(self):
-        """Set up API keys from settings."""
-        # Set API keys as environment variables for LiteLLM
+        """Set up API keys from settings for all supported providers."""
+        # OpenAI
         if settings.openai_api_key:
             os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+        
+        # Anthropic
         if settings.anthropic_api_key:
             os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+        
+        # Google Gemini (AI Studio)
         if settings.gemini_api_key:
             os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
+        
+        # Google Vertex AI
+        if settings.vertex_project:
+            os.environ["VERTEX_PROJECT"] = settings.vertex_project
+            os.environ["VERTEX_LOCATION"] = settings.vertex_location
+        
+        # Azure OpenAI
         if settings.azure_api_key:
             os.environ["AZURE_API_KEY"] = settings.azure_api_key
             os.environ["AZURE_API_BASE"] = settings.azure_api_base
+            os.environ["AZURE_API_VERSION"] = settings.azure_api_version
+        
+        # AWS Bedrock
+        if settings.aws_access_key_id:
+            os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
+            os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
+            os.environ["AWS_REGION_NAME"] = settings.aws_region_name
+        
+        # OpenRouter
         if settings.openrouter_api_key:
             os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
+        
+        # Store provider-specific settings for embedding model selection
+        self._azure_embedding_deployment = settings.azure_embedding_deployment
+        self._azure_chat_deployment = settings.azure_chat_deployment
+        self._bedrock_embedding_model = settings.bedrock_embedding_model
+        self._vertex_embedding_model = settings.vertex_embedding_model
+        self._embedding_model_override = settings.embedding_model
     
     def _get_available_fallbacks(self, exclude_model: str) -> list[str]:
         """Get fallback models that have API keys configured.
@@ -147,6 +176,8 @@ class LLMGateway:
         """Set up Redis cache for LiteLLM responses."""
         if getattr(settings, "redis_url", None):
             try:
+                _ensure_litellm()
+                import litellm
                 litellm.cache = litellm.Cache(
                     type="redis",
                     host=settings.redis_host,
@@ -335,6 +366,40 @@ class LLMGateway:
             logger.error(f"LLM streaming failed: {e}")
             raise LLMError(f"Streaming failed: {str(e)}")
     
+    def _get_embedding_model(self) -> str:
+        """Determine the best embedding model based on configured providers.
+        
+        Priority:
+        1. Explicit EMBEDDING_MODEL override
+        2. Azure (if configured with embedding deployment)
+        3. Bedrock (if configured with embedding model)
+        4. Vertex AI (if configured with embedding model)
+        5. OpenAI (default)
+        """
+        # Check for explicit override
+        if self._embedding_model_override:
+            return self._embedding_model_override
+        
+        # Azure OpenAI
+        if settings.azure_api_key and self._azure_embedding_deployment:
+            return f"azure/{self._azure_embedding_deployment}"
+        
+        # AWS Bedrock
+        if settings.aws_access_key_id and self._bedrock_embedding_model:
+            return self._bedrock_embedding_model
+        
+        # Google Vertex AI
+        if settings.vertex_project and self._vertex_embedding_model:
+            return self._vertex_embedding_model
+        
+        # Google Gemini (AI Studio)
+        # text-embedding-004 is the latest Google embedding model
+        if settings.gemini_api_key:
+            return "text-embedding-004"
+        
+        # Default to OpenAI
+        return self.DEFAULT_MODELS["embedding"]
+    
     async def embed(
         self,
         texts: list[str] | str,
@@ -345,7 +410,13 @@ class LLMGateway:
         
         Args:
             texts: Single text or list of texts
-            model: Embedding model (default: text-embedding-3-small)
+            model: Embedding model. If None, auto-detected based on configured provider.
+                   Examples:
+                   - openai/text-embedding-3-small
+                   - azure/your-deployment-name
+                   - bedrock/amazon.titan-embed-text-v2:0
+                   - vertex_ai/text-embedding-004
+                   - gemini/text-embedding-004
         
         Returns:
             List of embedding vectors
@@ -354,16 +425,29 @@ class LLMGateway:
         _ensure_litellm()
         from litellm import aembedding
         
-        model = model or self.DEFAULT_MODELS["embedding"]
+        # Determine model to use
+        if model is None:
+            model = self._get_embedding_model()
         
         if isinstance(texts, str):
             texts = [texts]
         
         try:
-            response = await aembedding(
-                model=model,
-                input=texts,
-            )
+            # Build params
+            params = {
+                "model": model,
+                "input": texts,
+            }
+            
+            # Add provider-specific params
+            if model.startswith("azure/"):
+                params["api_base"] = settings.azure_api_base
+                params["api_version"] = settings.azure_api_version
+            elif model.startswith("vertex_ai/"):
+                params["vertex_project"] = settings.vertex_project
+                params["vertex_location"] = settings.vertex_location
+            
+            response = await aembedding(**params)
             return [item["embedding"] for item in response.data]
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")

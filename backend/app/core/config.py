@@ -80,15 +80,39 @@ class Settings(BaseSettings):
     github_private_key_path: str = "./github-app.pem"
     github_webhook_secret: str = ""
 
-    # LLM Gateway
+    # LLM Gateway (via LiteLLM)
+    # OpenAI
     openai_api_key: str = ""
+    
+    # Anthropic
     anthropic_api_key: str = ""
+    
+    # Google (Gemini / Vertex AI)
     gemini_api_key: str = ""
+    vertex_project: str = ""
+    vertex_location: str = "us-central1"
+    vertex_embedding_model: str = ""
+    
+    # Azure OpenAI
     azure_api_key: str = ""
     azure_api_base: str = ""
+    azure_api_version: str = "2024-02-15-preview"
+    azure_embedding_deployment: str = ""
+    azure_chat_deployment: str = ""
+    
+    # AWS Bedrock
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region_name: str = "us-east-1"
+    bedrock_embedding_model: str = ""
+    
+    # OpenRouter
     openrouter_api_key: str = ""
-    default_llm_provider: Literal["openai", "anthropic"] = "openai"
+    
+    # Default settings
+    default_llm_provider: str = "openai"
     default_llm_model: str = "gpt-4o"
+    embedding_model: str = ""  # Auto-detected if empty
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"

@@ -1,141 +1,120 @@
+"use client";
+
 import Link from "next/link";
-import { Github, Zap, Shield, LineChart, Code2, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { Github, Zap, ArrowRight, Search, Loader2 } from "lucide-react";
+import LiquidEther from "@/components/LiquidEther";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import Navbar from "@/components/Navbar";
 
 export default function Home() {
+  const router = useRouter();
+  const [repoUrl, setRepoUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleAnalyze = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!repoUrl.trim()) return;
+    setIsLoading(true);
+    router.push(`/playground?repo=${encodeURIComponent(repoUrl)}`);
+  };
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border/50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-lg flex items-center justify-center font-bold shadow-sm">
-              n9
-            </div>
-            <span className="text-xl font-semibold">n9r</span>
-          </div>
-          <nav className="hidden md:flex items-center gap-8">
-            <Link href="#features" className="text-muted-foreground hover:text-foreground transition-colors">
-              Features
-            </Link>
-            <Link href="/playground" className="text-muted-foreground hover:text-foreground transition-colors">
-              Playground
-            </Link>
-            <Link href="#pricing" className="text-muted-foreground hover:text-foreground transition-colors">
-              Pricing
-            </Link>
-          </nav>
-          <Link
-            href="/auth/login"
-            className="flex items-center gap-2 bg-foreground text-background px-4 py-2 rounded-lg font-medium hover:bg-foreground/90 transition-colors"
-          >
-            <Github className="w-5 h-5" />
-            Sign in with GitHub
-          </Link>
-        </div>
-      </header>
+    <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
+      <Navbar />
 
-      {/* Hero Section */}
-      <section className="container mx-auto px-4 py-24 text-center">
-        <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 text-primary px-4 py-2 rounded-full text-sm mb-8">
-          <Zap className="w-4 h-4" />
-          AI-Powered Code Quality Platform
+      {/* Hero Section with LiquidEther */}
+      <section className="relative flex-1 w-full overflow-hidden flex flex-col items-center justify-center text-center min-h-0">
+        {/* Background */}
+        <div className="absolute inset-0 z-0">
+          <LiquidEther
+            colors={['#5227FF', '#FF9FFC', '#B19EEF']}
+            mouseForce={20}
+            cursorSize={100}
+            isViscous={false}
+            viscous={30}
+            iterationsViscous={32}
+            iterationsPoisson={32}
+            resolution={0.5}
+            isBounce={false}
+            autoDemo={true}
+            autoSpeed={0.5}
+            autoIntensity={2.2}
+            takeoverDuration={0.25}
+            autoResumeDelay={3000}
+            autoRampDuration={0.6}
+          />
         </div>
-        <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-foreground to-muted-foreground bg-clip-text text-transparent">
-          AI Code Detox &<br />Auto-Healing Platform
-        </h1>
-        <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-12">
-          Automatically clean up AI-generated and legacy code, keeping your software
-          projects architecturally healthy and maintainable.
-        </p>
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link
-            href="/auth/login"
-            className="flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-4 rounded-lg font-semibold text-lg transition shadow-lg shadow-primary/20"
-          >
-            Get Started Free
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-          <Link
-            href="/playground"
-            className="flex items-center justify-center gap-2 border border-border hover:bg-muted/50 px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
-          >
-            🧪 Try Playground
-          </Link>
-        </div>
-      </section>
 
-      {/* Features Section */}
-      <section id="features" className="container mx-auto px-4 py-24">
-        <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">
-          Everything You Need for Clean Code
-        </h2>
-        <p className="text-muted-foreground text-center max-w-2xl mx-auto mb-16">
-          n9r provides comprehensive tools to analyze, monitor, and automatically fix
-          code quality issues across your repositories.
-        </p>
-        <div className="grid md:grid-cols-3 gap-8">
-          <div className="glass-panel border border-border/50 rounded-xl p-8">
-            <div className="w-12 h-12 bg-blue-500/10 rounded-lg flex items-center justify-center mb-6">
-              <LineChart className="w-6 h-6 text-blue-500" />
-            </div>
-            <h3 className="text-xl font-semibold mb-3">VCI Score Tracking</h3>
-            <p className="text-muted-foreground">
-              Monitor your codebase health with our Viability & Code-quality Index
-              score. Track improvements over time with detailed metrics.
-            </p>
+        {/* Content Overlay */}
+        <div className="relative z-10 container mx-auto px-4">
+          <div className="inline-flex items-center gap-2 bg-background/50 backdrop-blur-sm border border-primary/20 text-primary px-4 py-2 rounded-full text-sm mb-8 shadow-sm">
+            <Zap className="w-4 h-4" />
+            AI-Powered Code Quality Platform
           </div>
-          <div className="glass-panel border border-border/50 rounded-xl p-8">
-            <div className="w-12 h-12 bg-emerald-500/10 rounded-lg flex items-center justify-center mb-6">
-              <Shield className="w-6 h-6 text-emerald-500" />
-            </div>
-            <h3 className="text-xl font-semibold mb-3">Auto-Healing PRs</h3>
-            <p className="text-muted-foreground">
-              Let AI automatically fix detected issues and create pull requests.
-              Review and merge with confidence using our AI-generated explanations.
-            </p>
-          </div>
-          <div className="glass-panel border border-border/50 rounded-xl p-8">
-            <div className="w-12 h-12 bg-purple-500/10 rounded-lg flex items-center justify-center mb-6">
-              <Code2 className="w-6 h-6 text-purple-500" />
-            </div>
-            <h3 className="text-xl font-semibold mb-3">AI Code Chat</h3>
-            <p className="text-muted-foreground">
-              Ask questions about your code, get explanations for detected issues,
-              and receive personalized refactoring suggestions.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="container mx-auto px-4 py-24">
-        <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-2xl p-12 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            Ready to Clean Up Your Code?
-          </h2>
-          <p className="text-muted-foreground max-w-xl mx-auto mb-8">
-            Start free with up to 3 repositories. No credit card required.
+          <h1 className="text-5xl md:text-7xl font-bold mb-6 text-foreground drop-shadow-md">
+            AI Code Detox &<br />Auto-Healing Platform
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-12 drop-shadow-sm">
+            Automatically clean up AI-generated and legacy code, keeping your software
+            projects architecturally healthy and maintainable.
           </p>
-          <Link
-            href="/auth/login"
-            className="inline-flex items-center gap-2 bg-foreground text-background px-8 py-4 rounded-lg font-semibold text-lg hover:bg-foreground/90 transition-colors"
-          >
-            <Github className="w-5 h-5" />
-            Continue with GitHub
-          </Link>
+
+          {/* Input Panel */}
+          <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md p-2 rounded-xl border border-border/50 shadow-2xl">
+            <form onSubmit={handleAnalyze} className="flex flex-col sm:flex-row gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="https://github.com/owner/repo"
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  className="pl-10 h-12 bg-background/50 border-border/50 focus:ring-primary/20 text-lg"
+                />
+              </div>
+              <Button
+                type="submit"
+                size="lg"
+                className="h-12 px-8 text-lg font-semibold shadow-lg shadow-primary/20"
+                disabled={isLoading || !repoUrl.trim()}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Redirecting...
+                  </>
+                ) : (
+                  <>
+                    Analyze Now
+                    <ArrowRight className="ml-2 w-5 h-5" />
+                  </>
+                )}
+              </Button>
+            </form>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              Try popular repos like <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => setRepoUrl("https://github.com/facebook/react")}>facebook/react</span> or <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => setRepoUrl("https://github.com/vercel/next.js")}>vercel/next.js</span>
+            </p>
+          </div>
         </div>
       </section>
+
+
+
+
 
       {/* Footer */}
-      <footer className="border-t border-border/50 py-12">
-        <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4">
+      <footer className="border-t border-border/50 py-4 shrink-0 bg-background/80 backdrop-blur-md z-50">
+        <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded flex items-center justify-center text-xs font-bold shadow-sm">
               n9
             </div>
-            <span className="text-muted-foreground">© 2025 n9r. All rights reserved.</span>
+            <span className="text-muted-foreground text-xs">© 2025 n9r. All rights reserved.</span>
           </div>
-          <div className="flex items-center gap-6 text-sm text-muted-foreground">
+          <div className="flex items-center gap-6 text-xs text-muted-foreground">
             <Link href="/privacy" className="hover:text-foreground transition-colors">
               Privacy
             </Link>

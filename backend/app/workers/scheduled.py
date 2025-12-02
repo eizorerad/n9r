@@ -1,7 +1,7 @@
 """Scheduled tasks for periodic operations."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, update
 
@@ -26,7 +26,7 @@ def cleanup_stuck_analyses() -> dict:
     
     logger.info("Starting stuck analyses cleanup")
     
-    stuck_threshold = datetime.utcnow() - timedelta(minutes=10)
+    stuck_threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
     
     try:
         with get_sync_session() as db:
@@ -40,7 +40,7 @@ def cleanup_stuck_analyses() -> dict:
                 .values(
                     status="failed",
                     error_message="Analysis timed out (auto-cleaned by scheduler)",
-                    completed_at=datetime.utcnow(),
+                    completed_at=datetime.now(timezone.utc),
                 )
                 .returning(Analysis.id)
             )
@@ -60,7 +60,7 @@ def cleanup_stuck_analyses() -> dict:
         "status": "completed",
         "cleaned_count": len(cleaned_ids),
         "cleaned_ids": cleaned_ids,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -98,7 +98,7 @@ def analyze_all_repositories() -> dict:
                 try:
                     # Skip if analyzed recently (within last 12 hours)
                     if repo.last_analysis_at:
-                        time_since = datetime.utcnow() - repo.last_analysis_at
+                        time_since = datetime.now(timezone.utc) - repo.last_analysis_at
                         if time_since < timedelta(hours=12):
                             logger.debug(
                                 f"Skipping repo {repo.id}: analyzed {time_since} ago"
@@ -143,7 +143,7 @@ def analyze_all_repositories() -> dict:
         "queued": queued_count,
         "skipped": skipped_count,
         "errors": error_count,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     
     logger.info(f"Daily analysis sweep completed: {result}")
@@ -187,7 +187,7 @@ def cleanup_old_data() -> dict:
         "status": "completed",
         "deleted_logs": deleted_logs,
         "deleted_embeddings": deleted_embeddings,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     
     logger.info(f"Weekly cleanup completed: {result}")
@@ -208,12 +208,12 @@ def health_check() -> dict:
     Returns:
         dict with health status of each component.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
     
     logger.info("Running health check")
     
     health_status = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "components": {},
     }
     
@@ -302,7 +302,7 @@ def send_weekly_digest() -> dict:
         "status": "completed",
         "emails_sent": 0,
         "errors": 0,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     
     logger.info(f"Weekly digest completed: {result}")

@@ -1,13 +1,20 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getSession } from '@/lib/session'
+import { redirect } from 'next/navigation'
+import { getSession, deleteSession } from '@/lib/session'
 
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8000/v1'
 
 async function getToken(): Promise<string | null> {
   const session = await getSession()
   return session?.accessToken || null
+}
+
+// Handle 401 responses by clearing session
+async function handleUnauthorized() {
+  await deleteSession()
+  redirect('/login?error=session_expired')
 }
 
 // Connect a repository
@@ -128,6 +135,10 @@ export async function getAvailableRepositories() {
       },
       cache: 'no-store',
     })
+
+    if (response.status === 401) {
+      await handleUnauthorized()
+    }
 
     if (!response.ok) {
       const error = await response.json()

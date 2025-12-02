@@ -11,6 +11,7 @@ from app.api.v1 import (
     issues,
     playground,
     repositories,
+    semantic,
     users,
     webhooks,
 )
@@ -27,3 +28,4 @@ router.include_router(auto_prs.router, tags=["auto-prs"])
 router.include_router(chat.router, tags=["chat"])
 router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 router.include_router(playground.router, tags=["playground"])
+router.include_router(semantic.router, tags=["semantic"])

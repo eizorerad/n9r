@@ -9,6 +9,64 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def calculate_cyclomatic_complexity(content: str, language: str) -> int:
+    """Calculate cyclomatic complexity for a code chunk.
+    
+    Uses a simple heuristic: count decision points (if, for, while, etc.)
+    CC = 1 + number of decision points
+    
+    Args:
+        content: The code content
+        language: Programming language
+        
+    Returns:
+        Cyclomatic complexity score (minimum 1)
+    """
+    if not content:
+        return 1
+    
+    # Decision point patterns by language
+    if language == "python":
+        patterns = [
+            r'\bif\b', r'\belif\b', r'\bfor\b', r'\bwhile\b',
+            r'\band\b', r'\bor\b', r'\bexcept\b', r'\bwith\b',
+            r'\bassert\b', r'\bcase\b',  # Python 3.10+ match/case
+        ]
+    elif language in ("javascript", "typescript"):
+        patterns = [
+            r'\bif\b', r'\belse\s+if\b', r'\bfor\b', r'\bwhile\b',
+            r'\bcase\b', r'\bcatch\b', r'\b\?\b',  # ternary
+            r'&&', r'\|\|', r'\?\?',  # logical operators
+        ]
+    elif language == "java":
+        patterns = [
+            r'\bif\b', r'\belse\s+if\b', r'\bfor\b', r'\bwhile\b',
+            r'\bcase\b', r'\bcatch\b', r'\b\?\b',
+            r'&&', r'\|\|',
+        ]
+    elif language == "go":
+        patterns = [
+            r'\bif\b', r'\belse\s+if\b', r'\bfor\b',
+            r'\bcase\b', r'\bselect\b',
+            r'&&', r'\|\|',
+        ]
+    else:
+        # Generic patterns for other languages
+        patterns = [
+            r'\bif\b', r'\bfor\b', r'\bwhile\b',
+            r'\bcase\b', r'\bcatch\b',
+            r'&&', r'\|\|',
+        ]
+    
+    complexity = 1  # Base complexity
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, content, re.IGNORECASE)
+        complexity += len(matches)
+    
+    return complexity
+
+
 @dataclass
 class CodeChunk:
     """A chunk of code for embedding."""
@@ -24,10 +82,40 @@ class CodeChunk:
     docstring: str | None = None
     metadata: dict = field(default_factory=dict)
     
+    # NEW: Hierarchical structure fields
+    level: int = 0  # 0=file/module, 1=class, 2=method/function
+    qualified_name: str | None = None  # e.g., "UserService.create_user"
+    
+    # NEW: Metrics fields
+    cyclomatic_complexity: int | None = None
+    line_count: int = 0
+    
     @property
     def token_estimate(self) -> int:
         """Estimate token count (roughly 4 chars per token)."""
         return len(self.content) // 4
+    
+    def __post_init__(self):
+        """Calculate derived fields after initialization."""
+        # Calculate line_count if not set
+        if self.line_count == 0 and self.content:
+            self.line_count = self.content.count('\n') + 1
+        
+        # Build qualified_name if not set
+        if self.qualified_name is None:
+            if self.parent_name and self.name:
+                self.qualified_name = f"{self.parent_name}.{self.name}"
+            elif self.name:
+                self.qualified_name = self.name
+        
+        # Set level based on chunk_type if not explicitly set
+        if self.level == 0 and self.chunk_type:
+            if self.chunk_type in ("module", "file", "block"):
+                self.level = 0
+            elif self.chunk_type == "class":
+                self.level = 1
+            elif self.chunk_type in ("function", "method"):
+                self.level = 2 if self.parent_name else 1
 
 
 # Language detection by extension
@@ -148,6 +236,10 @@ class CodeChunker:
                         current_class, "python"
                     )
                     chunks.append(chunk)
+                
+                # If function is at indent 0, it's not inside a class
+                if current_indent == 0:
+                    current_class = None
                 
                 current_func = func_match.group(2)
                 func_start = i + 1
@@ -331,7 +423,7 @@ class CodeChunker:
         parent: str | None,
         language: str,
     ) -> CodeChunk:
-        """Create a code chunk with extracted docstring."""
+        """Create a code chunk with extracted docstring and complexity."""
         docstring = None
         
         # Extract docstring for Python
@@ -349,6 +441,11 @@ class CodeChunker:
             if doc_match:
                 docstring = doc_match.group(1).strip()
         
+        # Calculate cyclomatic complexity for functions/methods
+        complexity = None
+        if chunk_type in ("function", "method"):
+            complexity = calculate_cyclomatic_complexity(content, language)
+        
         return CodeChunk(
             content=content,
             file_path=file_path,
@@ -359,6 +456,7 @@ class CodeChunker:
             line_end=line_end,
             parent_name=parent,
             docstring=docstring,
+            cyclomatic_complexity=complexity,
         )
 
 
