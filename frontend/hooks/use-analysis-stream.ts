@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
+import { useAnalysisProgressStore, getAnalysisTaskId } from '@/lib/stores/analysis-progress-store'
 
 export type AnalysisStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
 
@@ -50,6 +51,10 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
 
     const eventSourceRef = useRef<EventSource | null>(null)
     const isMountedRef = useRef(true)
+    
+    // Global progress store
+    const { addTask, updateTask, removeTask } = useAnalysisProgressStore()
+    const taskId = getAnalysisTaskId(repositoryId)
 
     // Track mount state
     useEffect(() => {
@@ -90,22 +95,37 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         setMessage('Starting analysis...')
         setVciScore(null)
 
+        // Add to global progress store
+        addTask({
+            id: taskId,
+            type: 'analysis',
+            repositoryId: repoId,
+            status: 'pending',
+            progress: 0,
+            stage: 'queued',
+            message: 'Starting analysis...',
+        })
+
         try {
             const result = await runAnalysis(repoId)
 
             if (result.success && result.analysisId) {
                 setAnalysisId(result.analysisId)
                 setStatus('running')
+                updateTask(taskId, { status: 'running' })
             } else {
                 setStatus('failed')
                 setError(result.error || 'Failed to start analysis')
                 setProgress(0)
+                updateTask(taskId, { status: 'failed', message: result.error || 'Failed to start analysis' })
             }
         } catch (err) {
             setStatus('failed')
-            setError(err instanceof Error ? err.message : 'Failed to start analysis')
+            const errorMsg = err instanceof Error ? err.message : 'Failed to start analysis'
+            setError(errorMsg)
+            updateTask(taskId, { status: 'failed', message: errorMsg })
         }
-    }, [])
+    }, [addTask, updateTask, taskId])
 
     // Connect to SSE when analysisId is set
     useEffect(() => {
@@ -173,6 +193,13 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                     setProgress(update.progress)
                                     setStage(update.stage)
                                     setMessage(update.message || STAGE_LABELS[update.stage] || update.stage)
+                                    
+                                    // Sync with global store
+                                    updateTask(taskId, {
+                                        progress: update.progress,
+                                        stage: update.stage,
+                                        message: update.message || STAGE_LABELS[update.stage] || update.stage,
+                                    })
 
                                     if (update.vci_score !== undefined) {
                                         setVciScore(update.vci_score)
@@ -247,6 +274,9 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         setStage('')
                                         setMessage('')
                                         setAnalysisId(null)
+                                        
+                                        // Update global store
+                                        updateTask(taskId, { status: 'completed', progress: 100 })
 
                                         revalidateRepositoryPage(repositoryId).then(() => {
                                             if (isMountedRef.current) {
@@ -257,6 +287,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                     } else if (update.status === 'failed') {
                                         setStatus('failed')
                                         setError(update.message || 'Analysis failed')
+                                        updateTask(taskId, { status: 'failed', message: update.message || 'Analysis failed' })
                                         return
                                     } else if (update.status === 'running') {
                                         setStatus('running')
@@ -299,7 +330,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                 eventSourceRef.current.close()
             }
         }
-    }, [analysisId, status, router, repositoryId])
+    }, [analysisId, status, router, repositoryId, updateTask, taskId])
 
     return {
         status,

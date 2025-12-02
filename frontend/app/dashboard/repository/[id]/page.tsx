@@ -307,6 +307,17 @@ export default async function RepositoryPage({
 
         {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
+          {/* Semantic Analysis - Takes full width on top */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-purple-500/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Semantic Analysis</h2>
+            </div>
+            <Suspense fallback={<div className="h-96 bg-muted/30 rounded-lg animate-pulse" />}>
+              <SemanticAnalysisSectionWrapper id={id} />
+            </Suspense>
+          </section>
+
           {/* Code Health (VCI Score) - Takes 1 column */}
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
@@ -318,8 +329,8 @@ export default async function RepositoryPage({
             </Suspense>
           </section>
 
-          {/* Issues - Takes 1 column */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
+          {/* Issues - Takes 2 columns on xl */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 xl:col-span-2">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-amber-500/80" />
               <h2 className="text-base sm:text-lg font-semibold tracking-tight">Issues</h2>
@@ -331,19 +342,8 @@ export default async function RepositoryPage({
             </div>
           </section>
 
-          {/* Semantic Analysis - Takes 1 column on xl, full width on smaller */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-1 xl:row-span-2">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-purple-500/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Semantic Analysis</h2>
-            </div>
-            <Suspense fallback={<div className="h-96 bg-muted/30 rounded-lg animate-pulse" />}>
-              <SemanticAnalysisSectionWrapper id={id} />
-            </Suspense>
-          </section>
-
-          {/* Analysis Details - Takes 2 columns */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
+          {/* Analysis Details - Full width at bottom */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-blue-500/80" />
               <h2 className="text-base sm:text-lg font-semibold tracking-tight">Analysis Details</h2>
