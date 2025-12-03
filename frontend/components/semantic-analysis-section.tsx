@@ -10,7 +10,7 @@ import { SimilarCode } from '@/components/similar-code'
 import { TechDebtHeatmap } from '@/components/tech-debt-heatmap'
 import { useAnalysisProgressStore, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
-import { Loader2, Sparkles } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 interface EmbeddingStatus {
   repository_id: string
@@ -87,7 +87,6 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   const { selectedAnalysisId } = useCommitSelectionStore()
   const [semanticCache, setSemanticCache] = useState<SemanticCacheData | null>(null)
   const [cacheLoading, setCacheLoading] = useState(false)
-  const [generating, setGenerating] = useState(false)
   
   // Global progress store
   const { addTask, updateTask, hasTask } = useAnalysisProgressStore()
@@ -142,30 +141,6 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
     fetchSemanticCache()
   }, [selectedAnalysisId, token, refreshKey])
-
-  // Generate semantic cache
-  const handleGenerateCache = async () => {
-    if (!selectedAnalysisId || !token) return
-
-    setGenerating(true)
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/analyses/${selectedAnalysisId}/semantic/generate`,
-        {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      )
-      if (response.ok) {
-        const data = await response.json()
-        setSemanticCache(data)
-      }
-    } catch (error) {
-      console.error('Failed to generate semantic cache:', error)
-    } finally {
-      setGenerating(false)
-    }
-  }
 
   // Poll for embedding status - use ref to avoid dependency issues
   const embeddingStatusRef = useRef<EmbeddingStatus | null>(null)
@@ -325,34 +300,41 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     )
   }
 
-  // Show generate button if cache is missing
+  // Check if embeddings are being generated
+  const isEmbeddingsInProgress = embeddingStatus?.status === 'pending' || embeddingStatus?.status === 'running'
+
+  // Show spinner if cache is missing and embeddings are in progress
   if (semanticCache && !semanticCache.is_cached) {
+    if (isEmbeddingsInProgress) {
+      return (
+        <Card className="glass-panel border-border/50">
+          <CardContent className="p-6">
+            <div className="flex flex-col items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+              <h3 className="text-base font-semibold mb-2">Generating Semantic Analysis</h3>
+              <p className="text-sm text-muted-foreground text-center max-w-sm">
+                {embeddingStatus?.message || 'Processing embeddings...'}
+              </p>
+              {embeddingStatus?.progress !== undefined && embeddingStatus.progress > 0 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {Math.round(embeddingStatus.progress)}% complete
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
     return (
       <Card className="glass-panel border-border/50">
         <CardContent className="p-6">
           <div className="text-center py-8">
             <div className="text-3xl mb-3">🔍</div>
             <h3 className="text-base font-semibold mb-2">Semantic Analysis Not Generated</h3>
-            <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
-              Generate semantic analysis to view architecture health, clusters, and outliers for this commit.
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Run an analysis to generate semantic data for this commit.
             </p>
-            <Button
-              onClick={handleGenerateCache}
-              disabled={generating}
-              className="gap-2"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Generate Semantic Analysis
-                </>
-              )}
-            </Button>
           </div>
         </CardContent>
       </Card>

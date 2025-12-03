@@ -3,7 +3,8 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Search, AlertCircle, CheckCircle, BarChart3, Shield, Code2, Activity, Brain, Sparkles, Network, Cpu } from "lucide-react";
+import Image from "next/image";
+import { Loader2, Search, AlertCircle, CheckCircle, BarChart3, Shield, Code2, Activity, Brain, Sparkles, Network, Cpu, Binary } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -433,7 +434,7 @@ function PlaygroundContent() {
 
                 <CardHeader className="pb-2">
                   <CardTitle className="text-2xl font-bold text-center flex items-center justify-center gap-2">
-                    <Brain className="h-6 w-6 text-primary" />
+                    <Cpu className="h-6 w-6 text-primary" />
                     Deep Code Analysis Engines
                   </CardTitle>
                 </CardHeader>
@@ -443,7 +444,7 @@ function PlaygroundContent() {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="flex gap-4 p-4 rounded-lg bg-background/40 border border-border/50 hover:border-primary/20 transition-colors group">
                       <div className="mt-1 p-2 rounded-md bg-primary/5 group-hover:bg-primary/10 transition-colors">
-                        <Brain className="h-5 w-5 text-primary" />
+                        <Binary className="h-5 w-5 text-primary" />
                       </div>
                       <div>
                         <h4 className="font-semibold mb-1">Deductive Analysis</h4>
@@ -497,6 +498,17 @@ function PlaygroundContent() {
                         Get Started Free
                       </Button>
                     </Link>
+
+                    <div className="mt-12 relative w-full max-w-4xl mx-auto rounded-xl overflow-hidden shadow-2xl border border-border/50 group">
+                      <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent z-10 pointer-events-none" />
+                      <Image
+                        src="/Screenshot_3123.png"
+                        alt="n9r Dashboard Preview"
+                        width={1200}
+                        height={800}
+                        className="w-full h-auto transform group-hover:scale-[1.02] transition-transform duration-700"
+                      />
+                    </div>
                   </div>
                 </CardContent>
               </Card>

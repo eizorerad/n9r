@@ -8,6 +8,8 @@ import LiquidEther from "@/components/LiquidEther";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
+import FlyingPumpkin from "@/components/FlyingPumpkin";
+import FlyingGhost from "@/components/FlyingGhost";
 
 export default function Home() {
   const router = useRouter();
@@ -23,6 +25,8 @@ export default function Home() {
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
+      <FlyingPumpkin />
+      <FlyingGhost />
       <Navbar />
 
       {/* Hero Section with LiquidEther */}

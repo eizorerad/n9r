@@ -98,15 +98,17 @@ async def semantic_search(
         # Generate embedding for query
         query_embedding = await llm.embed([q])
 
-        # Search in Qdrant
-        results = qdrant.search(
+        # Search in Qdrant using query_points (new API)
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        query_result = qdrant.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_embedding[0],
-            query_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}}
+            query=query_embedding[0],
+            query_filter=Filter(
+                must=[
+                    FieldCondition(key="repository_id", match=MatchValue(value=str(repository_id)))
                 ]
-            },
+            ),
             limit=limit,
         )
 
@@ -122,7 +124,7 @@ async def semantic_search(
                 qualified_name=hit.payload.get("qualified_name"),
                 language=hit.payload.get("language"),
             )
-            for hit in results
+            for hit in query_result.points
         ]
 
         return SemanticSearchResponse(
@@ -213,17 +215,19 @@ async def get_related_code(
         avg_vector = np.mean(vectors, axis=0).tolist()
 
         # Search for similar code, excluding the query file
-        results = qdrant.search(
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        query_result = qdrant.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=avg_vector,
-            query_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}},
+            query=avg_vector,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(key="repository_id", match=MatchValue(value=str(repository_id))),
                 ],
-                "must_not": [
-                    {"key": "file_path", "match": {"value": file}},
+                must_not=[
+                    FieldCondition(key="file_path", match=MatchValue(value=file)),
                 ]
-            },
+            ),
             limit=limit,
         )
 
@@ -238,7 +242,7 @@ async def get_related_code(
                 cluster=None,  # Will be populated by cluster analysis
                 qualified_name=hit.payload.get("qualified_name"),
             )
-            for hit in results
+            for hit in query_result.points
         ]
 
         return RelatedCodeResponse(
