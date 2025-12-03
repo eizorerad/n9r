@@ -82,7 +82,21 @@ export function VCITrendChart({ data, className }: VCITrendChartProps) {
                 }}
                 labelStyle={{ color: '#a1a1aa' }}
                 itemStyle={{ color: '#10b981' }}
-                formatter={(value: number, name: string) => [`${value}`, 'VCI Score']}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || payload.length === 0) return null
+                  const dataPoint = payload[0].payload as DataPoint
+                  return (
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2 shadow-lg">
+                      <p className="text-zinc-400 text-xs mb-1">{label}</p>
+                      <p className="text-emerald-400 font-medium">VCI Score: {dataPoint.vci_score}</p>
+                      {dataPoint.commit_sha && (
+                        <p className="text-zinc-500 text-xs mt-1 font-mono">
+                          Commit: {dataPoint.commit_sha}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }}
               />
               <Area
                 type="monotone"

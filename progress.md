@@ -95,3 +95,21 @@ Fixed two critical bugs: (1) Celery scheduled tasks failing with "can't subtract
 
 ## What Was Done
 Implemented balanced architecture filter to reduce false positives in outlier detection. Features include: import relationship analysis (Python/JS/TS), boilerplate detection (dunder methods, framework conventions, utility patterns), architectural layer context, test file relationship evaluation, and multi-factor confidence scoring. Outliers are now filtered by confidence (≥0.4), assigned tiers, sorted by confidence, and limited to 15 results. Frontend displays tier-colored badges and confidence factors for transparency.
+
+
+# 03-dec-2025 - Commit Selector MVP
+
+## Files Created
+- `frontend/components/commit-timeline.tsx` - CommitTimeline component with branch selector, commit list, and analysis triggers
+- `backend/tests/test_commit_schemas.py` - Property-based tests for commit schema validation
+- `backend/tests/test_github_service.py` - Unit tests for GitHubService branch/commit methods
+
+## Files Modified
+- `backend/app/services/github.py` - Added `list_branches()`, `list_commits()` methods with error handling
+- `backend/app/api/v1/repositories.py` - Added `/branches` and `/commits` endpoints
+- `backend/app/schemas/repository.py` - Added BranchResponse, CommitResponse, CommitListResponse schemas
+- `frontend/lib/api.ts` - Added Branch/Commit types and branchApi/commitApi clients
+- `frontend/app/dashboard/repository/[id]/page.tsx` - Integrated CommitTimeline component in bento grid
+
+## What Was Done
+Implemented Commit Selector MVP allowing users to view commit history per branch, see which commits have been analyzed (with VCI scores), and trigger analysis on any historical commit. Backend includes GitHubService extensions for branch/commit listing with proper error handling (rate limits, permissions), API endpoints with analysis enrichment, and property-based tests. Frontend features a CommitTimeline component with branch selector, timeline visualization, relative timestamps, and polling for analysis status updates.

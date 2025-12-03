@@ -11,13 +11,13 @@ Note: LiteLLM is imported lazily to avoid fork-safety issues with Celery prefork
 
 import logging
 import os
-from typing import Any, AsyncIterator, TYPE_CHECKING
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 # Lazy import of litellm to avoid fork-safety issues on macOS
 # LiteLLM uses aiohttp which creates threads/event loops at import time
 if TYPE_CHECKING:
-    import litellm
-    from litellm import acompletion, aembedding, completion_cost
+    pass
 
 from app.core.config import settings
 
@@ -32,15 +32,24 @@ def _ensure_litellm():
     global _litellm_initialized
     if _litellm_initialized:
         return
-    
+
     import os
+
     import litellm
-    
+
     # Use environment variable instead of deprecated set_verbose
     if settings.debug:
         os.environ['LITELLM_LOG'] = 'DEBUG'
-    
+
     litellm.drop_params = True  # Drop unsupported params instead of error
+
+    # Disable LiteLLM's internal logging callbacks to prevent LoggingWorker timeout errors
+    # These callbacks use async workers that can timeout and spam logs with errors
+    litellm.success_callback = []
+    litellm.failure_callback = []
+    litellm._async_success_callback = []
+    litellm._async_failure_callback = []
+
     _litellm_initialized = True
     logger.debug("LiteLLM initialized")
 
@@ -71,7 +80,7 @@ class LLMGateway:
     - bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
     - openrouter/anthropic/claude-3.5-sonnet
     """
-    
+
     # Default models for different tasks
     DEFAULT_MODELS = {
         "chat": "anthropic/claude-3-5-sonnet-20241022",
@@ -80,14 +89,14 @@ class LLMGateway:
         "embedding": "openai/text-embedding-3-small",
         "code": "anthropic/claude-sonnet-4-20250514",
     }
-    
+
     # Fallback chain for reliability
     FALLBACK_MODELS = [
         "openai/gpt-4o",
         "gemini/gemini-2.0-flash-exp",
         "anthropic/claude-3-5-sonnet-20241022",
     ]
-    
+
     # Mapping of model prefixes to environment variable names
     _MODEL_KEY_MAPPING = {
         "openai/": "OPENAI_API_KEY",
@@ -98,54 +107,54 @@ class LLMGateway:
         "bedrock/": "AWS_ACCESS_KEY_ID",
         "vertex_ai/": "VERTEX_PROJECT",
     }
-    
+
     def __init__(self):
         """Initialize LLM Gateway with configured API keys."""
         self._setup_api_keys()
         self._setup_cache()
-    
+
     def _setup_api_keys(self):
         """Set up API keys from settings for all supported providers."""
         # OpenAI
         if settings.openai_api_key:
             os.environ["OPENAI_API_KEY"] = settings.openai_api_key
-        
+
         # Anthropic
         if settings.anthropic_api_key:
             os.environ["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
-        
+
         # Google Gemini (AI Studio)
         if settings.gemini_api_key:
             os.environ["GEMINI_API_KEY"] = settings.gemini_api_key
-        
+
         # Google Vertex AI
         if settings.vertex_project:
             os.environ["VERTEX_PROJECT"] = settings.vertex_project
             os.environ["VERTEX_LOCATION"] = settings.vertex_location
-        
+
         # Azure OpenAI
         if settings.azure_api_key:
             os.environ["AZURE_API_KEY"] = settings.azure_api_key
             os.environ["AZURE_API_BASE"] = settings.azure_api_base
             os.environ["AZURE_API_VERSION"] = settings.azure_api_version
-        
+
         # AWS Bedrock
         if settings.aws_access_key_id:
             os.environ["AWS_ACCESS_KEY_ID"] = settings.aws_access_key_id
             os.environ["AWS_SECRET_ACCESS_KEY"] = settings.aws_secret_access_key
             os.environ["AWS_REGION_NAME"] = settings.aws_region_name
-        
+
         # OpenRouter
         if settings.openrouter_api_key:
             os.environ["OPENROUTER_API_KEY"] = settings.openrouter_api_key
-        
+
         # Store provider-specific settings for embedding model selection
         self._azure_embedding_deployment = settings.azure_embedding_deployment
         self._azure_chat_deployment = settings.azure_chat_deployment
         self._bedrock_embedding_model = settings.bedrock_embedding_model
         self._vertex_embedding_model = settings.vertex_embedding_model
         self._embedding_model_override = settings.embedding_model
-    
+
     def _get_available_fallbacks(self, exclude_model: str) -> list[str]:
         """Get fallback models that have API keys configured.
         
@@ -168,15 +177,15 @@ class LLMGateway:
                     if os.environ.get(env_key):
                         available.append(model)
                     break
-        
+
         if not available:
             logger.warning(
                 f"No fallback models available for {exclude_model}. "
                 "Consider setting API keys for: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY"
             )
-        
+
         return available
-    
+
     def _setup_cache(self):
         """Set up Redis cache for LiteLLM responses."""
         if getattr(settings, "redis_url", None):
@@ -191,7 +200,7 @@ class LLMGateway:
                 logger.info("LiteLLM Redis cache enabled")
             except Exception as e:
                 logger.warning(f"Failed to enable Redis cache: {e}")
-    
+
     async def complete(
         self,
         prompt: str,
@@ -222,12 +231,12 @@ class LLMGateway:
                 - cost: Estimated cost in USD
         """
         model = model or self.DEFAULT_MODELS["chat"]
-        
+
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        
+
         return await self.chat(
             messages=messages,
             model=model,
@@ -236,7 +245,7 @@ class LLMGateway:
             response_format=response_format,
             **kwargs,
         )
-    
+
     async def chat(
         self,
         messages: list[dict],
@@ -265,9 +274,9 @@ class LLMGateway:
         # Lazy import litellm
         _ensure_litellm()
         from litellm import acompletion, completion_cost
-        
+
         model = model or self.DEFAULT_MODELS["chat"]
-        
+
         params = {
             "model": model,
             "messages": messages,
@@ -275,19 +284,19 @@ class LLMGateway:
             "max_tokens": max_tokens,
             **kwargs,
         }
-        
+
         if response_format:
             params["response_format"] = response_format
-        
+
         # Add fallback models if enabled (only those with configured API keys)
         if fallback:
             available_fallbacks = self._get_available_fallbacks(model)
             if available_fallbacks:
                 params["fallbacks"] = available_fallbacks
-        
+
         try:
             response = await acompletion(**params)
-            
+
             return {
                 "content": response.choices[0].message.content,
                 "model": response.model,
@@ -301,7 +310,7 @@ class LLMGateway:
         except Exception as e:
             logger.error(f"LLM completion failed: {e}")
             raise LLMError(f"All models failed: {str(e)}")
-    
+
     async def complete_stream(
         self,
         prompt: str,
@@ -318,12 +327,12 @@ class LLMGateway:
             Text chunks as they are generated
         """
         model = model or self.DEFAULT_MODELS["chat"]
-        
+
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        
+
         async for chunk in self.chat_stream(
             messages=messages,
             model=model,
@@ -332,7 +341,7 @@ class LLMGateway:
             **kwargs,
         ):
             yield chunk
-    
+
     async def chat_stream(
         self,
         messages: list[dict],
@@ -350,9 +359,9 @@ class LLMGateway:
         # Lazy import litellm
         _ensure_litellm()
         from litellm import acompletion
-        
+
         model = model or self.DEFAULT_MODELS["chat"]
-        
+
         try:
             response = await acompletion(
                 model=model,
@@ -362,15 +371,15 @@ class LLMGateway:
                 stream=True,
                 **kwargs,
             )
-            
+
             async for chunk in response:
                 if chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-                    
+
         except Exception as e:
             logger.error(f"LLM streaming failed: {e}")
             raise LLMError(f"Streaming failed: {str(e)}")
-    
+
     def _get_embedding_model(self) -> str:
         """Determine the best embedding model based on configured providers.
         
@@ -384,27 +393,27 @@ class LLMGateway:
         # Check for explicit override
         if self._embedding_model_override:
             return self._embedding_model_override
-        
+
         # Azure OpenAI
         if settings.azure_api_key and self._azure_embedding_deployment:
             return f"azure/{self._azure_embedding_deployment}"
-        
+
         # AWS Bedrock
         if settings.aws_access_key_id and self._bedrock_embedding_model:
             return self._bedrock_embedding_model
-        
+
         # Google Vertex AI
         if settings.vertex_project and self._vertex_embedding_model:
             return self._vertex_embedding_model
-        
+
         # Google Gemini (AI Studio)
         # text-embedding-004 is the latest Google embedding model
         if settings.gemini_api_key:
             return "text-embedding-004"
-        
+
         # Default to OpenAI
         return self.DEFAULT_MODELS["embedding"]
-    
+
     async def embed(
         self,
         texts: list[str] | str,
@@ -429,21 +438,21 @@ class LLMGateway:
         # Lazy import litellm
         _ensure_litellm()
         from litellm import aembedding
-        
+
         # Determine model to use
         if model is None:
             model = self._get_embedding_model()
-        
+
         if isinstance(texts, str):
             texts = [texts]
-        
+
         try:
             # Build params
             params = {
                 "model": model,
                 "input": texts,
             }
-            
+
             # Add provider-specific params
             if model.startswith("azure/"):
                 params["api_base"] = settings.azure_api_base
@@ -451,13 +460,13 @@ class LLMGateway:
             elif model.startswith("vertex_ai/"):
                 params["vertex_project"] = settings.vertex_project
                 params["vertex_location"] = settings.vertex_location
-            
+
             response = await aembedding(**params)
             return [item["embedding"] for item in response.data]
         except Exception as e:
             logger.error(f"Embedding generation failed: {e}")
             raise LLMError(f"Embedding failed: {str(e)}")
-    
+
     async def analyze_code(
         self,
         code: str,
@@ -512,9 +521,9 @@ Return JSON with suggestions.""",
 - Best practice violations
 Return a comprehensive analysis in JSON format.""",
         }
-        
+
         system_prompt = system_prompts.get(analysis_type, system_prompts["general"])
-        
+
         return await self.complete(
             prompt=f"Language: {language}\n\n```{language}\n{code}\n```",
             model=model or self.DEFAULT_MODELS["analysis"],
@@ -522,7 +531,7 @@ Return a comprehensive analysis in JSON format.""",
             temperature=0.1,
             response_format={"type": "json_object"},
         )
-    
+
     def get_model_for_task(self, task: str) -> str:
         """Get recommended model for a specific task."""
         return self.DEFAULT_MODELS.get(task, self.DEFAULT_MODELS["chat"])

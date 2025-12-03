@@ -3,13 +3,12 @@
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any
 
 from qdrant_client import QdrantClient
 
 from app.core.config import settings
-from app.services.llm_gateway import get_llm_gateway
 from app.services.agents.diagnosis import DiagnosisResult, FixPath
+from app.services.llm_gateway import get_llm_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +30,16 @@ class FixResult:
 
 class FixAgent:
     """Agent that generates code fixes for issues with retry support."""
-    
+
     COLLECTION_NAME = "code_embeddings"
-    
+
     def __init__(self):
         self.llm = get_llm_gateway()
         self.qdrant = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
         )
-    
+
     async def generate_fix(
         self,
         diagnosis: DiagnosisResult,
@@ -65,14 +64,14 @@ class FixAgent:
             FixResult with the generated fix
         """
         logger.info(f"Generating fix for issue {diagnosis.issue_id} (iteration {iteration})")
-        
+
         # Get RAG context for related code
         rag_context = await self._get_rag_context(
             repository_id,
             issue,
             diagnosis.context_needed,
         )
-        
+
         # Generate fix based on fix path
         if diagnosis.fix_path == FixPath.PATH_A:
             result = await self._generate_simple_fix(
@@ -87,7 +86,7 @@ class FixAgent:
             result = await self._generate_suggestions(
                 issue, file_content, rag_context, diagnosis
             )
-        
+
         return FixResult(
             issue_id=diagnosis.issue_id,
             success=result["success"],
@@ -100,7 +99,7 @@ class FixAgent:
             changes_summary=result["changes"],
             iteration=iteration,
         )
-    
+
     async def _get_rag_context(
         self,
         repository_id: str,
@@ -109,14 +108,14 @@ class FixAgent:
     ) -> str:
         """Retrieve relevant code context from Qdrant."""
         context_parts = []
-        
+
         # Build query from issue
         query = f"{issue.get('type', '')} {issue.get('title', '')} {issue.get('description', '')}"
-        
+
         try:
             # Generate embedding for query
             query_embedding = await self.llm.embed([query])
-            
+
             # Search for relevant code
             results = self.qdrant.search(
                 collection_name=self.COLLECTION_NAME,
@@ -128,24 +127,24 @@ class FixAgent:
                 },
                 limit=5,
             )
-            
+
             for hit in results:
                 payload = hit.payload
                 context_parts.append(f"### {payload.get('file_path', 'unknown')}")
                 if payload.get("name"):
                     context_parts.append(f"Function/Class: {payload['name']}")
                 context_parts.append(f"```\n{payload.get('content', '')[:1500]}\n```\n")
-        
+
         except Exception as e:
             logger.warning(f"RAG context retrieval failed: {e}")
-        
+
         return "\n".join(context_parts) if context_parts else "No additional context available."
-    
+
     def _build_error_context(self, previous_error: str | None, iteration: int) -> str:
         """Build error context string for retry attempts."""
         if not previous_error or iteration == 1:
             return ""
-        
+
         return f"""
 ## ⚠️ PREVIOUS ATTEMPT FAILED (Iteration {iteration - 1})
 
@@ -163,7 +162,7 @@ Your previous fix attempt resulted in the following error. Please analyze it car
 5. If tests failed, ensure the logic is correct
 6. Consider edge cases that might have caused the failure
 """
-    
+
     async def _generate_simple_fix(
         self,
         issue: dict,
@@ -174,11 +173,11 @@ Your previous fix attempt resulted in the following error. Please analyze it car
     ) -> dict:
         """Generate a simple, high-confidence fix."""
         error_context = self._build_error_context(previous_error, iteration)
-        
+
         iteration_note = ""
         if iteration > 1:
             iteration_note = f"\n\n**This is retry attempt {iteration}. Please fix the errors from the previous attempt.**\n"
-        
+
         prompt = f"""Fix the following code issue. Make minimal, targeted changes.
 {iteration_note}
 {error_context}
@@ -219,7 +218,7 @@ CHANGES:
 - [Change 1]
 - [Change 2]
 """
-        
+
         try:
             response = await self.llm.complete(
                 prompt=prompt,
@@ -236,7 +235,7 @@ CHANGES:
                 "changes": [],
                 "confidence": 0.0,
             }
-    
+
     async def _generate_complex_fix(
         self,
         issue: dict,
@@ -248,11 +247,11 @@ CHANGES:
     ) -> dict:
         """Generate a more complex fix with additional considerations."""
         error_context = self._build_error_context(previous_error, iteration)
-        
+
         iteration_note = ""
         if iteration > 1:
             iteration_note = f"\n\n**⚠️ RETRY ATTEMPT {iteration}: The previous fix failed. Please carefully review the error and provide a corrected solution.**\n"
-        
+
         prompt = f"""Fix the following code issue. This is a complex fix that requires careful consideration.
 {iteration_note}
 {error_context}
@@ -302,7 +301,7 @@ CHANGES:
 CONSIDERATIONS:
 [Any additional considerations for the reviewer]
 """
-        
+
         try:
             response = await self.llm.complete(
                 prompt=prompt,
@@ -323,7 +322,7 @@ CONSIDERATIONS:
                 "changes": [],
                 "confidence": 0.0,
             }
-    
+
     async def _generate_suggestions(
         self,
         issue: dict,
@@ -360,7 +359,7 @@ Provide detailed suggestions:
 3. Files that might need changes
 4. Testing considerations
 """
-        
+
         try:
             response = await self.llm.complete(
                 prompt=prompt,
@@ -374,7 +373,7 @@ Provide detailed suggestions:
                 "changes": ["Manual review required"],
                 "confidence": 0.0,
             }
-        except Exception as e:
+        except Exception:
             return {
                 "success": False,
                 "fixed_content": file_content,
@@ -382,7 +381,7 @@ Provide detailed suggestions:
                 "changes": [],
                 "confidence": 0.0,
             }
-    
+
     def _parse_fix_response(self, response: str, original_content: str) -> dict:
         """Parse the LLM fix response."""
         result = {
@@ -392,18 +391,18 @@ Provide detailed suggestions:
             "changes": [],
             "confidence": 0.0,
         }
-        
+
         # Extract fixed code
         code_match = re.search(r'FIXED_CODE:\s*```[\w]*\n(.*?)```', response, re.DOTALL)
         if code_match:
             result["fixed_content"] = code_match.group(1).strip()
             result["success"] = result["fixed_content"] != original_content
-        
+
         # Extract explanation
         explanation_match = re.search(r'EXPLANATION:\s*(.*?)(?=CHANGES:|CONSIDERATIONS:|$)', response, re.DOTALL)
         if explanation_match:
             result["explanation"] = explanation_match.group(1).strip()
-        
+
         # Extract changes
         changes_match = re.search(r'CHANGES:\s*(.*?)(?=CONSIDERATIONS:|$)', response, re.DOTALL)
         if changes_match:
@@ -413,7 +412,7 @@ Provide detailed suggestions:
                 for line in changes_text.split('\n')
                 if line.strip() and line.strip() != '-'
             ]
-        
+
         # Calculate confidence based on response quality
         if result["success"]:
             confidence = 0.7
@@ -424,16 +423,16 @@ Provide detailed suggestions:
             if len(result["changes"]) >= 2:
                 confidence += 0.05
             result["confidence"] = min(confidence, 0.95)
-        
+
         return result
-    
+
     def _generate_diff(self, original: str, fixed: str) -> str:
         """Generate a unified diff between original and fixed content."""
         import difflib
-        
+
         original_lines = original.splitlines(keepends=True)
         fixed_lines = fixed.splitlines(keepends=True)
-        
+
         diff = difflib.unified_diff(
             original_lines,
             fixed_lines,
@@ -441,5 +440,5 @@ Provide detailed suggestions:
             tofile='fixed',
             lineterm='',
         )
-        
+
         return ''.join(diff)

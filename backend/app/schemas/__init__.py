@@ -30,6 +30,10 @@ from app.schemas.organization import (
     OrganizationResponse,
 )
 from app.schemas.repository import (
+    BranchListResponse,
+    BranchResponse,
+    CommitListResponse,
+    CommitResponse,
     FileContent,
     FileTreeItem,
     RepositoryConnect,
@@ -63,6 +67,10 @@ __all__ = [
     "RepositoryUpdate",
     "FileTreeItem",
     "FileContent",
+    "BranchResponse",
+    "BranchListResponse",
+    "CommitResponse",
+    "CommitListResponse",
     # Analysis
     "AnalysisCreate",
     "AnalysisResponse",

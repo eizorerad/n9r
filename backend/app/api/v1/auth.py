@@ -5,7 +5,7 @@ import secrets
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.api.deps import DbSession
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 from app.core.config import settings
 from app.core.encryption import encrypt_token
 from app.core.redis import delete_oauth_state, get_oauth_state, store_oauth_state
-from app.core.security import create_access_token, create_refresh_token, verify_token
+from app.core.security import create_access_token
 from app.models.user import User
 from app.schemas.auth import (
     AuthCallback,
@@ -149,11 +149,11 @@ async def github_exchange(callback: AuthCallbackSimple, db: DbSession) -> AuthRe
     State verification is handled on the frontend side.
     """
     # Log request details
-    logger.info(f"=== GitHub Exchange Request ===")
+    logger.info("=== GitHub Exchange Request ===")
     logger.info(f"Callback code: {callback.code[:10] if callback.code else 'None'}...")
     logger.info(f"GitHub client_id from settings: '{settings.github_client_id}'")
     logger.info(f"GitHub client_secret length: {len(settings.github_client_secret)}")
-    
+
     # Exchange code for access token
     async with httpx.AsyncClient() as client:
         token_response = await client.post(
@@ -175,13 +175,13 @@ async def github_exchange(callback: AuthCallbackSimple, db: DbSession) -> AuthRe
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Failed to exchange code for token: {token_data}",
             )
-        
+
         if "error" in token_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=token_data.get("error_description", token_data["error"]),
             )
-        
+
         github_token = token_data.get("access_token")
 
         if not github_token:

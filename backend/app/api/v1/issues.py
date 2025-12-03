@@ -1,6 +1,5 @@
 """Issues API endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -20,8 +19,8 @@ router = APIRouter()
 
 class IssueUpdate(BaseModel):
     """Issue update payload."""
-    status: Optional[str] = None
-    assigned_to: Optional[str] = None
+    status: str | None = None
+    assigned_to: str | None = None
 
 
 @router.get("/repositories/{repository_id}/issues")
@@ -29,9 +28,9 @@ async def list_issues(
     repository_id: UUID,
     db: DbSession,
     user: CurrentUser,
-    status: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None),
-    type: Optional[str] = Query(None),
+    status: str | None = Query(None),
+    severity: str | None = Query(None),
+    type: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> dict:
@@ -44,26 +43,26 @@ async def list_issues(
         )
     )
     repository = result.scalar_one_or_none()
-    
+
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     # Build query
     query = select(Issue).where(Issue.repository_id == repository_id)
-    
+
     if status:
         query = query.where(Issue.status == status)
     if severity:
         query = query.where(Issue.severity == severity)
     if type:
         query = query.where(Issue.type == type)
-    
+
     query = query.order_by(Issue.severity.desc(), Issue.created_at.desc())
     query = query.limit(limit).offset(offset)
-    
+
     result = await db.execute(query)
     issues = result.scalars().all()
-    
+
     return {
         "data": [
             {
@@ -99,10 +98,10 @@ async def get_issue(
         .where(Issue.id == issue_id)
     )
     issue = result.scalar_one_or_none()
-    
+
     if not issue or issue.repository.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
+
     return {
         "id": str(issue.id),
         "type": issue.type,
@@ -134,15 +133,15 @@ async def update_issue(
         .where(Issue.id == issue_id)
     )
     issue = result.scalar_one_or_none()
-    
+
     if not issue or issue.repository.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
+
     if payload.status:
         issue.status = payload.status
-    
+
     await db.commit()
-    
+
     return {"id": str(issue.id), "status": issue.status}
 
 
@@ -171,34 +170,34 @@ async def fix_issue(
         .where(Issue.id == issue_id)
     )
     issue = result.scalar_one_or_none()
-    
+
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
+
     if issue.repository.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Not authorized to fix this issue")
-    
+
     # Check if issue can be auto-fixed
     if not issue.auto_fixable:
         raise HTTPException(
             status_code=400,
             detail="This issue cannot be auto-fixed. No suggestion available."
         )
-    
+
     # Check if issue has required file_path
     if not issue.file_path:
         raise HTTPException(
             status_code=400,
             detail="Issue has no file path - cannot determine file to fix"
         )
-    
+
     # Check if already being fixed
     if issue.status in ("fixing", "fix_pending"):
         raise HTTPException(
             status_code=409,
             detail=f"Issue is already being processed (status: {issue.status})"
         )
-    
+
     # Create AutoPR record
     auto_pr = AutoPR(
         repository_id=issue.repository_id,
@@ -208,19 +207,19 @@ async def fix_issue(
         status="pending",
     )
     db.add(auto_pr)
-    
+
     # Update issue status
     issue.status = "queued"
     await db.commit()
     await db.refresh(auto_pr)
-    
+
     # Queue healing task
     task = heal_issue.delay(
         issue_id=str(issue.id),
         auto_pr_id=str(auto_pr.id),
         max_iterations=3,
     )
-    
+
     return {
         "auto_pr_id": str(auto_pr.id),
         "issue_id": str(issue.id),
@@ -243,8 +242,9 @@ async def stream_fix_progress(
     """
     import asyncio
     import json
+
     from app.core.redis import subscribe_to_channel
-    
+
     # Verify access
     result = await db.execute(
         select(Issue)
@@ -252,18 +252,18 @@ async def stream_fix_progress(
         .where(Issue.id == issue_id)
     )
     issue = result.scalar_one_or_none()
-    
+
     if not issue or issue.repository.owner_id != user.id:
         raise HTTPException(status_code=404, detail="Issue not found")
-    
+
     channel = f"healing:progress:{issue_id}"
-    
+
     async def event_generator():
         """Generate SSE events from Redis pub/sub."""
         try:
             async for message in subscribe_to_channel(channel):
                 yield f"data: {message}\n\n"
-                
+
                 # Check if this is a terminal event
                 try:
                     data = json.loads(message)
@@ -273,7 +273,7 @@ async def stream_fix_progress(
                     pass
         except asyncio.CancelledError:
             pass
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

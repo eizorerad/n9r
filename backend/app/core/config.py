@@ -1,7 +1,6 @@
 """Application configuration settings."""
 
 import logging
-import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -83,32 +82,32 @@ class Settings(BaseSettings):
     # LLM Gateway (via LiteLLM)
     # OpenAI
     openai_api_key: str = ""
-    
+
     # Anthropic
     anthropic_api_key: str = ""
-    
+
     # Google (Gemini / Vertex AI)
     gemini_api_key: str = ""
     vertex_project: str = ""
     vertex_location: str = "us-central1"
     vertex_embedding_model: str = ""
-    
+
     # Azure OpenAI
     azure_api_key: str = ""
     azure_api_base: str = ""
     azure_api_version: str = "2024-02-15-preview"
     azure_embedding_deployment: str = ""
     azure_chat_deployment: str = ""
-    
+
     # AWS Bedrock
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_region_name: str = "us-east-1"
     bedrock_embedding_model: str = ""
-    
+
     # OpenRouter
     openrouter_api_key: str = ""
-    
+
     # Default settings
     default_llm_provider: str = "openai"
     default_llm_model: str = "gpt-4o"
@@ -148,19 +147,19 @@ class Settings(BaseSettings):
         """
         warnings: list[str] = []
         errors: list[str] = []
-        
+
         # Check secret_key
         if self.secret_key == _INSECURE_SECRET_KEY:
             if self.app_env == "production":
                 errors.append(
                     "SECRET_KEY must be set to a secure value in production. "
-                    f"Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
                 )
             else:
                 warnings.append(
                     "Using insecure default SECRET_KEY. Set SECRET_KEY env var for security."
                 )
-        
+
         # Check GitHub OAuth (required for auth to work)
         if not self.github_client_id or not self.github_client_secret:
             if self.app_env == "production":
@@ -172,7 +171,7 @@ class Settings(BaseSettings):
                     "GitHub OAuth credentials not set. Login will fail. "
                     "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET."
                 )
-        
+
         # Check LLM keys (at least one should be set for analysis features)
         has_llm_key = any([
             self.openai_api_key,
@@ -191,16 +190,16 @@ class Settings(BaseSettings):
                 errors.append(msg)
             else:
                 warnings.append(msg)
-        
+
         # Log warnings
         for warning in warnings:
             logger.warning(f"⚠️  CONFIG WARNING: {warning}")
-        
+
         # Raise errors in production
         if errors:
             error_msg = "Configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
             raise ValueError(error_msg)
-        
+
         return self
 
     @property

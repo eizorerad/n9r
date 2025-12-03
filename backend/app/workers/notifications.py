@@ -29,20 +29,20 @@ def send_notification(
         dict with notification status
     """
     logger.info(f"Sending {notification_type} notification to user {user_id}")
-    
+
     # Placeholder implementation
     # TODO: Implement actual notification delivery
     # - Email via SendGrid/SES
     # - In-app via WebSocket/SSE
     # - Slack webhook
-    
+
     results = {
         "user_id": user_id,
         "notification_type": notification_type,
         "title": title,
         "status": "sent",
     }
-    
+
     logger.info(f"Notification sent to user {user_id}")
     return results
 
@@ -102,10 +102,10 @@ def send_weekly_digest(user_id: str) -> dict:
     Send weekly digest email to user.
     """
     logger.info(f"Sending weekly digest to user {user_id}")
-    
+
     # Placeholder implementation
     # TODO: Aggregate weekly stats and send digest
-    
+
     return {
         "user_id": user_id,
         "notification_type": "weekly_digest",

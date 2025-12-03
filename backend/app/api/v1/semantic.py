@@ -17,11 +17,11 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.models.repository import Repository
-from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -87,17 +87,17 @@ async def semantic_search(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     # Lazy import to avoid fork-safety issues
     from app.services.llm_gateway import get_llm_gateway
-    
+
     try:
         llm = get_llm_gateway()
         qdrant = get_qdrant_client()
-        
+
         # Generate embedding for query
         query_embedding = await llm.embed([q])
-        
+
         # Search in Qdrant
         results = qdrant.search(
             collection_name=COLLECTION_NAME,
@@ -109,7 +109,7 @@ async def semantic_search(
             },
             limit=limit,
         )
-        
+
         search_results = [
             SemanticSearchResult(
                 file_path=hit.payload.get("file_path", ""),
@@ -124,13 +124,13 @@ async def semantic_search(
             )
             for hit in results
         ]
-        
+
         return SemanticSearchResponse(
             query=q,
             results=search_results,
             total=len(search_results),
         )
-        
+
     except Exception as e:
         logger.error(f"Semantic search failed: {e}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
@@ -184,10 +184,10 @@ async def get_related_code(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         qdrant = get_qdrant_client()
-        
+
         # First, get embeddings for the query file
         file_chunks = qdrant.scroll(
             collection_name=COLLECTION_NAME,
@@ -200,18 +200,18 @@ async def get_related_code(
             limit=10,
             with_vectors=True,
         )[0]
-        
+
         if not file_chunks:
             raise HTTPException(status_code=404, detail=f"No embeddings found for file: {file}")
-        
+
         # Average the vectors for the file
         import numpy as np
         vectors = [chunk.vector for chunk in file_chunks if chunk.vector]
         if not vectors:
             raise HTTPException(status_code=404, detail="No vectors found for file")
-        
+
         avg_vector = np.mean(vectors, axis=0).tolist()
-        
+
         # Search for similar code, excluding the query file
         results = qdrant.search(
             collection_name=COLLECTION_NAME,
@@ -226,7 +226,7 @@ async def get_related_code(
             },
             limit=limit,
         )
-        
+
         related = [
             RelatedCodeResult(
                 file_path=hit.payload.get("file_path", ""),
@@ -240,13 +240,13 @@ async def get_related_code(
             )
             for hit in results
         ]
-        
+
         return RelatedCodeResponse(
             query_file=file,
             cluster=None,  # Will be populated by cluster analysis
             related=related,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -328,13 +328,13 @@ async def get_architecture_health(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         from app.services.cluster_analyzer import get_cluster_analyzer
-        
+
         analyzer = get_cluster_analyzer()
         health = await analyzer.analyze(str(repository_id))
-        
+
         return ArchitectureHealthResponse(
             overall_score=health.overall_score,
             clusters=[
@@ -377,7 +377,7 @@ async def get_architecture_health(
             total_files=health.total_files,
             metrics=health.metrics,
         )
-        
+
     except Exception as e:
         logger.error(f"Architecture health analysis failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -415,13 +415,13 @@ async def get_outliers(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         from app.services.cluster_analyzer import get_cluster_analyzer
-        
+
         analyzer = get_cluster_analyzer()
         health = await analyzer.analyze(str(repository_id))
-        
+
         return OutliersResponse(
             outliers=[
                 OutlierInfoResponse(
@@ -440,7 +440,7 @@ async def get_outliers(
             total_outliers=len(health.outliers),
             percentage=health.metrics.get("outlier_percentage", 0),
         )
-        
+
     except Exception as e:
         logger.error(f"Outlier detection failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -484,7 +484,7 @@ async def suggest_placement(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         # Get related code first
         related_response = await get_related_code(
@@ -494,7 +494,7 @@ async def suggest_placement(
             file=file,
             limit=10,
         )
-        
+
         if not related_response.related:
             return PlacementSuggestionResponse(
                 current_location=file,
@@ -503,7 +503,7 @@ async def suggest_placement(
                 similar_files=[],
                 suggestion="No similar code found to suggest placement",
             )
-        
+
         # Analyze where similar files are located
         similar_dirs = {}
         for r in related_response.related:
@@ -511,11 +511,11 @@ async def suggest_placement(
             if dir_path not in similar_dirs:
                 similar_dirs[dir_path] = []
             similar_dirs[dir_path].append(r.similarity)
-        
+
         # Find best matching directory
         current_dir = "/".join(file.split("/")[:-1]) or "root"
         best_dir = max(similar_dirs.keys(), key=lambda d: sum(similar_dirs[d]) / len(similar_dirs[d]))
-        
+
         # Generate suggestion
         if best_dir == current_dir:
             suggestion = "File is well-placed — similar code is in the same directory"
@@ -525,7 +525,7 @@ async def suggest_placement(
                 suggestion = f"Consider moving to {best_dir}/ — {avg_similarity:.0%} similar to code there"
             else:
                 suggestion = f"File might fit better in {best_dir}/ based on semantic similarity"
-        
+
         return PlacementSuggestionResponse(
             current_location=file,
             current_cluster=None,  # Would need cluster analysis
@@ -533,7 +533,7 @@ async def suggest_placement(
             similar_files=related_response.related[:5],
             suggestion=suggestion,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -583,18 +583,18 @@ async def find_similar_code(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity
-        
+
         qdrant = get_qdrant_client()
-        
+
         # Fetch all vectors
         vectors = []
         payloads = []
         offset = None
-        
+
         while True:
             results, offset = qdrant.scroll(
                 collection_name=COLLECTION_NAME,
@@ -607,41 +607,41 @@ async def find_similar_code(
                 offset=offset,
                 with_vectors=True,
             )
-            
+
             for point in results:
                 if point.vector:
                     vectors.append(point.vector)
                     payloads.append(point.payload or {})
-            
+
             if offset is None:
                 break
-        
+
         if len(vectors) < 2:
             return SimilarCodeResponse(groups=[], total_groups=0, potential_loc_reduction=0)
-        
+
         # Compute pairwise similarities
         vectors_array = np.array(vectors)
         similarities = cosine_similarity(vectors_array)
-        
+
         # Find groups above threshold
         groups = []
         used = set()
-        
+
         for i in range(len(vectors)):
             if i in used:
                 continue
-            
+
             # Find all similar chunks
             similar_indices = np.where(similarities[i] >= threshold)[0]
             similar_indices = [j for j in similar_indices if j != i and j not in used]
-            
+
             if similar_indices:
                 group_indices = [i] + similar_indices
                 avg_similarity = np.mean([similarities[i][j] for j in similar_indices])
-                
+
                 # Mark as used
                 used.update(group_indices)
-                
+
                 # Build group
                 chunks = []
                 total_lines = 0
@@ -654,29 +654,29 @@ async def find_similar_code(
                         "chunk_type": p.get("chunk_type", ""),
                     })
                     total_lines += p.get("line_count", 0) or (p.get("line_end", 0) - p.get("line_start", 0))
-                
+
                 groups.append(SimilarCodeGroup(
                     similarity=round(avg_similarity, 3),
                     suggestion="Extract to shared utility" if len(chunks) > 2 else "Consider consolidating",
                     chunks=chunks,
                 ))
-        
+
         # Sort by similarity and limit
         groups.sort(key=lambda g: g.similarity, reverse=True)
         groups = groups[:limit]
-        
+
         # Estimate LOC reduction
         potential_loc = sum(
             sum(c.get("lines", [0, 0])[1] - c.get("lines", [0, 0])[0] for c in g.chunks[1:])
             for g in groups
         )
-        
+
         return SimilarCodeResponse(
             groups=groups,
             total_groups=len(groups),
             potential_loc_reduction=potential_loc,
         )
-        
+
     except Exception as e:
         logger.error(f"Similar code detection failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -725,16 +725,16 @@ async def get_refactoring_suggestions(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         from app.services.cluster_analyzer import get_cluster_analyzer
-        
+
         suggestions = []
-        
+
         # Get architecture health
         analyzer = get_cluster_analyzer()
         health = await analyzer.analyze(str(repository_id))
-        
+
         # Suggestion 1: Split god files (coupling hotspots)
         for hotspot in health.coupling_hotspots:
             suggestions.append(RefactoringSuggestion(
@@ -745,7 +745,7 @@ async def get_refactoring_suggestions(
                 impact="high",
                 details={"clusters": hotspot.cluster_names},
             ))
-        
+
         # Suggestion 2: Move misplaced files (outliers with high similarity to a cluster)
         for outlier in health.outliers:
             if outlier.nearest_similarity > 0.5 and outlier.nearest_file:
@@ -757,7 +757,7 @@ async def get_refactoring_suggestions(
                     reason=f"{outlier.nearest_similarity:.0%} similar to {outlier.nearest_file}",
                     impact="medium",
                 ))
-        
+
         # Suggestion 3: Reorganize scattered clusters
         for cluster in health.clusters:
             if cluster.status == "scattered" and cluster.file_count > 3:
@@ -769,7 +769,7 @@ async def get_refactoring_suggestions(
                     impact="medium",
                     details={"files": cluster.top_files},
                 ))
-        
+
         # Get similar code for extract_utility suggestions
         similar_response = await find_similar_code(
             repository_id=repository_id,
@@ -778,7 +778,7 @@ async def get_refactoring_suggestions(
             threshold=0.85,
             limit=5,
         )
-        
+
         for group in similar_response.groups:
             if len(group.chunks) >= 3:
                 files = [c.get("file", "") for c in group.chunks]
@@ -790,16 +790,16 @@ async def get_refactoring_suggestions(
                     impact="low",
                     details={"files": files},
                 ))
-        
+
         # Sort by impact
         impact_order = {"high": 0, "medium": 1, "low": 2}
         suggestions.sort(key=lambda s: impact_order.get(s.impact, 3))
-        
+
         return RefactoringSuggestionsResponse(
             suggestions=suggestions[:20],
             total=len(suggestions),
         )
-        
+
     except Exception as e:
         logger.error(f"Refactoring suggestions failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -856,15 +856,15 @@ async def get_tech_debt_heatmap(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         from app.services.cluster_analyzer import get_cluster_analyzer
-        
+
         analyzer = get_cluster_analyzer()
         health = await analyzer.analyze(str(repository_id))
-        
+
         hotspots = []
-        
+
         # Add coupling hotspots as critical
         for hotspot in health.coupling_hotspots:
             hotspots.append(TechDebtHotspot(
@@ -875,7 +875,7 @@ async def get_tech_debt_heatmap(
                 risk="critical" if hotspot.clusters_connected >= 4 else "high",
                 suggestion=hotspot.suggestion,
             ))
-        
+
         # Add outliers as medium risk
         for outlier in health.outliers[:10]:
             if outlier.nearest_similarity < 0.4:
@@ -887,7 +887,7 @@ async def get_tech_debt_heatmap(
                     risk="medium",
                     suggestion=outlier.suggestion,
                 ))
-        
+
         # Build by-cluster summary
         by_cluster = []
         for cluster in health.clusters:
@@ -898,16 +898,16 @@ async def get_tech_debt_heatmap(
                 cohesion=cluster.cohesion,
                 health=health_status,
             ))
-        
+
         # Calculate debt score (inverse of health score)
         debt_score = 100 - health.overall_score
-        
+
         return TechDebtHeatmapResponse(
             debt_score=debt_score,
             hotspots=hotspots,
             by_cluster=by_cluster,
         )
-        
+
     except Exception as e:
         logger.error(f"Tech debt heatmap failed: {e}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
@@ -958,13 +958,13 @@ async def check_style_consistency(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     try:
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity
-        
+
         qdrant = get_qdrant_client()
-        
+
         # Get file's embeddings
         file_results, _ = qdrant.scroll(
             collection_name=COLLECTION_NAME,
@@ -977,16 +977,16 @@ async def check_style_consistency(
             limit=20,
             with_vectors=True,
         )
-        
+
         if not file_results:
             raise HTTPException(status_code=404, detail=f"No embeddings found for file: {file}")
-        
+
         file_vectors = np.array([p.vector for p in file_results if p.vector])
         if len(file_vectors) == 0:
             raise HTTPException(status_code=404, detail="No vectors found for file")
-        
+
         file_avg = np.mean(file_vectors, axis=0)
-        
+
         # Get all other embeddings grouped by directory
         all_results, _ = qdrant.scroll(
             collection_name=COLLECTION_NAME,
@@ -1001,7 +1001,7 @@ async def check_style_consistency(
             limit=500,
             with_vectors=True,
         )
-        
+
         # Group by directory
         dir_vectors = {}
         for point in all_results:
@@ -1011,7 +1011,7 @@ async def check_style_consistency(
             if dir_path not in dir_vectors:
                 dir_vectors[dir_path] = []
             dir_vectors[dir_path].append(point.vector)
-        
+
         # Calculate similarity to each directory
         analysis = {}
         for dir_path, vectors in dir_vectors.items():
@@ -1019,35 +1019,35 @@ async def check_style_consistency(
                 dir_avg = np.mean(vectors, axis=0)
                 similarity = cosine_similarity([file_avg], [dir_avg])[0][0]
                 analysis[f"similarity_to_{dir_path}"] = round(float(similarity), 3)
-        
+
         # Overall consistency is similarity to the file's own directory
         file_dir = "/".join(file.split("/")[:-1]) or "root"
         overall = analysis.get(f"similarity_to_{file_dir}", 0.5)
-        
+
         # Generate issues based on low similarity
         issues = []
         suggestions = []
-        
+
         if overall < 0.6:
             issues.append(StyleIssue(
                 type="patterns",
                 message=f"Code patterns differ from other files in {file_dir}/",
             ))
             suggestions.append(f"Review other files in {file_dir}/ for consistent patterns")
-        
+
         # Find most similar directory if different from current
         if analysis:
             best_dir = max(analysis.keys(), key=lambda k: analysis[k])
             best_similarity = analysis[best_dir]
             best_dir_name = best_dir.replace("similarity_to_", "")
-            
+
             if best_dir_name != file_dir and best_similarity > overall + 0.1:
                 issues.append(StyleIssue(
                     type="placement",
                     message=f"Code style is more similar to {best_dir_name}/ ({best_similarity:.0%}) than {file_dir}/ ({overall:.0%})",
                 ))
                 suggestions.append(f"Consider if this file belongs in {best_dir_name}/")
-        
+
         return StyleConsistencyResponse(
             file=file,
             overall_consistency=round(float(overall), 3),
@@ -1055,7 +1055,7 @@ async def check_style_consistency(
             issues=issues,
             suggestions=suggestions,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1100,12 +1100,12 @@ async def get_embedding_status(
     repository = result.scalar_one_or_none()
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     from app.core.redis import get_embedding_state
-    
+
     # Get embedding state from Redis
     state = await get_embedding_state(str(repository_id))
-    
+
     if state:
         return EmbeddingStatusResponse(
             repository_id=str(repository_id),
@@ -1116,7 +1116,7 @@ async def get_embedding_status(
             chunks_processed=state.get("chunks_processed", 0),
             vectors_stored=state.get("vectors_stored", 0),
         )
-    
+
     # No state in Redis — check if vectors exist in Qdrant
     try:
         qdrant = get_qdrant_client()
@@ -1128,7 +1128,7 @@ async def get_embedding_status(
                 ]
             }
         )
-        
+
         if count.count > 0:
             return EmbeddingStatusResponse(
                 repository_id=str(repository_id),
@@ -1141,7 +1141,7 @@ async def get_embedding_status(
             )
     except Exception as e:
         logger.warning(f"Failed to check Qdrant: {e}")
-    
+
     # No embeddings exist
     return EmbeddingStatusResponse(
         repository_id=str(repository_id),

@@ -1,12 +1,13 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, GitBranch, RefreshCw, ExternalLink, AlertCircle, Loader2 } from 'lucide-react'
-import { VCIScoreCard } from '@/components/vci-score-card'
-import { VCITrendChart } from '@/components/vci-trend-chart'
-import { IssuesList } from '@/components/issues-list'
 import { RunAnalysisButton } from '@/components/run-analysis-button'
-import { AnalysisMetrics } from '@/components/analysis-metrics'
 import { SemanticAnalysisSection } from '@/components/semantic-analysis-section'
+import { CommitTimeline } from '@/components/commit-timeline'
+import { VCISectionClient } from '@/components/vci-section-client'
+import { MetricsSectionClient } from '@/components/metrics-section-client'
+import { IssuesSectionClient } from '@/components/issues-section-client'
+import { SelectedCommitIndicator } from '@/components/selected-commit-indicator'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getRepository } from '@/lib/data/repositories'
@@ -94,6 +95,11 @@ async function RepositoryHeader({ id }: { id: string }) {
     notFound()
   }
 
+  // Fetch HEAD commit SHA for "Latest" badge comparison
+  const headCommitSha = session?.accessToken 
+    ? await getHeadCommitSha(id, session.accessToken, repo.default_branch)
+    : null
+
   const htmlUrl = `https://github.com/${repo.full_name}`
 
   // Determine status display
@@ -101,13 +107,13 @@ async function RepositoryHeader({ id }: { id: string }) {
     <span className="text-amber-500 font-medium">Not analyzed yet</span>
   )
 
-  if (repo.last_analysis_at) {
-    statusDisplay = (
-      <span>
-        Last analyzed: {new Date(repo.last_analysis_at).toLocaleDateString()}
-      </span>
-    )
-  } else if (latestAnalysis) {
+  // Helper to format commit SHA display
+  const formatCommitSha = (sha: string | null | undefined) => {
+    if (!sha) return null
+    return sha.slice(0, 7)
+  }
+
+  if (latestAnalysis) {
     if (latestAnalysis.status === 'failed') {
       statusDisplay = (
         <span className="text-red-500 font-medium flex items-center gap-1" title={latestAnalysis.error_message || "Analysis failed"}>
@@ -123,12 +129,24 @@ async function RepositoryHeader({ id }: { id: string }) {
         </span>
       )
     } else if (latestAnalysis.status === 'completed' && latestAnalysis.completed_at) {
+      const shortSha = formatCommitSha(latestAnalysis.commit_sha)
       statusDisplay = (
-        <span>
+        <span className="flex items-center gap-1.5">
           Last analyzed: {new Date(latestAnalysis.completed_at).toLocaleDateString()}
+          {shortSha && (
+            <code className="text-xs font-mono text-muted-foreground bg-muted/50 px-1 py-0.5 rounded">
+              {shortSha}
+            </code>
+          )}
         </span>
       )
     }
+  } else if (repo.last_analysis_at) {
+    statusDisplay = (
+      <span>
+        Last analyzed: {new Date(repo.last_analysis_at).toLocaleDateString()}
+      </span>
+    )
   }
 
   return (
@@ -139,6 +157,7 @@ async function RepositoryHeader({ id }: { id: string }) {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate">{repo.full_name}</h1>
+          <SelectedCommitIndicator headCommitSha={headCommitSha} />
           <a
             href={htmlUrl}
             target="_blank"
@@ -199,56 +218,56 @@ async function getLatestAnalysis(repoId: string, token: string) {
   }
 }
 
-// VCI Section Component
+// Fetch HEAD commit SHA for the default branch
+async function getHeadCommitSha(repoId: string, token: string, branch: string): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/repositories/${repoId}/commits?branch=${branch}&per_page=1`, {
+      headers: { Authorization: `Bearer ${token}` },
+      next: { revalidate: 60 },
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    const result = await response.json()
+    return result.commits?.[0]?.sha || null
+  } catch {
+    return null
+  }
+}
+
+// VCI Section Component - Client wrapper that subscribes to commit selection
 async function VCISection({ id }: { id: string }) {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
-  const [repo, history] = await Promise.all([
-    getRepository(id),
-    getVCIHistory(id, session.accessToken),
-  ])
-
-  if (!repo) {
-    return <div className="text-muted-foreground">Repository not found</div>
-  }
-
-  const grade = repo.vci_score ? getGrade(repo.vci_score) : null
+  const history = await getVCIHistory(id, session.accessToken)
 
   return (
-    <div className="space-y-4">
-      <VCIScoreCard
-        score={repo.vci_score || null}
-        grade={grade}
-        trend={history.trend}
-      />
-      {history.data_points.length > 0 && (
-        <VCITrendChart data={history.data_points} />
-      )}
-    </div>
+    <VCISectionClient
+      repositoryId={id}
+      token={session.accessToken}
+      initialHistory={history.data_points}
+      initialTrend={history.trend}
+    />
   )
 }
 
-// Metrics Section Component  
+// Metrics Section Component - Client wrapper that subscribes to commit selection
 async function MetricsSection({ id }: { id: string }) {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
-  const analysis = await getLatestAnalysis(id, session.accessToken)
-
-  return <AnalysisMetrics metrics={analysis?.metrics || null} />
+  return <MetricsSectionClient repositoryId={id} token={session.accessToken} />
 }
 
-// Issues Section Component
+// Issues Section Component - Client wrapper that subscribes to commit selection
 async function IssuesSection({ id }: { id: string }) {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
-  const issues = await getIssues(id, session.accessToken)
-
-  return (
-    <IssuesList issues={issues.data} />
-  )
+  return <IssuesSectionClient repositoryId={id} token={session.accessToken} />
 }
 
 // Semantic Analysis Section Wrapper (passes token from server)
@@ -259,6 +278,35 @@ async function SemanticAnalysisSectionWrapper({ id }: { id: string }) {
   }
 
   return <SemanticAnalysisSection repositoryId={id} token={session.accessToken} />
+}
+
+// Commit Timeline Section Wrapper (passes token, defaultBranch, and currentAnalysisCommit from server)
+async function CommitTimelineSectionWrapper({ id }: { id: string }) {
+  const session = await getSession()
+  if (!session?.accessToken) {
+    return <div className="text-muted-foreground text-sm">Please log in to view commit history.</div>
+  }
+
+  const [repo, latestAnalysis] = await Promise.all([
+    getRepository(id),
+    getLatestAnalysis(id, session.accessToken),
+  ])
+  
+  if (!repo) {
+    return <div className="text-muted-foreground text-sm">Repository not found.</div>
+  }
+
+  // Get the commit SHA of the currently displayed analysis
+  const currentAnalysisCommit = latestAnalysis?.status === 'completed' ? latestAnalysis.commit_sha : null
+
+  return (
+    <CommitTimeline
+      repositoryId={id}
+      defaultBranch={repo.default_branch}
+      token={session.accessToken}
+      currentAnalysisCommit={currentAnalysisCommit}
+    />
+  )
 }
 
 // Loading skeletons
@@ -338,9 +386,22 @@ export default async function RepositoryPage({
         </div>
 
         {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
-          {/* Semantic Analysis - Takes full width on top */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+          {/* Commit Timeline - Left sidebar, 1 column */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 xl:row-span-2">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-cyan-500/80" />
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Commit Timeline</h2>
+            </div>
+            <div className="max-h-[500px] xl:max-h-[600px] overflow-y-auto">
+              <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
+                <CommitTimelineSectionWrapper id={id} />
+              </Suspense>
+            </div>
+          </section>
+
+          {/* Semantic Analysis - Takes 3 columns on xl, next to commit timeline */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3 xl:row-span-2">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-purple-500/80" />
               <h2 className="text-base sm:text-lg font-semibold tracking-tight">Semantic Analysis</h2>
@@ -361,8 +422,8 @@ export default async function RepositoryPage({
             </Suspense>
           </section>
 
-          {/* Issues - Takes 2 columns on xl */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 xl:col-span-2">
+          {/* Issues - Takes 1 column */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-amber-500/80" />
               <h2 className="text-base sm:text-lg font-semibold tracking-tight">Issues</h2>
@@ -374,8 +435,8 @@ export default async function RepositoryPage({
             </div>
           </section>
 
-          {/* Analysis Details - Full width at bottom */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
+          {/* Analysis Details - Takes 2 columns */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-blue-500/80" />
               <h2 className="text-base sm:text-lg font-semibold tracking-tight">Analysis Details</h2>

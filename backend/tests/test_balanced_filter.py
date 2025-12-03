@@ -4,19 +4,16 @@ Uses Hypothesis for property-based testing to verify correctness properties
 defined in the design document.
 """
 
-import re
 import numpy as np
-from hypothesis import given, strategies as st, settings, HealthCheck
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from app.services.cluster_analyzer import (
+    COMMON_UTILITY_NAMES,
+    FRAMEWORK_CONVENTIONS,
     extract_imports,
     is_likely_boilerplate,
-    FRAMEWORK_CONVENTIONS,
-    COMMON_UTILITY_NAMES,
-    UTILITY_DIR_PATTERNS,
-    ARCHITECTURAL_SUFFIXES,
 )
-
 
 # =============================================================================
 # Custom Strategies for Python Import Generation
@@ -59,11 +56,11 @@ def python_code_with_imports(draw) -> tuple[str, set[str]]:
     # Generate a list of module paths to import
     num_imports = draw(st.integers(min_value=0, max_value=10))
     modules = draw(st.lists(valid_module_path(), min_size=num_imports, max_size=num_imports))
-    
+
     # Decide import style for each module
     import_lines = []
     expected_imports = set()
-    
+
     for module in modules:
         use_from_import = draw(st.booleans())
         if use_from_import:
@@ -71,7 +68,7 @@ def python_code_with_imports(draw) -> tuple[str, set[str]]:
         else:
             import_lines.append(python_import_statement(module))
         expected_imports.add(module)
-    
+
     # Add some non-import code to make it realistic
     non_import_lines = draw(st.lists(
         st.sampled_from([
@@ -86,11 +83,11 @@ def python_code_with_imports(draw) -> tuple[str, set[str]]:
         min_size=0,
         max_size=5
     ))
-    
+
     # Combine imports and code
     all_lines = import_lines + non_import_lines
     draw(st.randoms()).shuffle(all_lines)
-    
+
     code = "\n".join(all_lines)
     return code, expected_imports
 
@@ -105,7 +102,7 @@ class TestPythonImportExtractionProperties:
     **Feature: balanced-architecture-filter, Property 1: Python Import Extraction Completeness**
     **Validates: Requirements 1.1**
     """
-    
+
     @given(python_code_with_imports())
     @settings(max_examples=100)
     def test_python_import_extraction_completeness(self, code_and_imports: tuple[str, set[str]]):
@@ -118,10 +115,10 @@ class TestPythonImportExtractionProperties:
         module paths X.
         """
         code, expected_imports = code_and_imports
-        
+
         # Extract imports using the function under test
         actual_imports = extract_imports(code, "python")
-        
+
         # Property: All expected imports should be found
         # The extracted set should be a superset of (or equal to) expected imports
         assert expected_imports.issubset(actual_imports), (
@@ -181,11 +178,11 @@ def js_code_with_imports(draw) -> tuple[str, set[str]]:
     # Generate a list of module paths to import
     num_imports = draw(st.integers(min_value=0, max_value=10))
     modules = draw(st.lists(valid_js_module_path(), min_size=num_imports, max_size=num_imports))
-    
+
     # Decide import style for each module
     import_lines = []
     expected_imports = set()
-    
+
     for module in modules:
         use_import_from = draw(st.booleans())
         if use_import_from:
@@ -193,7 +190,7 @@ def js_code_with_imports(draw) -> tuple[str, set[str]]:
         else:
             import_lines.append(js_require_statement(module))
         expected_imports.add(module)
-    
+
     # Add some non-import code to make it realistic
     non_import_lines = draw(st.lists(
         st.sampled_from([
@@ -210,11 +207,11 @@ def js_code_with_imports(draw) -> tuple[str, set[str]]:
         min_size=0,
         max_size=5
     ))
-    
+
     # Combine imports and code
     all_lines = import_lines + non_import_lines
     draw(st.randoms()).shuffle(all_lines)
-    
+
     code = "\n".join(all_lines)
     return code, expected_imports
 
@@ -225,7 +222,7 @@ class TestJavaScriptImportExtractionProperties:
     **Feature: balanced-architecture-filter, Property 2: JavaScript/TypeScript Import Extraction Completeness**
     **Validates: Requirements 1.2**
     """
-    
+
     @given(js_code_with_imports())
     @settings(max_examples=100)
     def test_js_import_extraction_completeness(self, code_and_imports: tuple[str, set[str]]):
@@ -238,11 +235,11 @@ class TestJavaScriptImportExtractionProperties:
         containing all module paths Y.
         """
         code, expected_imports = code_and_imports
-        
+
         # Test with both 'javascript' and 'typescript' language identifiers
         for lang in ["javascript", "typescript", "js", "ts"]:
             actual_imports = extract_imports(code, lang)
-            
+
             # Property: All expected imports should be found
             assert expected_imports.issubset(actual_imports), (
                 f"Missing imports for language '{lang}'!\n"
@@ -286,18 +283,18 @@ def import_graph_with_circular(draw) -> tuple[str, str, dict[str, set[str]]]:
     # Generate two distinct file paths
     file_a = draw(valid_file_path())
     file_b = draw(valid_file_path().filter(lambda p: p != file_a))
-    
+
     # Convert to module paths for imports
     from app.services.cluster_analyzer import to_module_path
     module_a = to_module_path(file_a)
     module_b = to_module_path(file_b)
-    
+
     # Create import graph where both files import each other
     import_graph = {
         file_a: {module_b},  # file_a imports file_b
         file_b: {module_a},  # file_b imports file_a
     }
-    
+
     return file_a, file_b, import_graph
 
 
@@ -307,7 +304,7 @@ class TestImportRelationshipProperties:
     **Feature: balanced-architecture-filter, Property 3: Import Relationship Symmetry**
     **Validates: Requirements 1.4**
     """
-    
+
     @given(import_graph_with_circular())
     @settings(max_examples=100)
     def test_import_relationship_symmetry(self, graph_data: tuple[str, str, dict[str, set[str]]]):
@@ -320,12 +317,12 @@ class TestImportRelationshipProperties:
         then both `a_imports_b` and `b_imports_a` SHALL be True.
         """
         from app.services.cluster_analyzer import analyze_import_relationship
-        
+
         file_a, file_b, import_graph = graph_data
-        
+
         # Analyze the import relationship
         result = analyze_import_relationship(file_a, file_b, import_graph)
-        
+
         # Property: If is_circular is True, both directions must be True
         if result.is_circular:
             assert result.a_imports_b, (
@@ -340,7 +337,7 @@ class TestImportRelationshipProperties:
                 f"file_b: {file_b}\n"
                 f"import_graph: {import_graph}"
             )
-        
+
         # Additional property: is_circular should be True when both directions are True
         # (This is the converse - if both import each other, it should be circular)
         if result.a_imports_b and result.b_imports_a:
@@ -392,7 +389,7 @@ def utility_directory_path() -> st.SearchStrategy[str]:
         lambda s: 4 <= len(s) <= 20
     )
     pattern = st.sampled_from(["/utils/", "/helpers/", "/lib/", "/common/"])
-    
+
     return st.tuples(prefix, pattern, suffix).map(
         lambda t: f"{t[0]}{t[1]}{t[2]}"
     )
@@ -421,7 +418,7 @@ class TestDunderMethodClassificationProperties:
     **Feature: balanced-architecture-filter, Property 4: Dunder Method Classification**
     **Validates: Requirements 2.1**
     """
-    
+
     @given(dunder_method_name(), st.text(max_size=100))
     @settings(max_examples=100)
     def test_dunder_method_classification(self, name: str, file_path: str):
@@ -434,7 +431,7 @@ class TestDunderMethodClassificationProperties:
         `(True, reason)` where reason contains "dunder".
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
-        
+
         assert is_boilerplate, (
             f"Dunder method '{name}' should be classified as boilerplate\n"
             f"Got: is_boilerplate={is_boilerplate}, reason='{reason}'"
@@ -451,7 +448,7 @@ class TestFrameworkConventionClassificationProperties:
     **Feature: balanced-architecture-filter, Property 5: Framework Convention Classification**
     **Validates: Requirements 2.2**
     """
-    
+
     @given(framework_convention_name(), st.text(max_size=100))
     @settings(max_examples=100)
     def test_framework_convention_classification(self, name: str, file_path: str):
@@ -464,7 +461,7 @@ class TestFrameworkConventionClassificationProperties:
         valueOf}, `is_likely_boilerplate` SHALL return `(True, reason)`.
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
-        
+
         assert is_boilerplate, (
             f"Framework convention method '{name}' should be classified as boilerplate\n"
             f"Got: is_boilerplate={is_boilerplate}, reason='{reason}'"
@@ -477,7 +474,7 @@ class TestShortNameInUtilityDirectoryProperties:
     **Feature: balanced-architecture-filter, Property 6: Short Name in Utility Directory Classification**
     **Validates: Requirements 2.3**
     """
-    
+
     @given(short_name(), utility_directory_path())
     @settings(max_examples=100)
     def test_short_name_in_utility_directory_classification(self, name: str, file_path: str):
@@ -492,9 +489,9 @@ class TestShortNameInUtilityDirectoryProperties:
         # Skip if name happens to be a common utility name (tested separately)
         if name.lower() in COMMON_UTILITY_NAMES:
             return
-        
+
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
-        
+
         assert is_boilerplate, (
             f"Short name '{name}' in utility directory '{file_path}' should be classified as boilerplate\n"
             f"Got: is_boilerplate={is_boilerplate}, reason='{reason}'"
@@ -507,7 +504,7 @@ class TestCommonUtilityNameClassificationProperties:
     **Feature: balanced-architecture-filter, Property 7: Common Utility Name Classification**
     **Validates: Requirements 2.4**
     """
-    
+
     @given(common_utility_name(), st.text(max_size=100))
     @settings(max_examples=100)
     def test_common_utility_name_classification(self, name: str, file_path: str):
@@ -519,7 +516,7 @@ class TestCommonUtilityNameClassificationProperties:
         `is_likely_boilerplate` SHALL return `(True, reason)` regardless of file path.
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
-        
+
         assert is_boilerplate, (
             f"Common utility name '{name}' should be classified as boilerplate regardless of path\n"
             f"File path: '{file_path}'\n"
@@ -572,22 +569,22 @@ def file_path_with_layer_keyword(draw) -> tuple[str, str]:
     """
     # Get a layer keyword and its expected layer
     keyword, expected_layer = draw(layer_keyword())
-    
+
     # Generate prefix (optional)
     prefix_parts = draw(st.lists(
         st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 10),
         min_size=0,
         max_size=2
     ))
-    
+
     # Generate suffix (filename)
     filename = draw(st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 15))
     extension = draw(st.sampled_from([".py", ".js", ".ts", ".tsx", ".jsx"]))
-    
+
     # Build the path with the keyword as a directory
     parts = prefix_parts + [keyword, filename + extension]
     file_path = "/".join(parts)
-    
+
     return file_path, expected_layer
 
 
@@ -611,11 +608,11 @@ def generate_test_file_path(draw) -> str:
     """
     # Choose a test pattern
     pattern, pattern_type = draw(st.sampled_from(TEST_PATTERNS_FOR_GENERATION))
-    
+
     # Generate base filename
     base_name = draw(st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 15))
     extension = draw(st.sampled_from([".py", ".js", ".ts", ".tsx", ".jsx"]))
-    
+
     if pattern_type == "prefix":
         # test_foo.py
         filename = pattern + base_name + extension
@@ -625,7 +622,7 @@ def generate_test_file_path(draw) -> str:
             st.from_regex(r"[a-z][a-z0-9_/]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 20).map(lambda s: s + "/")
         ))
         return prefix + filename
-    
+
     elif pattern_type == "suffix":
         # foo_test.py or foo.test.js
         if pattern.startswith("."):
@@ -640,7 +637,7 @@ def generate_test_file_path(draw) -> str:
             st.from_regex(r"[a-z][a-z0-9_/]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 20).map(lambda s: s + "/")
         ))
         return prefix + filename
-    
+
     else:  # directory
         # /tests/foo.py or /__tests__/foo.js
         filename = base_name + extension
@@ -666,7 +663,7 @@ class TestArchitecturalLayerDetectionProperties:
     **Feature: balanced-architecture-filter, Property 8: Architectural Layer Detection Consistency**
     **Validates: Requirements 3.1**
     """
-    
+
     @given(file_path_with_layer_keyword())
     @settings(max_examples=100)
     def test_architectural_layer_detection_consistency(self, path_and_layer: tuple[str, str]):
@@ -679,12 +676,12 @@ class TestArchitecturalLayerDetectionProperties:
         the corresponding layer value.
         """
         from app.services.cluster_analyzer import get_arch_context
-        
+
         file_path, expected_layer = path_and_layer
-        
+
         # Get architectural context
         context = get_arch_context(file_path)
-        
+
         # Property: The detected layer should match the expected layer
         assert context.layer == expected_layer, (
             f"Layer detection mismatch for path '{file_path}'\n"
@@ -699,7 +696,7 @@ class TestTestFileDetectionProperties:
     **Feature: balanced-architecture-filter, Property 9: Test File Detection**
     **Validates: Requirements 3.2**
     """
-    
+
     @given(generate_test_file_path())
     @settings(max_examples=100)
     def test_test_file_detection(self, file_path: str):
@@ -712,10 +709,10 @@ class TestTestFileDetectionProperties:
         with `is_test=True`.
         """
         from app.services.cluster_analyzer import get_arch_context
-        
+
         # Get architectural context
         context = get_arch_context(file_path)
-        
+
         # Property: The file should be detected as a test file
         assert context.is_test, (
             f"Test file not detected for path '{file_path}'\n"
@@ -729,7 +726,7 @@ class TestSameLayerReflexivityProperties:
     **Feature: balanced-architecture-filter, Property 10: Same Layer Reflexivity**
     **Validates: Requirements 3.3**
     """
-    
+
     @given(valid_file_path())
     @settings(max_examples=100)
     def test_same_layer_reflexivity(self, file_path: str):
@@ -740,10 +737,10 @@ class TestSameLayerReflexivityProperties:
         Property: For any file path P, `same_layer(P, P)` SHALL return True.
         """
         from app.services.cluster_analyzer import same_layer
-        
+
         # Property: A file is always in the same layer as itself
         result = same_layer(file_path, file_path)
-        
+
         assert result, (
             f"same_layer reflexivity violated for path '{file_path}'\n"
             f"Expected same_layer(P, P) = True, got {result}"
@@ -770,7 +767,7 @@ def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
     """
     # Generate a base name
     base_name = draw(base_name_for_test())
-    
+
     # Choose a test pattern to apply
     pattern_type = draw(st.sampled_from([
         "prefix_test_",      # test_foo.py
@@ -782,10 +779,10 @@ def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
         "suffix_Test",       # fooTest.py
         "suffix_Spec",       # fooSpec.ts
     ]))
-    
+
     # Choose an extension
     extension = draw(st.sampled_from([".py", ".js", ".ts", ".tsx", ".jsx"]))
-    
+
     # Build the filename based on pattern
     if pattern_type == "prefix_test_":
         filename = f"test_{base_name}{extension}"
@@ -805,7 +802,7 @@ def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
         filename = f"{base_name}Spec{extension}"
     else:
         filename = f"test_{base_name}{extension}"
-    
+
     # Optionally add a directory prefix
     prefix = draw(st.one_of(
         st.just(""),
@@ -813,7 +810,7 @@ def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
             lambda s: 2 <= len(s) <= 30
         ).map(lambda s: s + "/")
     ))
-    
+
     file_path = prefix + filename
     return file_path, base_name
 
@@ -828,7 +825,7 @@ class TestTestBaseNameExtractionProperties:
     **Feature: balanced-architecture-filter, Property 11: Test Base Name Extraction**
     **Validates: Requirements 4.1**
     """
-    
+
     @given(generate_test_file_path_with_base_name())
     @settings(max_examples=100)
     def test_test_base_name_extraction(self, path_and_base: tuple[str, str]):
@@ -841,12 +838,12 @@ class TestTestBaseNameExtractionProperties:
         name with all test markers removed.
         """
         from app.services.cluster_analyzer import get_test_base_name
-        
+
         file_path, expected_base = path_and_base
-        
+
         # Extract the base name
         actual_base = get_test_base_name(file_path)
-        
+
         # Property: The extracted base name should match the expected base name
         assert actual_base == expected_base, (
             f"Base name extraction mismatch for path '{file_path}'\n"
@@ -874,7 +871,7 @@ def outlier_payload(draw) -> dict:
         common_utility_name(),
     ))
     chunk_type = draw(st.sampled_from(["function", "class", "method"]))
-    
+
     return {
         "file_path": file_path,
         "name": name,
@@ -887,11 +884,11 @@ def nearest_payload_or_none(draw) -> dict | None:
     """Generate a nearest neighbor payload or None."""
     if draw(st.booleans()):
         return None
-    
+
     file_path = draw(valid_file_path())
     name = draw(st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 30))
     chunk_type = draw(st.sampled_from(["function", "class", "method"]))
-    
+
     return {
         "file_path": file_path,
         "name": name,
@@ -903,13 +900,13 @@ def nearest_payload_or_none(draw) -> dict | None:
 def import_analysis_data(draw) -> "ImportAnalysis":
     """Generate an ImportAnalysis object for testing."""
     from app.services.cluster_analyzer import ImportAnalysis
-    
+
     a_imports_b = draw(st.booleans())
     b_imports_a = draw(st.booleans())
     shared_imports_count = draw(st.integers(min_value=0, max_value=20))
     # is_circular must be True only if both directions are True
     is_circular = a_imports_b and b_imports_a
-    
+
     return ImportAnalysis(
         a_imports_b=a_imports_b,
         b_imports_a=b_imports_a,
@@ -929,7 +926,7 @@ def confidence_test_scenario(draw) -> tuple[dict, dict | None, float, "ImportAna
     nearest = draw(nearest_payload_or_none())
     similarity = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False))
     import_analysis = draw(import_analysis_data())
-    
+
     return outlier, nearest, similarity, import_analysis
 
 
@@ -943,11 +940,11 @@ class TestConfidenceScoreBoundsProperties:
     **Feature: balanced-architecture-filter, Property 12: Confidence Score Bounds**
     **Validates: Requirements 5.6**
     """
-    
+
     @given(confidence_test_scenario())
     @settings(max_examples=100)
     def test_confidence_score_bounds(
-        self, 
+        self,
         scenario: tuple[dict, dict | None, float, "ImportAnalysis"]
     ):
         """
@@ -959,9 +956,9 @@ class TestConfidenceScoreBoundsProperties:
         in the range [0.1, 0.9].
         """
         from app.services.cluster_analyzer import calculate_balanced_confidence
-        
+
         outlier, nearest, similarity, import_analysis = scenario
-        
+
         # Calculate confidence
         confidence, reasons = calculate_balanced_confidence(
             outlier_payload=outlier,
@@ -969,7 +966,7 @@ class TestConfidenceScoreBoundsProperties:
             similarity=similarity,
             import_analysis=import_analysis,
         )
-        
+
         # Property: Confidence must be in range [0.1, 0.9]
         assert 0.1 <= confidence <= 0.9, (
             f"Confidence score {confidence} is out of bounds [0.1, 0.9]\n"
@@ -979,12 +976,12 @@ class TestConfidenceScoreBoundsProperties:
             f"Import analysis: {import_analysis}\n"
             f"Reasons: {reasons}"
         )
-        
+
         # Additional property: reasons should be a list
         assert isinstance(reasons, list), (
             f"Reasons should be a list, got {type(reasons)}"
         )
-        
+
         # Additional property: all reasons should be strings
         for reason in reasons:
             assert isinstance(reason, str), (
@@ -1008,7 +1005,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
     """
     # Generate between 10 and 30 points (smaller for faster tests)
     num_points = draw(st.integers(min_value=10, max_value=30))
-    
+
     # Generate random vectors using numpy directly (much faster than hypothesis lists)
     # Use a smaller dimension (32) for testing purposes
     rng = np.random.default_rng(draw(st.integers(min_value=0, max_value=2**31)))
@@ -1017,19 +1014,19 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms = np.maximum(norms, 1e-10)  # Avoid division by zero
     vectors = vectors / norms
-    
+
     # Generate labels with some outliers (-1) and some clusters (0, 1, 2, ...)
     # Ensure at least some outliers and some non-outliers
     num_outliers = draw(st.integers(min_value=1, max_value=max(1, num_points // 3)))
     num_clustered = num_points - num_outliers
-    
+
     # Create labels: -1 for outliers, 0-2 for clusters
     outlier_labels = [-1] * num_outliers
     cluster_labels = [rng.integers(0, 3) for _ in range(num_clustered)]
     labels = outlier_labels + cluster_labels
     rng.shuffle(labels)
     labels = np.array(labels)
-    
+
     # Pre-defined file paths and names for faster generation
     file_paths = [
         "app/services/user.py", "app/models/user.py", "app/api/routes.py",
@@ -1044,7 +1041,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
         "get", "set", "run", "add", "UserFactory", "DataAdapter",
     ]
     chunk_types = ["function", "class", "method"]
-    
+
     # Generate payloads for each point
     payloads = []
     for i in range(num_points):
@@ -1052,7 +1049,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
         name = names[rng.integers(0, len(names))]
         chunk_type = chunk_types[rng.integers(0, len(chunk_types))]
         language = "python" if file_path.endswith(".py") else "javascript"
-        
+
         payloads.append({
             "file_path": file_path,
             "name": name,
@@ -1060,7 +1057,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
             "language": language,
             "content": "",  # Empty content for simplicity
         })
-    
+
     return vectors, labels, payloads
 
 
@@ -1074,11 +1071,11 @@ class TestLowConfidenceFilteringProperties:
     **Feature: balanced-architecture-filter, Property 13: Low Confidence Filtering**
     **Validates: Requirements 5.7**
     """
-    
+
     @given(generate_outlier_scenario())
     @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.large_base_example])
     def test_low_confidence_filtering(
-        self, 
+        self,
         scenario: tuple[np.ndarray, np.ndarray, list[dict]]
     ):
         """
@@ -1090,13 +1087,13 @@ class TestLowConfidenceFilteringProperties:
         result list.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
-        
+
         vectors, labels, payloads = scenario
-        
+
         # Create analyzer and find outliers
         analyzer = ClusterAnalyzer(qdrant_client=None)
         outliers = analyzer._find_outliers(vectors, labels, payloads)
-        
+
         # Property: All returned outliers must have confidence >= 0.4
         for outlier in outliers:
             assert outlier.confidence >= 0.4, (
@@ -1113,11 +1110,11 @@ class TestTierAssignmentConsistencyProperties:
     **Feature: balanced-architecture-filter, Property 14: Tier Assignment Consistency**
     **Validates: Requirements 6.1, 6.2, 6.3**
     """
-    
+
     @given(generate_outlier_scenario())
     @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.large_base_example])
     def test_tier_assignment_consistency(
-        self, 
+        self,
         scenario: tuple[np.ndarray, np.ndarray, list[dict]]
     ):
         """
@@ -1130,25 +1127,25 @@ class TestTierAssignmentConsistencyProperties:
         - If 0.4 <= confidence < 0.5, tier SHALL be "informational"
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
-        
+
         vectors, labels, payloads = scenario
-        
+
         # Create analyzer and find outliers
         analyzer = ClusterAnalyzer(qdrant_client=None)
         outliers = analyzer._find_outliers(vectors, labels, payloads)
-        
+
         # Property: Tier must match confidence thresholds
         for outlier in outliers:
             confidence = outlier.confidence
             tier = outlier.tier
-            
+
             if confidence >= 0.7:
                 expected_tier = "critical"
             elif confidence >= 0.5:
                 expected_tier = "recommended"
             else:
                 expected_tier = "informational"
-            
+
             assert tier == expected_tier, (
                 f"Tier mismatch for confidence {confidence}\n"
                 f"Expected tier: '{expected_tier}'\n"
@@ -1164,11 +1161,11 @@ class TestResultOrderingProperties:
     **Feature: balanced-architecture-filter, Property 15: Result Ordering**
     **Validates: Requirements 6.4**
     """
-    
+
     @given(generate_outlier_scenario())
     @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.large_base_example])
     def test_result_ordering(
-        self, 
+        self,
         scenario: tuple[np.ndarray, np.ndarray, list[dict]]
     ):
         """
@@ -1179,18 +1176,18 @@ class TestResultOrderingProperties:
         pairs (outlier[i], outlier[i+1]), outlier[i].confidence >= outlier[i+1].confidence.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
-        
+
         vectors, labels, payloads = scenario
-        
+
         # Create analyzer and find outliers
         analyzer = ClusterAnalyzer(qdrant_client=None)
         outliers = analyzer._find_outliers(vectors, labels, payloads)
-        
+
         # Property: Results must be sorted by confidence descending
         for i in range(len(outliers) - 1):
             current = outliers[i]
             next_outlier = outliers[i + 1]
-            
+
             assert current.confidence >= next_outlier.confidence, (
                 f"Results not sorted by confidence descending\n"
                 f"outliers[{i}].confidence = {current.confidence}\n"
@@ -1206,11 +1203,11 @@ class TestResultSizeLimitProperties:
     **Feature: balanced-architecture-filter, Property 16: Result Size Limit**
     **Validates: Requirements 6.5**
     """
-    
+
     @given(generate_outlier_scenario())
     @settings(max_examples=100, deadline=None, suppress_health_check=[HealthCheck.large_base_example])
     def test_result_size_limit(
-        self, 
+        self,
         scenario: tuple[np.ndarray, np.ndarray, list[dict]]
     ):
         """
@@ -1220,13 +1217,13 @@ class TestResultSizeLimitProperties:
         Property: For any result list from `_find_outliers`, len(result) <= 15.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
-        
+
         vectors, labels, payloads = scenario
-        
+
         # Create analyzer and find outliers
         analyzer = ClusterAnalyzer(qdrant_client=None)
         outliers = analyzer._find_outliers(vectors, labels, payloads)
-        
+
         # Property: Result size must be <= 15
         assert len(outliers) <= 15, (
             f"Result size {len(outliers)} exceeds limit of 15"
@@ -1243,7 +1240,7 @@ class TestAPIResponseCompletenessProperties:
     **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
     **Validates: Requirements 8.1, 8.2, 8.3**
     """
-    
+
     def test_outlier_info_response_has_confidence_field(self):
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
@@ -1252,12 +1249,12 @@ class TestAPIResponseCompletenessProperties:
         Property: OutlierInfoResponse SHALL have a `confidence` field of type float.
         """
         from app.api.v1.semantic import OutlierInfoResponse
-        
+
         # Check that the model has the confidence field
         assert "confidence" in OutlierInfoResponse.model_fields, (
             "OutlierInfoResponse must have a 'confidence' field"
         )
-        
+
         # Create an instance and verify the field works
         response = OutlierInfoResponse(
             file_path="test.py",
@@ -1270,14 +1267,14 @@ class TestAPIResponseCompletenessProperties:
             confidence_factors=["factor1"],
             tier="recommended",
         )
-        
+
         assert response.confidence == 0.75, (
             f"Confidence field should be 0.75, got {response.confidence}"
         )
         assert isinstance(response.confidence, float), (
             f"Confidence should be float, got {type(response.confidence)}"
         )
-    
+
     def test_outlier_info_response_has_confidence_factors_field(self):
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
@@ -1286,12 +1283,12 @@ class TestAPIResponseCompletenessProperties:
         Property: OutlierInfoResponse SHALL have a `confidence_factors` field of type list[str].
         """
         from app.api.v1.semantic import OutlierInfoResponse
-        
+
         # Check that the model has the confidence_factors field
         assert "confidence_factors" in OutlierInfoResponse.model_fields, (
             "OutlierInfoResponse must have a 'confidence_factors' field"
         )
-        
+
         # Create an instance and verify the field works
         factors = ["Boilerplate: Python dunder method", "Different architectural layer"]
         response = OutlierInfoResponse(
@@ -1305,14 +1302,14 @@ class TestAPIResponseCompletenessProperties:
             confidence_factors=factors,
             tier="recommended",
         )
-        
+
         assert response.confidence_factors == factors, (
             f"Confidence factors should be {factors}, got {response.confidence_factors}"
         )
         assert isinstance(response.confidence_factors, list), (
             f"Confidence factors should be list, got {type(response.confidence_factors)}"
         )
-    
+
     def test_outlier_info_response_has_tier_field(self):
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
@@ -1321,12 +1318,12 @@ class TestAPIResponseCompletenessProperties:
         Property: OutlierInfoResponse SHALL have a `tier` field of type str.
         """
         from app.api.v1.semantic import OutlierInfoResponse
-        
+
         # Check that the model has the tier field
         assert "tier" in OutlierInfoResponse.model_fields, (
             "OutlierInfoResponse must have a 'tier' field"
         )
-        
+
         # Test all valid tier values
         for tier_value in ["critical", "recommended", "informational"]:
             response = OutlierInfoResponse(
@@ -1340,14 +1337,14 @@ class TestAPIResponseCompletenessProperties:
                 confidence_factors=[],
                 tier=tier_value,
             )
-            
+
             assert response.tier == tier_value, (
                 f"Tier should be '{tier_value}', got '{response.tier}'"
             )
             assert isinstance(response.tier, str), (
                 f"Tier should be str, got {type(response.tier)}"
             )
-    
+
     def test_outlier_info_response_default_values(self):
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
@@ -1356,7 +1353,7 @@ class TestAPIResponseCompletenessProperties:
         Property: OutlierInfoResponse SHALL have sensible default values for new fields.
         """
         from app.api.v1.semantic import OutlierInfoResponse
-        
+
         # Create an instance with only required fields (testing defaults)
         response = OutlierInfoResponse(
             file_path="test.py",
@@ -1366,7 +1363,7 @@ class TestAPIResponseCompletenessProperties:
             nearest_file="other.py",
             suggestion="Test suggestion",
         )
-        
+
         # Check default values
         assert response.confidence == 0.5, (
             f"Default confidence should be 0.5, got {response.confidence}"

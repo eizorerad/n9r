@@ -14,6 +14,30 @@ class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+
+  /**
+   * Check if this is a rate limit error (429 or 403 with rate limit message)
+   */
+  isRateLimitError(): boolean {
+    return (
+      this.status === 429 ||
+      (this.status === 403 && this.message.toLowerCase().includes("rate limit"))
+    );
+  }
+
+  /**
+   * Check if this is a permission error (403 without rate limit)
+   */
+  isPermissionError(): boolean {
+    return this.status === 403 && !this.isRateLimitError();
+  }
+
+  /**
+   * Check if this is an authentication error (401)
+   */
+  isAuthenticationError(): boolean {
+    return this.status === 401;
+  }
 }
 
 async function request<T>(
@@ -337,6 +361,76 @@ export const autoPrApi = {
       method: "POST",
       token,
       body: JSON.stringify({ feedback }),
+    }),
+};
+
+// Branch and Commit Types (Requirements: 1.1, 2.1, 2.2, 3.1, 3.2)
+export interface Branch {
+  name: string;
+  commit_sha: string;
+  is_default: boolean;
+  is_protected: boolean;
+}
+
+export interface Commit {
+  sha: string;
+  short_sha: string;
+  message: string;
+  message_headline: string;
+  author_name: string;
+  author_login: string | null;
+  author_avatar_url: string | null;
+  committed_at: string;
+  analysis_id: string | null;
+  vci_score: number | null;
+  analysis_status: string | null;
+}
+
+// Branch and Commit API (Requirements: 1.1, 2.1, 4.1)
+export const branchApi = {
+  /**
+   * Fetch branches for a repository
+   * Requirements: 1.1
+   */
+  list: (token: string, repositoryId: string) =>
+    request<{ data: Branch[] }>(`/repositories/${repositoryId}/branches`, { token }),
+};
+
+export const commitApi = {
+  /**
+   * Fetch commits for a repository branch
+   * Requirements: 2.1
+   */
+  list: (
+    token: string,
+    repositoryId: string,
+    params?: { branch?: string; per_page?: number }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.branch) searchParams.set("branch", params.branch);
+    if (params?.per_page) searchParams.set("per_page", String(params.per_page));
+    const query = searchParams.toString();
+    return request<{ commits: Commit[]; branch: string }>(
+      `/repositories/${repositoryId}/commits${query ? `?${query}` : ""}`,
+      { token }
+    );
+  },
+
+  /**
+   * Trigger analysis for a specific commit
+   * Requirements: 4.1
+   */
+  triggerAnalysis: (token: string, repositoryId: string, commitSha: string) =>
+    request<{
+      id: string;
+      repository_id: string;
+      commit_sha: string;
+      status: string;
+      created_at: string;
+    }>(`/repositories/${repositoryId}/analyses`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ commit_sha: commitSha }),
     }),
 };
 

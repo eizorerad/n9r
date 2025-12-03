@@ -9,7 +9,6 @@ This migration adds new indexes for:
 Run: python -m scripts.migrate_qdrant_v2
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -28,24 +27,24 @@ def migrate_qdrant_v2():
         host=settings.qdrant_host,
         port=settings.qdrant_port,
     )
-    
+
     collection_name = settings.qdrant_collection_name
-    
+
     # Check if collection exists
     collections = client.get_collections().collections
     collection_names = [c.name for c in collections]
-    
+
     if collection_name not in collection_names:
         print(f"Collection '{collection_name}' does not exist. Run init_qdrant.py first.")
         return False
-    
+
     print(f"Migrating collection '{collection_name}'...")
-    
+
     # Get existing indexes
     collection_info = client.get_collection(collection_name)
     existing_indexes = set(collection_info.payload_schema.keys()) if collection_info.payload_schema else set()
     print(f"Existing indexes: {existing_indexes}")
-    
+
     # New indexes to add
     new_indexes = {
         "level": PayloadSchemaType.INTEGER,
@@ -54,15 +53,15 @@ def migrate_qdrant_v2():
         "qualified_name": PayloadSchemaType.KEYWORD,
         "line_count": PayloadSchemaType.INTEGER,
     }
-    
+
     added = []
     skipped = []
-    
+
     for field_name, field_schema in new_indexes.items():
         if field_name in existing_indexes:
             skipped.append(field_name)
             continue
-        
+
         try:
             client.create_payload_index(
                 collection_name=collection_name,
@@ -73,15 +72,15 @@ def migrate_qdrant_v2():
             print(f"  ✅ Created index: {field_name} ({field_schema})")
         except Exception as e:
             print(f"  ❌ Failed to create index {field_name}: {e}")
-    
+
     if skipped:
         print(f"\nSkipped (already exist): {', '.join(skipped)}")
-    
+
     if added:
         print(f"\nSuccessfully added indexes: {', '.join(added)}")
     else:
         print("\nNo new indexes added.")
-    
+
     return True
 
 

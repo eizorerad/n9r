@@ -51,21 +51,21 @@ async def run_migrations() -> None:
     """
     print_header("Running Database Migrations")
     import subprocess
-    
+
     result = subprocess.run(
         ["alembic", "upgrade", "head"],
         cwd=Path(__file__).parent.parent,
         capture_output=True,
         text=True,
     )
-    
+
     if result.returncode == 0:
         print_success("Database migrations completed successfully")
         if result.stdout:
             for line in result.stdout.split("\n"):
                 if line.strip():
                     print(f"   {line}")
-        
+
         # Show current revision
         result_current = subprocess.run(
             ["alembic", "current"],
@@ -91,32 +91,33 @@ def init_qdrant() -> None:
     - Payload indexes for repo_id, file_path, language
     """
     print_header("Initializing Qdrant Collection")
-    
+
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Distance, VectorParams, PayloadSchemaType
+    from qdrant_client.models import Distance, PayloadSchemaType, VectorParams
+
     from app.core.config import settings
-    
+
     try:
         client = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
         )
-        
+
         collection_name = settings.qdrant_collection_name
-        
+
         # Check if collection exists
         collections = client.get_collections().collections
         collection_names = [c.name for c in collections]
-        
+
         if collection_name in collection_names:
             print_success(f"Collection '{collection_name}' already exists")
-            
+
             # Get collection info
             collection_info = client.get_collection(collection_name)
             print_info(f"Vector size: {collection_info.config.params.vectors.size}")
             print_info(f"Points count: {collection_info.points_count}")
             return
-        
+
         # Create collection
         client.create_collection(
             collection_name=collection_name,
@@ -125,7 +126,7 @@ def init_qdrant() -> None:
                 distance=Distance.COSINE,
             ),
         )
-        
+
         # Create payload indexes for efficient filtering
         for field in ["repo_id", "file_path", "language"]:
             client.create_payload_index(
@@ -133,12 +134,12 @@ def init_qdrant() -> None:
                 field_name=field,
                 field_schema=PayloadSchemaType.KEYWORD,
             )
-        
+
         print_success(f"Collection '{collection_name}' created successfully")
         print_info("Vector size: 1536 (OpenAI embeddings)")
         print_info("Distance metric: COSINE")
         print_info("Payload indexes: repo_id, file_path, language")
-        
+
     except Exception as e:
         print_error(f"Qdrant initialization failed: {e}")
         raise
@@ -152,12 +153,14 @@ def init_minio() -> None:
     - Folder structure: reports/, logs/, artifacts/
     """
     print_header("Initializing MinIO Buckets")
-    
+
     from io import BytesIO
+
     from minio import Minio
     from minio.error import S3Error
+
     from app.core.config import settings
-    
+
     try:
         client = Minio(
             settings.minio_endpoint,
@@ -165,19 +168,19 @@ def init_minio() -> None:
             secret_key=settings.minio_secret_key,
             secure=settings.minio_secure,
         )
-        
+
         bucket_name = settings.minio_bucket
-        
+
         # Create bucket
         if not client.bucket_exists(bucket_name):
             client.make_bucket(bucket_name)
             print_success(f"Bucket '{bucket_name}' created")
         else:
             print_success(f"Bucket '{bucket_name}' already exists")
-        
+
         # Create folder markers for organized storage
         folders = ["reports/.gitkeep", "logs/.gitkeep", "artifacts/.gitkeep"]
-        
+
         for folder in folders:
             try:
                 client.stat_object(bucket_name, folder)
@@ -186,10 +189,10 @@ def init_minio() -> None:
                     client.put_object(bucket_name, folder, BytesIO(b""), 0)
                     folder_name = folder.replace("/.gitkeep", "/")
                     print_info(f"Created folder: {folder_name}")
-        
+
         print_success("MinIO initialization complete")
         print_info(f"Endpoint: {settings.minio_endpoint}")
-        
+
     except Exception as e:
         print_error(f"MinIO initialization failed: {e}")
         raise
@@ -205,37 +208,38 @@ async def check_redis() -> None:
     - Pub/Sub channels (for SSE analysis progress)
     """
     print_header("Checking Redis Connection")
-    
-    from app.core.redis import async_redis_pool
+
     import redis.asyncio as aioredis
-    
+
+    from app.core.redis import async_redis_pool
+
     try:
         async with aioredis.Redis(connection_pool=async_redis_pool) as client:
             # Test basic connectivity
             await client.ping()
             print_success("Redis connection successful")
-            
+
             # Get Redis info
             info = await client.info("server")
             redis_version = info.get("redis_version", "unknown")
             print_info(f"Redis version: {redis_version}")
-            
+
             # Test key operations
             test_key = "init:test"
             await client.setex(test_key, 10, "test_value")
             value = await client.get(test_key)
             await client.delete(test_key)
-            
+
             if value == "test_value":
                 print_success("Key operations working (set/get/delete)")
-            
+
             # Check if Redis supports required features
             print_info("Redis features:")
             print_info("  • OAuth state storage (TTL: 10min)")
             print_info("  • Analysis progress streaming (Pub/Sub)")
             print_info("  • Playground scan results (TTL: 1hr)")
             print_info("  • Rate limiting")
-            
+
     except Exception as e:
         print_error(f"Redis connection failed: {e}")
         print_info("Ensure Redis is running: docker-compose up -d redis")
@@ -245,10 +249,11 @@ async def check_redis() -> None:
 def check_postgres() -> None:
     """Check PostgreSQL connectivity and database info."""
     print_header("Checking PostgreSQL Connection")
-    
+
     from sqlalchemy import create_engine, text
+
     from app.core.config import settings
-    
+
     try:
         engine = create_engine(str(settings.database_url))
         with engine.connect() as conn:
@@ -256,20 +261,20 @@ def check_postgres() -> None:
             result = conn.execute(text("SELECT 1"))
             result.fetchone()
             print_success("PostgreSQL connection successful")
-            
+
             # Get PostgreSQL version
             result = conn.execute(text("SELECT version()"))
             version = result.fetchone()
             if version:
                 version_str = version[0].split(",")[0]
                 print_info(f"PostgreSQL version: {version_str}")
-            
+
             # Check database name
             result = conn.execute(text("SELECT current_database()"))
             db_name = result.fetchone()
             if db_name:
                 print_info(f"Database: {db_name[0]}")
-                
+
     except Exception as e:
         print_error(f"PostgreSQL connection failed: {e}")
         print_info("Ensure PostgreSQL is running: docker-compose up -d postgres")
@@ -288,32 +293,32 @@ async def main() -> None:
     print("\n" + "=" * 60)
     print("  🚀 n9r Infrastructure Initialization")
     print("=" * 60)
-    
+
     try:
         # Phase 1: Check connections first
         print_info("Phase 1: Validating infrastructure connectivity...")
         check_postgres()
         await check_redis()
-        
+
         # Phase 2: Run migrations
         print_info("Phase 2: Applying database schema...")
         await run_migrations()
-        
+
         # Phase 3: Initialize services
         print_info("Phase 3: Initializing vector database and storage...")
         init_qdrant()
         init_minio()
-        
+
         # Success summary
         print_header("✅ Initialization Complete!")
         print("All infrastructure components are ready.\n")
-        
+
         print("📊 Infrastructure Status:")
         print("  ✅ PostgreSQL — Database ready with latest schema")
         print("  ✅ Redis — Caching, OAuth, Pub/Sub, Rate limiting")
         print("  ✅ Qdrant — Vector search with 1536-dim embeddings")
         print("  ✅ MinIO — Object storage for reports/logs/artifacts")
-        
+
         print("\n🚀 Next Steps:")
         print("  1. Start the backend server:")
         print("     uvicorn main:app --reload --port 8000")
@@ -327,7 +332,7 @@ async def main() -> None:
         print("  4. Start the frontend:")
         print("     cd ../frontend && pnpm dev")
         print()
-        
+
         print("📖 Documentation:")
         print("  • Architecture: docs/architecture.md")
         print("  • API Spec: docs/api_spec.md")
@@ -336,7 +341,7 @@ async def main() -> None:
         print("    - docs/30-nov-2025-fix.md (Schema fixes)")
         print("    - docs/29-nov-2025-fix.md (Redis, LiteLLM, SSE)")
         print("    - docs/28-nov-2025-fix.md (Extended metrics)")
-        
+
     except Exception as e:
         print(f"\n❌ Initialization failed: {e}")
         print("\n💡 Troubleshooting:")

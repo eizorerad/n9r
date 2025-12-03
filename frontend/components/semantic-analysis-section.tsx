@@ -9,6 +9,8 @@ import { ClusterMap } from '@/components/cluster-map'
 import { SimilarCode } from '@/components/similar-code'
 import { TechDebtHeatmap } from '@/components/tech-debt-heatmap'
 import { useAnalysisProgressStore, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
+import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
+import { Loader2, Sparkles } from 'lucide-react'
 
 interface EmbeddingStatus {
   repository_id: string
@@ -18,6 +20,46 @@ interface EmbeddingStatus {
   message: string | null
   chunks_processed: number
   vectors_stored: number
+}
+
+interface SemanticCacheData {
+  analysis_id: string
+  commit_sha: string
+  architecture_health: {
+    overall_score: number
+    clusters: Array<{
+      id: number
+      name: string
+      file_count: number
+      chunk_count: number
+      cohesion: number
+      top_files: string[]
+      dominant_language: string | null
+      status: string
+    }>
+    outliers: Array<{
+      file_path: string
+      chunk_name: string | null
+      chunk_type: string | null
+      nearest_similarity: number
+      nearest_file: string | null
+      suggestion: string
+      confidence: number
+      confidence_factors: string[]
+      tier: string
+    }>
+    coupling_hotspots: Array<{
+      file_path: string
+      clusters_connected: number
+      cluster_names: string[]
+      suggestion: string
+    }>
+    total_chunks: number
+    total_files: number
+    metrics: Record<string, number>
+  } | null
+  computed_at: string | null
+  is_cached: boolean
 }
 
 interface SemanticAnalysisSectionProps {
@@ -41,6 +83,12 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   
+  // Semantic cache state
+  const { selectedAnalysisId } = useCommitSelectionStore()
+  const [semanticCache, setSemanticCache] = useState<SemanticCacheData | null>(null)
+  const [cacheLoading, setCacheLoading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  
   // Global progress store
   const { addTask, updateTask, hasTask } = useAnalysisProgressStore()
   const taskId = getEmbeddingsTaskId(repositoryId)
@@ -54,6 +102,63 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       }
     }
   }, [token])
+
+  // Fetch semantic cache when selectedAnalysisId changes
+  useEffect(() => {
+    if (!selectedAnalysisId || !token) {
+      setSemanticCache(null)
+      return
+    }
+
+    const fetchSemanticCache = async () => {
+      setCacheLoading(true)
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/analyses/${selectedAnalysisId}/semantic`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        )
+        if (response.ok) {
+          const data = await response.json()
+          setSemanticCache(data)
+        } else {
+          setSemanticCache(null)
+        }
+      } catch (error) {
+        console.error('Failed to fetch semantic cache:', error)
+        setSemanticCache(null)
+      } finally {
+        setCacheLoading(false)
+      }
+    }
+
+    fetchSemanticCache()
+  }, [selectedAnalysisId, token, refreshKey])
+
+  // Generate semantic cache
+  const handleGenerateCache = async () => {
+    if (!selectedAnalysisId || !token) return
+
+    setGenerating(true)
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/analyses/${selectedAnalysisId}/semantic/generate`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
+      if (response.ok) {
+        const data = await response.json()
+        setSemanticCache(data)
+      }
+    } catch (error) {
+      console.error('Failed to generate semantic cache:', error)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   // Poll for embedding status - use ref to avoid dependency issues
   const embeddingStatusRef = useRef<EmbeddingStatus | null>(null)
@@ -190,6 +295,63 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     )
   }
 
+  // Show loading state when fetching cache
+  if (cacheLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <span className="ml-3 text-muted-foreground">Loading semantic analysis...</span>
+      </div>
+    )
+  }
+
+  // Show empty state if no analysis selected
+  if (!selectedAnalysisId) {
+    return (
+      <Card className="glass-panel border-border/50">
+        <CardContent className="p-6">
+          <div className="text-center py-8 text-muted-foreground">
+            <p className="text-sm">Select a commit to view semantic analysis</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // Show generate button if cache is missing
+  if (semanticCache && !semanticCache.is_cached) {
+    return (
+      <Card className="glass-panel border-border/50">
+        <CardContent className="p-6">
+          <div className="text-center py-8">
+            <div className="text-3xl mb-3">🔍</div>
+            <h3 className="text-base font-semibold mb-2">Semantic Analysis Not Generated</h3>
+            <p className="text-sm text-muted-foreground mb-4 max-w-sm mx-auto">
+              Generate semantic analysis to view architecture health, clusters, and outliers for this commit.
+            </p>
+            <Button
+              onClick={handleGenerateCache}
+              disabled={generating}
+              className="gap-2"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Generate Semantic Analysis
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div>
       {/* Tab Navigation */}
@@ -219,9 +381,10 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
         )}
         {activeTab === 'architecture' && (
           <ArchitectureHealth
-            key={`arch-${refreshKey}`}
+            key={`arch-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
             token={token}
+            cachedData={semanticCache?.architecture_health || undefined}
           />
         )}
         {activeTab === 'clusters' && (

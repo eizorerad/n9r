@@ -17,6 +17,7 @@ interface ArchitectureHealthProps {
   repositoryId: string
   token: string
   className?: string
+  cachedData?: ArchitectureHealthResponse
 }
 
 const statusColors: Record<string, string> = {
@@ -32,15 +33,24 @@ const riskColors: Record<string, string> = {
   low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
 }
 
-export function ArchitectureHealth({ repositoryId, token, className }: ArchitectureHealthProps) {
-  const [data, setData] = useState<ArchitectureHealthResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+export function ArchitectureHealth({ repositoryId, token, className, cachedData }: ArchitectureHealthProps) {
+  const [data, setData] = useState<ArchitectureHealthResponse | null>(cachedData || null)
+  const [loading, setLoading] = useState(!cachedData)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
 
   useEffect(() => {
+    // If we have cached data, use it directly
+    if (cachedData) {
+      setData(cachedData)
+      setLoading(false)
+      setError(null)
+      return
+    }
+    
+    // Only fetch from API if no cached data
     fetchData()
-  }, [repositoryId, token])
+  }, [repositoryId, token, cachedData])
 
   const fetchData = async () => {
     setLoading(true)

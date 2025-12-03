@@ -4,8 +4,8 @@ import logging
 import re
 from dataclasses import dataclass
 
-from app.services.llm_gateway import get_llm_gateway
 from app.services.agents.fix import FixResult
+from app.services.llm_gateway import get_llm_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class TestResult:
 
 class TestAgent:
     """Agent that generates tests for code fixes."""
-    
+
     # Test framework detection patterns
     FRAMEWORK_PATTERNS = {
         "pytest": ["pytest", "import pytest", "from pytest"],
@@ -33,10 +33,10 @@ class TestAgent:
         "unittest": ["unittest", "TestCase", "self.assert"],
         "vitest": ["vitest", "describe(", "it(", "expect("],
     }
-    
+
     def __init__(self):
         self.llm = get_llm_gateway()
-    
+
     async def generate_test(
         self,
         fix_result: FixResult,
@@ -55,10 +55,10 @@ class TestAgent:
             TestResult with generated test
         """
         logger.info(f"Generating test for fix {fix_result.issue_id}")
-        
+
         # Detect test framework
         framework = self._detect_framework(fix_result.file_path, existing_tests)
-        
+
         # Generate test based on framework
         result = await self._generate_test_code(
             fix_result,
@@ -66,10 +66,10 @@ class TestAgent:
             framework,
             existing_tests,
         )
-        
+
         # Determine test file path
         test_file_path = self._get_test_file_path(fix_result.file_path, framework)
-        
+
         return TestResult(
             issue_id=fix_result.issue_id,
             success=result["success"],
@@ -79,7 +79,7 @@ class TestAgent:
             test_count=result["test_count"],
             explanation=result["explanation"],
         )
-    
+
     def _detect_framework(
         self,
         file_path: str,
@@ -94,7 +94,7 @@ class TestAgent:
                 if 'unittest' in existing_tests or 'TestCase' in existing_tests:
                     return 'unittest'
             return 'pytest'  # Default for Python
-        
+
         elif file_path.endswith(('.ts', '.tsx', '.js', '.jsx')):
             if existing_tests:
                 if 'vitest' in existing_tests:
@@ -102,24 +102,24 @@ class TestAgent:
                 if 'jest' in existing_tests or '@jest' in existing_tests:
                     return 'jest'
             return 'jest'  # Default for JS/TS
-        
+
         return 'pytest'  # Fallback
-    
+
     def _get_test_file_path(self, file_path: str, framework: str) -> str:
         """Generate test file path from source file path."""
         import os
-        
+
         dirname = os.path.dirname(file_path)
         filename = os.path.basename(file_path)
         name, ext = os.path.splitext(filename)
-        
+
         if framework in ('pytest', 'unittest'):
             # Python: test_filename.py
             return os.path.join(dirname, f"test_{name}{ext}")
         else:
             # JS/TS: filename.test.ts or filename.spec.ts
             return os.path.join(dirname, f"{name}.test{ext}")
-    
+
     async def _generate_test_code(
         self,
         fix_result: FixResult,
@@ -129,7 +129,7 @@ class TestAgent:
     ) -> dict:
         """Generate test code using LLM."""
         framework_instructions = self._get_framework_instructions(framework)
-        
+
         prompt = f"""Generate a regression test for the following code fix.
 
 ## Issue Fixed
@@ -174,7 +174,7 @@ TEST_COUNT: [number of test cases]
 EXPLANATION:
 [What the tests verify]
 """
-        
+
         try:
             response = await self.llm.complete(
                 prompt=prompt,
@@ -190,7 +190,7 @@ EXPLANATION:
                 "test_count": 0,
                 "explanation": f"Test generation failed: {e}",
             }
-    
+
     def _get_framework_instructions(self, framework: str) -> str:
         """Get framework-specific instructions."""
         instructions = {
@@ -199,19 +199,19 @@ EXPLANATION:
 - Use pytest fixtures if needed
 - Use `assert` statements
 - Import the module being tested""",
-            
+
             "unittest": """Use unittest framework:
 - Create a class inheriting from unittest.TestCase
 - Use `def test_*` methods
 - Use self.assert* methods
 - Import the module being tested""",
-            
+
             "jest": """Use Jest framework:
 - Use describe() blocks to group tests
 - Use it() or test() for test cases
 - Use expect() for assertions
 - Import the module being tested""",
-            
+
             "vitest": """Use Vitest framework:
 - Use describe() blocks to group tests
 - Use it() or test() for test cases
@@ -219,7 +219,7 @@ EXPLANATION:
 - Import from 'vitest' and the module being tested""",
         }
         return instructions.get(framework, instructions["pytest"])
-    
+
     def _parse_test_response(self, response: str) -> dict:
         """Parse the LLM test response."""
         result = {
@@ -228,13 +228,13 @@ EXPLANATION:
             "test_count": 0,
             "explanation": "",
         }
-        
+
         # Extract test code
         code_match = re.search(r'TEST_CODE:\s*```[\w]*\n(.*?)```', response, re.DOTALL)
         if code_match:
             result["test_content"] = code_match.group(1).strip()
             result["success"] = bool(result["test_content"])
-        
+
         # Extract test count
         count_match = re.search(r'TEST_COUNT:\s*(\d+)', response)
         if count_match:
@@ -243,10 +243,10 @@ EXPLANATION:
             # Count test functions
             content = result["test_content"]
             result["test_count"] = len(re.findall(r'def test_|it\(|test\(', content))
-        
+
         # Extract explanation
         explanation_match = re.search(r'EXPLANATION:\s*(.*?)$', response, re.DOTALL)
         if explanation_match:
             result["explanation"] = explanation_match.group(1).strip()
-        
+
         return result

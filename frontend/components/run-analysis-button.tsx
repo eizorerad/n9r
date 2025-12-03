@@ -4,6 +4,7 @@ import { useTransition } from 'react'
 import { Play, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAnalysisStream } from '@/hooks/use-analysis-stream'
+import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 
 interface RunAnalysisButtonProps {
   repositoryId: string
@@ -18,6 +19,9 @@ export function RunAnalysisButton({ repositoryId, hasAnalysis }: RunAnalysisButt
     error,
     startAnalysis
   } = useAnalysisStream(repositoryId)
+  
+  // Get selected commit from global store
+  const selectedCommitSha = useCommitSelectionStore((state) => state.selectedCommitSha)
 
   const handleClick = () => {
     if (status === 'pending' || status === 'running') {
@@ -25,7 +29,8 @@ export function RunAnalysisButton({ repositoryId, hasAnalysis }: RunAnalysisButt
     }
 
     startTransition(() => {
-      startAnalysis(repositoryId)
+      // Pass selected commit SHA to analysis - falls back to latest commit if no selection
+      startAnalysis(repositoryId, selectedCommitSha)
     })
   }
 

@@ -1,6 +1,5 @@
 """Analysis model."""
 
-import enum
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -66,6 +65,10 @@ class Analysis(BaseModelNoUpdate):
     )
     error_message: Mapped[str | None] = mapped_column(
         Text,
+        nullable=True,
+    )
+    semantic_cache: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
         nullable=True,
     )
 

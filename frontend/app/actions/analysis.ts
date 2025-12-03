@@ -16,7 +16,7 @@ export async function getAccessToken(): Promise<string | null> {
   return session?.accessToken || null
 }
 
-export async function runAnalysis(repositoryId: string): Promise<{ success: boolean; error?: string; analysisId?: string }> {
+export async function runAnalysis(repositoryId: string, commitSha?: string): Promise<{ success: boolean; error?: string; analysisId?: string }> {
   const session = await getSession()
   
   if (!session?.accessToken) {
@@ -24,13 +24,18 @@ export async function runAnalysis(repositoryId: string): Promise<{ success: bool
   }
   
   try {
+    const body: Record<string, string> = {}
+    if (commitSha) {
+      body.commit_sha = commitSha
+    }
+    
     const response = await fetch(`${API_BASE_URL}/repositories/${repositoryId}/analyses`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify(body),
     })
     
     if (!response.ok) {

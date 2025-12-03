@@ -3,18 +3,16 @@
 import logging
 import re
 from datetime import datetime
-from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.config import settings
 from app.core.redis import (
-    store_playground_scan,
-    get_playground_scan,
-    update_playground_scan,
     check_playground_rate_limit,
+    get_playground_scan,
+    store_playground_scan,
+    update_playground_scan,
 )
 from app.services.repo_analyzer import RepoAnalyzer
 
@@ -26,7 +24,7 @@ router = APIRouter(prefix="/playground", tags=["playground"])
 class PlaygroundScanRequest(BaseModel):
     """Request to scan a public repository."""
     repo_url: str = Field(..., description="GitHub repository URL")
-    
+
     @field_validator("repo_url")
     @classmethod
     def validate_github_url(cls, v: str) -> str:
@@ -50,14 +48,14 @@ class PlaygroundScanResult(BaseModel):
     scan_id: str
     repo_url: str
     status: str
-    vci_score: Optional[float] = None
-    tech_debt_level: Optional[str] = None
-    metrics: Optional[dict] = None
-    top_issues: Optional[list] = None
-    ai_report: Optional[str] = None
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    vci_score: float | None = None
+    tech_debt_level: str | None = None
+    metrics: dict | None = None
+    top_issues: list | None = None
+    ai_report: str | None = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 def _get_client_ip(request: Request) -> str:
@@ -71,16 +69,16 @@ def _get_client_ip(request: Request) -> str:
 def _run_scan(scan_id: str, repo_url: str):
     """Run the actual scan (background task)."""
     logger.info(f"Starting playground scan {scan_id} for {repo_url}")
-    
+
     update_playground_scan(scan_id, {
         "status": "running",
         "started_at": datetime.utcnow().isoformat(),
     })
-    
+
     try:
         with RepoAnalyzer(repo_url) as analyzer:
             result = analyzer.analyze()
-        
+
         update_playground_scan(scan_id, {
             "status": "completed",
             "vci_score": result.vci_score,
@@ -90,9 +88,9 @@ def _run_scan(scan_id: str, repo_url: str):
             "ai_report": result.ai_report,
             "completed_at": datetime.utcnow().isoformat(),
         })
-        
+
         logger.info(f"Playground scan {scan_id} completed, VCI: {result.vci_score}")
-        
+
     except Exception as e:
         logger.error(f"Playground scan {scan_id} failed: {e}")
         update_playground_scan(scan_id, {
@@ -116,17 +114,17 @@ async def start_scan(
     - No authentication required
     """
     client_ip = _get_client_ip(request)
-    
+
     # Check rate limit
     if not check_playground_rate_limit(client_ip):
         raise HTTPException(
             status_code=429,
             detail="Rate limit exceeded. Maximum 5 scans per hour."
         )
-    
+
     # Generate scan ID
     scan_id = str(uuid4())
-    
+
     # Initialize scan result in Redis
     store_playground_scan(scan_id, {
         "scan_id": scan_id,
@@ -134,10 +132,10 @@ async def start_scan(
         "status": "pending",
         "client_ip": client_ip,
     })
-    
+
     # Start background scan
     background_tasks.add_task(_run_scan, scan_id, body.repo_url)
-    
+
     return PlaygroundScanResponse(
         scan_id=scan_id,
         repo_url=body.repo_url,
@@ -155,10 +153,10 @@ async def get_scan_result(scan_id: str):
     - Results are cached for 1 hour
     """
     result = get_playground_scan(scan_id)
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="Scan not found")
-    
+
     return PlaygroundScanResult(
         scan_id=result["scan_id"],
         repo_url=result["repo_url"],

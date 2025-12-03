@@ -1,6 +1,5 @@
 """Sandbox service for isolated code execution."""
 
-import asyncio
 import logging
 import os
 import shutil
@@ -10,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 import docker
-from docker.errors import ContainerError, ImageNotFound
+from docker.errors import ImageNotFound
 
 from app.core.config import settings
 
@@ -52,15 +51,15 @@ def get_host_mount_path(container_path: str) -> str:
     """
     host_path = settings.host_sandbox_path
     container_base = settings.sandbox_root_dir
-    
+
     # Local development mode - no translation needed
     if not host_path:
         return container_path
-    
+
     # Docker mode - translate path
     if container_path.startswith(container_base):
         return container_path.replace(container_base, host_path, 1)
-    
+
     # Path doesn't match expected base - return unchanged with warning
     logger.warning(
         f"Sandbox path '{container_path}' doesn't start with expected base '{container_base}'. "
@@ -117,11 +116,11 @@ ENV PYTHONUNBUFFERED=1
 
 class SandboxManager:
     """Manages isolated sandbox containers for code analysis."""
-    
+
     def __init__(self):
         self.client = docker.from_env()
         self._ensure_image()
-    
+
     def _ensure_image(self):
         """Ensure sandbox image exists, build if necessary."""
         try:
@@ -139,7 +138,7 @@ class SandboxManager:
                     rm=True,
                 )
             logger.info(f"Sandbox image {SANDBOX_IMAGE} built successfully")
-    
+
     async def create_sandbox(
         self,
         repository_id: UUID,
@@ -175,7 +174,7 @@ class Sandbox:
     
     See docs/sandbox_security_research.md for full security analysis.
     """
-    
+
     def __init__(
         self,
         client: docker.DockerClient,
@@ -191,7 +190,7 @@ class Sandbox:
         self.timeout = timeout
         self.container = None
         self.workdir = None
-    
+
     def _supports_storage_opt(self) -> bool:
         """Check if Docker storage driver supports storage_opt.
         
@@ -209,7 +208,7 @@ class Sandbox:
             return driver in ("devicemapper",)
         except Exception:
             return False
-    
+
     async def start(self):
         """Start the sandbox container."""
         # Create temporary directory for repository
@@ -219,16 +218,16 @@ class Sandbox:
             prefix=f"n9r-sandbox-{self.repository_id}-",
             dir=base_dir,
         )
-        
+
         logger.info(f"Starting sandbox for repository {self.repository_id}")
         logger.info(f"Sandbox workdir: {self.workdir}")
-        
+
         # Translate path for Docker volume mounting
         # When Celery runs in Docker, we need to use the host path for volumes
         host_workdir = get_host_mount_path(self.workdir)
         if host_workdir != self.workdir:
             logger.info(f"Docker mode: host path = {host_workdir}")
-        
+
         # Run container with security constraints
         # SECURITY: network_mode="none" prevents any network access from sandbox
         # Repository is cloned on host before sandbox starts (via RepoAnalyzer)
@@ -258,7 +257,7 @@ class Sandbox:
                 "PYTHONDONTWRITEBYTECODE": "1",
             },
         )
-        
+
         # FIX: Docker permissions issue
         # Files cloned on host may have different uid than sandbox user inside container.
         # Run chown as root to fix ownership before any sandbox operations.
@@ -267,9 +266,9 @@ class Sandbox:
             "chown -R sandbox:sandbox /workspace",
             user="root",
         )
-        
+
         logger.info(f"Sandbox container {self.container.id[:12]} started with fixed permissions")
-    
+
     def clone_repository_on_host(
         self,
         clone_url: str,
@@ -297,11 +296,11 @@ class Sandbox:
             True if clone succeeded, False otherwise
         """
         import subprocess
-        
+
         if not self.workdir:
             logger.error("Sandbox workdir not initialized. Call start() first.")
             return False
-        
+
         # Construct authenticated URL if token provided
         authenticated_url = clone_url
         if access_token and "github.com" in clone_url:
@@ -310,12 +309,12 @@ class Sandbox:
                 "https://github.com",
                 f"https://x-access-token:{access_token}@github.com"
             )
-        
+
         repo_dir = Path(self.workdir) / "repo"
-        
+
         logger.info(f"Cloning repository on host to {repo_dir}")
-        logger.info(f"[SECURITY] Clone happens on HOST, sandbox has no network access")
-        
+        logger.info("[SECURITY] Clone happens on HOST, sandbox has no network access")
+
         try:
             result = subprocess.run(
                 [
@@ -329,25 +328,25 @@ class Sandbox:
                 text=True,
                 timeout=300,  # 5 minute timeout
             )
-            
+
             if result.returncode != 0:
                 logger.error(f"Git clone failed: {result.stderr}")
                 return False
-            
+
             logger.info(f"Repository cloned successfully to {repo_dir}")
-            
+
             # Fix permissions so sandbox user can write to cloned files
             self.fix_workspace_permissions()
-            
+
             return True
-            
+
         except subprocess.TimeoutExpired:
             logger.error("Git clone timed out after 300 seconds")
             return False
         except Exception as e:
             logger.error(f"Clone failed: {e}")
             return False
-    
+
     def fix_workspace_permissions(self) -> bool:
         """Fix permissions on workspace directory for sandbox user.
         
@@ -365,22 +364,22 @@ class Sandbox:
         if not self.container:
             logger.warning("Cannot fix permissions: container not started")
             return False
-        
+
         try:
             exit_code, output = self.container.exec_run(
                 "chown -R sandbox:sandbox /workspace",
                 user="root",
                 demux=True,
             )
-            
+
             if exit_code != 0:
                 stderr = output[1].decode() if output[1] else ""
                 logger.error(f"Failed to fix permissions: {stderr}")
                 return False
-            
+
             logger.info("Fixed workspace permissions for sandbox user")
             return True
-            
+
         except Exception as e:
             logger.error(f"Error fixing permissions: {e}")
             return False
@@ -404,7 +403,7 @@ class Sandbox:
             "clone_repository() called but sandbox has network_mode='none'. "
             "Use clone_repository_on_host() instead for host-side cloning."
         )
-        
+
         # Construct authenticated URL if token provided
         if access_token and "github.com" in clone_url:
             # Insert token into URL for private repos
@@ -412,21 +411,21 @@ class Sandbox:
                 "https://github.com",
                 f"https://{access_token}@github.com"
             )
-        
+
         # This will fail because network_mode="none"
         cmd = f"git clone --depth {depth} --branch {branch} {clone_url} repo"
-        
+
         try:
             exit_code, output = await self.exec(cmd, workdir="/workspace")
             if exit_code != 0:
                 logger.error(f"Git clone failed (expected - no network): {output}")
                 return False
-            logger.info(f"Repository cloned successfully")
+            logger.info("Repository cloned successfully")
             return True
         except Exception as e:
             logger.error(f"Clone failed: {e}")
             return False
-    
+
     async def exec(
         self,
         command: str,
@@ -436,26 +435,26 @@ class Sandbox:
         """Execute a command in the sandbox."""
         if not self.container:
             raise RuntimeError("Sandbox not started")
-        
+
         timeout = timeout or self.timeout
-        
+
         logger.debug(f"Executing in sandbox: {command}")
-        
+
         # Execute command
         exec_result = self.container.exec_run(
             f"sh -c '{command}'",
             workdir=workdir,
             demux=True,
         )
-        
+
         exit_code = exec_result.exit_code
         stdout = exec_result.output[0] or b""
         stderr = exec_result.output[1] or b""
-        
+
         output = (stdout + stderr).decode("utf-8", errors="replace")
-        
+
         return exit_code, output
-    
+
     async def run_analysis_tool(
         self,
         tool: str,
@@ -464,7 +463,7 @@ class Sandbox:
     ) -> dict[str, Any]:
         """Run a specific analysis tool."""
         args = args or []
-        
+
         tool_commands = {
             "radon_cc": f"radon cc {' '.join(args)} -j .",
             "radon_mi": f"radon mi {' '.join(args)} -j .",
@@ -474,13 +473,13 @@ class Sandbox:
             "flake8": f"flake8 {' '.join(args)} --format=json .",
             "eslint": f"npx eslint {' '.join(args)} --format json .",
         }
-        
+
         if tool not in tool_commands:
             raise ValueError(f"Unknown tool: {tool}")
-        
+
         cmd = tool_commands[tool]
         exit_code, output = await self.exec(cmd)
-        
+
         # Parse JSON output
         try:
             import json
@@ -488,27 +487,27 @@ class Sandbox:
             return {"status": "success", "data": result, "exit_code": exit_code}
         except json.JSONDecodeError:
             return {"status": "error", "output": output, "exit_code": exit_code}
-    
+
     async def get_file_list(self, extensions: list[str] | None = None) -> list[str]:
         """Get list of files in the repository."""
         cmd = "find . -type f"
         if extensions:
             ext_filter = " -o ".join([f'-name "*.{ext}"' for ext in extensions])
             cmd = f"find . -type f \\( {ext_filter} \\)"
-        
+
         exit_code, output = await self.exec(cmd)
         if exit_code != 0:
             return []
-        
+
         files = [f.strip() for f in output.split("\n") if f.strip()]
         return files
-    
+
     async def read_file(self, filepath: str) -> str | None:
         """Read a file from the repository."""
         cmd = f"cat '{filepath}'"
         exit_code, output = await self.exec(cmd)
         return output if exit_code == 0 else None
-    
+
     async def get_file_stats(self) -> dict[str, Any]:
         """Get statistics about files in the repository."""
         # Count lines of code by extension
@@ -516,22 +515,22 @@ class Sandbox:
         find . -type f -name '*.py' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}'
         """
         _, py_lines = await self.exec(cmd)
-        
+
         cmd = """
         find . -type f \\( -name '*.js' -o -name '*.ts' -o -name '*.tsx' -o -name '*.jsx' \\) | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}'
         """
         _, js_lines = await self.exec(cmd)
-        
+
         # Count files
         cmd = "find . -type f | wc -l"
         _, file_count = await self.exec(cmd)
-        
+
         return {
             "python_lines": int(py_lines.strip() or 0),
             "javascript_lines": int(js_lines.strip() or 0),
             "total_files": int(file_count.strip() or 0),
         }
-    
+
     async def cleanup(self):
         """Stop and remove the sandbox."""
         if self.container:
@@ -541,19 +540,19 @@ class Sandbox:
                 logger.info(f"Sandbox container {self.container.id[:12]} removed")
             except Exception as e:
                 logger.error(f"Failed to cleanup container: {e}")
-        
+
         if self.workdir and os.path.exists(self.workdir):
             try:
                 shutil.rmtree(self.workdir)
                 logger.info(f"Sandbox workdir {self.workdir} removed")
             except Exception as e:
                 logger.error(f"Failed to cleanup workdir: {e}")
-    
+
     async def __aenter__(self):
         """Context manager entry."""
         await self.start()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         await self.cleanup()

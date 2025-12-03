@@ -12,6 +12,7 @@ Create Date: 2024-11-30
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -28,7 +29,7 @@ def upgrade() -> None:
         "auto_prs",
         sa.Column("base_branch", sa.String(length=255), nullable=True),
     )
-    
+
     # Add PR stats columns
     op.add_column(
         "auto_prs",
@@ -42,7 +43,7 @@ def upgrade() -> None:
         "auto_prs",
         sa.Column("deletions", sa.Integer(), nullable=True),
     )
-    
+
     # Add test result columns
     op.add_column(
         "auto_prs",
@@ -52,13 +53,13 @@ def upgrade() -> None:
         "auto_prs",
         sa.Column("test_output", sa.Text(), nullable=True),
     )
-    
+
     # Add review feedback column
     op.add_column(
         "auto_prs",
         sa.Column("review_feedback", sa.Text(), nullable=True),
     )
-    
+
     # Add merged_at timestamp
     op.add_column(
         "auto_prs",

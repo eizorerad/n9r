@@ -5,7 +5,7 @@ import logging
 from uuid import UUID
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, FilterSelector, Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue, PointStruct
 
 from app.core.celery import celery_app
 from app.core.config import settings
@@ -40,12 +40,59 @@ def get_qdrant_client() -> QdrantClient:
     )
 
 
+def _compute_and_store_semantic_cache(
+    repository_id: str,
+    analysis_id: str,
+) -> dict | None:
+    """Compute semantic analysis and store in Analysis.semantic_cache.
+    
+    Args:
+        repository_id: UUID of the repository
+        analysis_id: UUID of the analysis to update
+    
+    Returns:
+        The computed semantic cache dict, or None if failed
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from app.core.config import settings
+    from app.models.analysis import Analysis
+    from app.services.cluster_analyzer import get_cluster_analyzer
+
+    try:
+        # Run cluster analysis
+        analyzer = get_cluster_analyzer()
+        health = run_async(analyzer.analyze(repository_id))
+
+        # Convert to cacheable dict
+        semantic_cache = health.to_cacheable_dict()
+
+        # Store in database
+        engine = create_engine(str(settings.database_url))
+        with Session(engine) as session:
+            analysis = session.get(Analysis, UUID(analysis_id))
+            if analysis:
+                analysis.semantic_cache = semantic_cache
+                session.commit()
+                logger.info(f"Stored semantic cache for analysis {analysis_id}")
+                return semantic_cache
+            else:
+                logger.warning(f"Analysis {analysis_id} not found for semantic cache update")
+                return None
+
+    except Exception as e:
+        logger.error(f"Failed to compute/store semantic cache: {e}")
+        return None
+
+
 @celery_app.task(bind=True, name="app.workers.embeddings.generate_embeddings")
 def generate_embeddings(
     self,
     repository_id: str,
     commit_sha: str | None = None,
     files: list[dict] | None = None,
+    analysis_id: str | None = None,
 ) -> dict:
     """
     Generate code embeddings for a repository.
@@ -54,13 +101,14 @@ def generate_embeddings(
         repository_id: UUID of the repository
         commit_sha: Optional specific commit
         files: List of {path: str, content: str} dicts to process
+        analysis_id: Optional analysis ID to update with semantic cache
     
     Returns:
         dict with embedding generation results
     """
     logger.info(f"Generating embeddings for repository {repository_id}")
-    
-    def publish_progress(stage: str, progress: int, message: str | None = None, 
+
+    def publish_progress(stage: str, progress: int, message: str | None = None,
                          status: str = "running", chunks: int = 0, vectors: int = 0):
         """Helper to publish embedding progress."""
         publish_embedding_progress(
@@ -73,16 +121,16 @@ def generate_embeddings(
             vectors_stored=vectors,
         )
         self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
-    
+
     try:
         publish_progress("initializing", 5, "Starting embedding generation...")
-        
+
         chunker = get_code_chunker()
         # Lazy import to avoid fork-safety issues with LiteLLM
         from app.services.llm_gateway import get_llm_gateway
         llm = get_llm_gateway()
         qdrant = get_qdrant_client()
-        
+
         # If no files provided, this is a placeholder
         if not files:
             logger.warning("No files provided for embedding generation")
@@ -92,18 +140,18 @@ def generate_embeddings(
                 "status": "skipped",
                 "message": "No files provided",
             }
-        
+
         # Step 1: Chunk all files
         publish_progress("chunking", 10, f"Chunking {len(files)} files...")
-        
+
         all_chunks: list[CodeChunk] = []
         for file_info in files:
             file_path = file_info.get("path", "")
             content = file_info.get("content", "")
-            
+
             if not content or len(content) < 10:
                 continue
-            
+
             # Skip binary/non-code files
             if any(file_path.endswith(ext) for ext in [
                 ".png", ".jpg", ".gif", ".ico", ".svg",
@@ -112,16 +160,16 @@ def generate_embeddings(
                 ".lock", ".sum", ".min.js", ".min.css",
             ]):
                 continue
-            
+
             try:
                 chunks = chunker.chunk_file(file_path, content)
                 all_chunks.extend(chunks)
             except Exception as e:
                 logger.warning(f"Failed to chunk {file_path}: {e}")
-        
+
         logger.info(f"Created {len(all_chunks)} chunks from {len(files)} files")
         publish_progress("chunking", 20, f"Created {len(all_chunks)} chunks", chunks=len(all_chunks))
-        
+
         if not all_chunks:
             publish_progress("completed", 100, "No chunks to embed", status="completed")
             return {
@@ -130,16 +178,16 @@ def generate_embeddings(
                 "chunks_processed": 0,
                 "vectors_stored": 0,
             }
-        
+
         # Step 2: Generate embeddings in parallel batches for speed
         publish_progress("embedding", 25, f"Generating embeddings for {len(all_chunks)} chunks...")
-        
+
         # Increased batch size (was 20) and parallel processing
         batch_size = 50  # Larger batches = fewer API calls
         concurrent_batches = 4  # Process 4 batches in parallel
         points: list[PointStruct] = []
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        
+
         def prepare_texts(batch: list[CodeChunk]) -> list[str]:
             """Prepare texts for embedding."""
             texts = []
@@ -154,7 +202,7 @@ def generate_embeddings(
                 text += f"\n{chunk.content}"
                 texts.append(text)
             return texts
-        
+
         async def embed_batch(batch: list[CodeChunk], batch_idx: int) -> list[tuple[CodeChunk, list[float]]]:
             """Embed a single batch asynchronously."""
             texts = prepare_texts(batch)
@@ -164,52 +212,52 @@ def generate_embeddings(
             except Exception as e:
                 logger.error(f"Failed to embed batch {batch_idx}: {e}")
                 return []
-        
+
         async def process_all_batches():
             """Process all batches with controlled concurrency."""
             all_results = []
             batches = [
-                all_chunks[i:i + batch_size] 
+                all_chunks[i:i + batch_size]
                 for i in range(0, len(all_chunks), batch_size)
             ]
-            
+
             # Process batches in groups of concurrent_batches
             for group_idx in range(0, len(batches), concurrent_batches):
                 group = batches[group_idx:group_idx + concurrent_batches]
                 tasks = [
-                    embed_batch(batch, group_idx + i) 
+                    embed_batch(batch, group_idx + i)
                     for i, batch in enumerate(group)
                 ]
-                
+
                 # Run concurrent batches
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                
+
                 for result in results:
                     if isinstance(result, Exception):
                         logger.error(f"Batch failed: {result}")
                     elif result:
                         all_results.extend(result)
-                
+
                 # Update progress after each group
                 completed_batches = min(group_idx + len(group), len(batches))
                 progress = 25 + int(55 * completed_batches / len(batches))
                 publish_progress(
-                    "embedding", 
-                    min(progress, 80), 
+                    "embedding",
+                    min(progress, 80),
                     f"Embedding batch {completed_batches}/{len(batches)}...",
                     chunks=len(all_chunks),
                     vectors=len(all_results)
                 )
-            
+
             return all_results
-        
+
         # Run parallel embedding
         chunk_embedding_pairs = run_async(process_all_batches())
-        
+
         # Create Qdrant points from results
         for chunk, embedding in chunk_embedding_pairs:
             point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
-            
+
             points.append(PointStruct(
                 id=hash(point_id) % (2**63),  # Convert to int64
                 vector=embedding,
@@ -234,12 +282,12 @@ def generate_embeddings(
                     "cluster_id": None,  # Will be set by cluster analysis
                 }
             ))
-        
+
         logger.info(f"Generated {len(points)} embedding vectors")
-        
+
         # Step 3: Store in Qdrant
         publish_progress("indexing", 85, "Storing vectors in Qdrant...", chunks=len(all_chunks), vectors=len(points))
-        
+
         if points:
             try:
                 # Delete old embeddings for this repo first
@@ -256,7 +304,7 @@ def generate_embeddings(
                         )
                     )
                 )
-                
+
                 # Upsert new points in batches
                 upsert_batch_size = 100
                 for i in range(0, len(points), upsert_batch_size):
@@ -265,9 +313,9 @@ def generate_embeddings(
                         collection_name=COLLECTION_NAME,
                         points=batch,
                     )
-                
+
                 logger.info(f"Stored {len(points)} vectors in Qdrant")
-                
+
             except Exception as e:
                 logger.error(f"Failed to store vectors in Qdrant: {e}")
                 publish_progress("error", 0, f"Failed to store vectors: {e}", status="error")
@@ -278,27 +326,43 @@ def generate_embeddings(
                     "chunks_processed": len(all_chunks),
                     "vectors_generated": len(points),
                 }
-        
+
+        # Step 4: Compute semantic analysis and cache results
+        semantic_cache = None
+        if analysis_id and len(points) >= 5:
+            publish_progress("semantic_analysis", 92, "Computing semantic analysis...",
+                           chunks=len(all_chunks), vectors=len(points))
+            try:
+                semantic_cache = _compute_and_store_semantic_cache(
+                    repository_id=repository_id,
+                    analysis_id=analysis_id,
+                )
+                logger.info(f"Semantic cache computed for analysis {analysis_id}")
+            except Exception as e:
+                logger.warning(f"Failed to compute semantic cache: {e}")
+                # Don't fail the whole task, just log the warning
+
         # Publish completion
         publish_progress(
-            "completed", 100, 
+            "completed", 100,
             f"Generated {len(points)} embeddings",
             status="completed",
             chunks=len(all_chunks),
             vectors=len(points)
         )
-        
+
         results = {
             "repository_id": repository_id,
             "commit_sha": commit_sha,
             "chunks_processed": len(all_chunks),
             "vectors_stored": len(points),
             "status": "completed",
+            "semantic_cache_computed": semantic_cache is not None,
         }
-        
+
         logger.info(f"Embeddings generated for repository {repository_id}: {results}")
         return results
-        
+
     except Exception as e:
         logger.error(f"Embedding generation failed for repository {repository_id}: {e}")
         publish_embedding_progress(
@@ -334,7 +398,7 @@ def update_embeddings(
         f"Updating embeddings for {len(changed_files)} files "
         f"in repository {repository_id}"
     )
-    
+
     chunker = get_code_chunker()
     # Lazy import to avoid fork-safety issues with LiteLLM
     from app.services.llm_gateway import get_llm_gateway
@@ -358,7 +422,7 @@ def update_embeddings(
             )
         except Exception as e:
             logger.warning(f"Failed to delete old embeddings for {file_path}: {e}")
-    
+
     # Generate new embeddings
     return generate_embeddings(repository_id, files=changed_files)
 
@@ -375,9 +439,9 @@ def delete_embeddings(repository_id: str) -> dict:
         dict with deletion results
     """
     logger.info(f"Deleting embeddings for repository {repository_id}")
-    
+
     qdrant = get_qdrant_client()
-    
+
     try:
         # Count before deletion
         count_result = qdrant.count(
@@ -389,7 +453,7 @@ def delete_embeddings(repository_id: str) -> dict:
             )
         )
         vectors_count = count_result.count
-        
+
         # Delete all vectors for this repository
         qdrant.delete(
             collection_name=COLLECTION_NAME,
@@ -401,15 +465,15 @@ def delete_embeddings(repository_id: str) -> dict:
                 )
             )
         )
-        
+
         logger.info(f"Deleted {vectors_count} vectors for repository {repository_id}")
-        
+
         return {
             "repository_id": repository_id,
             "vectors_deleted": vectors_count,
             "status": "completed",
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to delete embeddings: {e}")
         return {
@@ -442,11 +506,11 @@ def search_similar(
     from app.services.llm_gateway import get_llm_gateway
     llm = get_llm_gateway()
     qdrant = get_qdrant_client()
-    
+
     try:
         # Generate embedding for query
         query_embedding = run_async(llm.embed([query]))[0]
-        
+
         # Search in Qdrant
         results = qdrant.search(
             collection_name=COLLECTION_NAME,
@@ -458,7 +522,7 @@ def search_similar(
             },
             limit=limit,
         )
-        
+
         return [
             {
                 "file_path": hit.payload.get("file_path"),
@@ -471,7 +535,7 @@ def search_similar(
             }
             for hit in results
         ]
-        
+
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return []

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
 import { useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
+import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 
 export type AnalysisStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
 
@@ -12,6 +14,7 @@ interface ProgressUpdate {
     message: string | null
     status: string
     vci_score?: number
+    commit_sha?: string
 }
 
 // Stage labels for user-friendly display
@@ -35,12 +38,13 @@ interface UseAnalysisStreamResult {
     message: string
     vciScore: number | null
     error: string | null
-    startAnalysis: (repositoryId: string) => Promise<void>
+    startAnalysis: (repositoryId: string, commitSha?: string | null) => Promise<void>
     reset: () => void
 }
 
 export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult {
     const router = useRouter()
+    const queryClient = useQueryClient()
     const [analysisId, setAnalysisId] = useState<string | null>(null)
     const [status, setStatus] = useState<AnalysisStatus>('idle')
     const [progress, setProgress] = useState(0)
@@ -56,6 +60,9 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     const { addTask, updateTask, removeTask } = useAnalysisProgressStore()
     const taskId = getAnalysisTaskId(repositoryId)
     const embeddingsTaskId = getEmbeddingsTaskId(repositoryId)
+    
+    // Commit selection store - to update selectedAnalysisId when analysis completes
+    const { selectedCommitSha, setSelectedCommit } = useCommitSelectionStore()
 
     // Track mount state
     useEffect(() => {
@@ -88,7 +95,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         }
     }, [])
 
-    const startAnalysis = useCallback(async (repoId: string) => {
+    const startAnalysis = useCallback(async (repoId: string, commitSha?: string | null) => {
         setError(null)
         setStatus('pending')
         setProgress(0)
@@ -119,7 +126,8 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         })
 
         try {
-            const result = await runAnalysis(repoId)
+            // Pass commitSha to runAnalysis - if null/undefined, backend uses latest commit
+            const result = await runAnalysis(repoId, commitSha ?? undefined)
 
             if (result.success && result.analysisId) {
                 setAnalysisId(result.analysisId)
@@ -285,10 +293,30 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         setProgress(0)
                                         setStage('')
                                         setMessage('')
-                                        setAnalysisId(null)
                                         
                                         // Update global store
                                         updateTask(taskId, { status: 'completed', progress: 100 })
+                                        
+                                        // Update commit selection store with the new analysis ID
+                                        // This triggers all panels to re-fetch data for the completed analysis
+                                        // Requirements: 2.3, 6.2
+                                        // Note: We update even if selectedCommitSha was null (user ran analysis without selecting commit)
+                                        // In that case, we use the commit_sha from the analysis result if available
+                                        if (analysisId) {
+                                            // Use existing selected commit or the one from the analysis
+                                            const commitSha = selectedCommitSha || update.commit_sha
+                                            if (commitSha) {
+                                                setSelectedCommit(commitSha, analysisId, repositoryId)
+                                            }
+                                        }
+                                        
+                                        // Invalidate React Query cache for commits to refresh the timeline
+                                        // This will show the new VCI score in the commit list
+                                        // Requirements: 2.3
+                                        queryClient.invalidateQueries({ queryKey: ['commits', repositoryId] })
+                                        
+                                        // Clear local analysisId after updating store
+                                        setAnalysisId(null)
 
                                         revalidateRepositoryPage(repositoryId).then(() => {
                                             if (isMountedRef.current) {
@@ -342,7 +370,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                 eventSourceRef.current.close()
             }
         }
-    }, [analysisId, status, router, repositoryId, updateTask, taskId])
+    }, [analysisId, status, router, repositoryId, updateTask, taskId, queryClient, selectedCommitSha, setSelectedCommit])
 
     return {
         status,

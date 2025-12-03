@@ -13,6 +13,7 @@ Create Date: 2024-11-30
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -27,7 +28,7 @@ def upgrade() -> None:
     # ===========================================
     # 1. Fix organizations table
     # ===========================================
-    
+
     # Add new columns required by the model
     # Note: updated_at already exists from BaseModel in initial migration
     op.add_column(
@@ -47,7 +48,7 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    
+
     # Create foreign key for owner_id
     op.create_foreign_key(
         "fk_organizations_owner_id",
@@ -57,23 +58,23 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    
+
     # Create unique index on slug
     op.create_index("ix_organizations_slug", "organizations", ["slug"], unique=True)
-    
+
     # Note: We keep github_id, display_name, avatar_url, installation_id
     # as they may be useful for GitHub org integration. They're nullable
     # so won't conflict with the model (model just ignores them).
-    
+
     # ===========================================
     # 2. Rename organization_members to members
     # ===========================================
     op.rename_table("organization_members", "members")
-    
+
     # Update the unique constraint name
     op.drop_constraint("uq_org_user", "members", type_="unique")
     op.create_unique_constraint("uq_member_org_user", "members", ["org_id", "user_id"])
-    
+
     # Add updated_at column to members (doesn't exist in initial migration)
     op.add_column(
         "members",
@@ -84,7 +85,7 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    
+
     # Create indexes on members table
     op.create_index("ix_members_org_id", "members", ["org_id"])
     op.create_index("ix_members_user_id", "members", ["user_id"])
@@ -101,7 +102,7 @@ def downgrade() -> None:
     op.drop_constraint("uq_member_org_user", "members", type_="unique")
     op.create_unique_constraint("uq_org_user", "members", ["org_id", "user_id"])
     op.rename_table("members", "organization_members")
-    
+
     # ===========================================
     # 2. Revert organizations table
     # Note: Don't drop updated_at - it existed in initial migration

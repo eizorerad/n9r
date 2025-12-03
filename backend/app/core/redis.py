@@ -2,9 +2,8 @@
 
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
-from typing import Any, Generator
 
 import redis as sync_redis
 import redis.asyncio as aioredis
@@ -124,6 +123,7 @@ def publish_analysis_progress(
     message: str | None = None,
     status: str = "running",
     vci_score: float | None = None,
+    commit_sha: str | None = None,
 ) -> None:
     """Publish analysis progress to Redis channel and store last state (sync, for Celery).
     
@@ -136,7 +136,7 @@ def publish_analysis_progress(
     with get_sync_redis_context() as redis_client:
         channel = get_analysis_channel(analysis_id)
         state_key = get_analysis_state_key(analysis_id)
-        
+
         payload_dict = {
             "analysis_id": analysis_id,
             "stage": stage,
@@ -146,12 +146,14 @@ def publish_analysis_progress(
         }
         if vci_score is not None:
             payload_dict["vci_score"] = vci_score
-        
+        if commit_sha is not None:
+            payload_dict["commit_sha"] = commit_sha
+
         payload = json.dumps(payload_dict)
-        
+
         # Store last state for late subscribers (with TTL)
         redis_client.setex(state_key, ANALYSIS_STATE_TTL, payload)
-        
+
         # Publish for real-time updates
         redis_client.publish(channel, payload)
         logger.debug(f"Published progress to {channel}: {stage} {progress}%")
@@ -181,22 +183,22 @@ async def subscribe_analysis_progress(analysis_id: str, timeout_seconds: int = 6
     Note: Includes keepalive pings every 30 seconds to detect dead connections.
     """
     import asyncio
-    
+
     client = aioredis.Redis(connection_pool=async_redis_pool)
     pubsub = client.pubsub()
     channel = get_analysis_channel(analysis_id)
-    
+
     start_time = asyncio.get_event_loop().time()
     last_message_time = start_time
     keepalive_interval = 30  # Send keepalive every 30 seconds
-    
+
     try:
         await pubsub.subscribe(channel)
         logger.info(f"Subscribed to channel: {channel}")
-        
+
         while True:
             current_time = asyncio.get_event_loop().time()
-            
+
             # Check overall timeout
             if current_time - start_time > timeout_seconds:
                 logger.warning(f"Analysis {analysis_id} subscription timed out after {timeout_seconds}s")
@@ -210,25 +212,25 @@ async def subscribe_analysis_progress(analysis_id: str, timeout_seconds: int = 6
                 })
                 yield timeout_data
                 break
-            
+
             # Calculate time until next keepalive
             time_since_last = current_time - last_message_time
             wait_timeout = max(0.1, keepalive_interval - time_since_last)
-            
+
             try:
                 # Wait for message with timeout
                 message = await asyncio.wait_for(
                     pubsub.get_message(ignore_subscribe_messages=True, timeout=wait_timeout),
                     timeout=wait_timeout + 1
                 )
-                
+
                 if message and message["type"] == "message":
                     last_message_time = asyncio.get_event_loop().time()
                     data = message["data"]
                     if isinstance(data, bytes):
                         data = data.decode("utf-8")
                     yield data
-                    
+
                     # Check if analysis completed or failed
                     try:
                         parsed = json.loads(data)
@@ -237,21 +239,21 @@ async def subscribe_analysis_progress(analysis_id: str, timeout_seconds: int = 6
                             return
                     except json.JSONDecodeError:
                         pass
-                        
+
                 elif current_time - last_message_time >= keepalive_interval:
                     # Send keepalive ping (SSE comment)
                     last_message_time = current_time
                     # Note: We yield a comment that the SSE parser will ignore
                     # This keeps the connection alive through proxies
                     yield ": keepalive\n"
-                    
-            except asyncio.TimeoutError:
+
+            except TimeoutError:
                 # No message received, check if we need keepalive
                 if current_time - last_message_time >= keepalive_interval:
                     last_message_time = current_time
                     yield ": keepalive\n"
                 continue
-                
+
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.aclose()
@@ -270,11 +272,11 @@ async def subscribe_to_channel(channel: str):
     """
     client = aioredis.Redis(connection_pool=async_redis_pool)
     pubsub = client.pubsub()
-    
+
     try:
         await pubsub.subscribe(channel)
         logger.info(f"Subscribed to channel: {channel}")
-        
+
         async for message in pubsub.listen():
             if message["type"] == "message":
                 data = message["data"]
@@ -322,7 +324,7 @@ def publish_embedding_progress(
     with get_sync_redis_context() as redis_client:
         channel = get_embedding_channel(repository_id)
         state_key = get_embedding_state_key(repository_id)
-        
+
         payload_dict = {
             "repository_id": repository_id,
             "stage": stage,
@@ -332,12 +334,12 @@ def publish_embedding_progress(
             "chunks_processed": chunks_processed,
             "vectors_stored": vectors_stored,
         }
-        
+
         payload = json.dumps(payload_dict)
-        
+
         # Store state for polling/late subscribers
         redis_client.setex(state_key, EMBEDDING_STATE_TTL, payload)
-        
+
         # Publish for real-time updates
         redis_client.publish(channel, payload)
         logger.debug(f"Published embedding progress: {stage} {progress}%")
@@ -363,20 +365,20 @@ async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int 
     Yields JSON-encoded progress updates.
     """
     import asyncio
-    
+
     client = aioredis.Redis(connection_pool=async_redis_pool)
     pubsub = client.pubsub()
     channel = get_embedding_channel(repository_id)
-    
+
     start_time = asyncio.get_event_loop().time()
-    
+
     try:
         await pubsub.subscribe(channel)
         logger.info(f"Subscribed to embedding channel: {channel}")
-        
+
         while True:
             current_time = asyncio.get_event_loop().time()
-            
+
             if current_time - start_time > timeout_seconds:
                 yield json.dumps({
                     "repository_id": repository_id,
@@ -385,19 +387,19 @@ async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int 
                     "message": "Embedding progress timed out",
                 })
                 break
-            
+
             try:
                 message = await asyncio.wait_for(
                     pubsub.get_message(ignore_subscribe_messages=True, timeout=5.0),
                     timeout=6.0
                 )
-                
+
                 if message and message["type"] == "message":
                     data = message["data"]
                     if isinstance(data, bytes):
                         data = data.decode("utf-8")
                     yield data
-                    
+
                     # Check if completed or failed
                     try:
                         parsed = json.loads(data)
@@ -405,10 +407,10 @@ async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int 
                             return
                     except json.JSONDecodeError:
                         pass
-                        
-            except asyncio.TimeoutError:
+
+            except TimeoutError:
                 continue
-                
+
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.aclose()
@@ -480,14 +482,14 @@ def check_playground_rate_limit(client_ip: str, max_requests: int = 5) -> bool:
     """
     with get_sync_redis_context() as client:
         key = f"playground:rate:{client_ip}"
-        
+
         current = client.get(key)
         if current and int(current) >= max_requests:
             return False
-        
+
         pipe = client.pipeline()
         pipe.incr(key)
         pipe.expire(key, 3600)  # 1 hour TTL
         pipe.execute()
-        
+
         return True

@@ -24,7 +24,7 @@ def calculate_cyclomatic_complexity(content: str, language: str) -> int:
     """
     if not content:
         return 1
-    
+
     # Decision point patterns by language
     if language == "python":
         patterns = [
@@ -57,20 +57,20 @@ def calculate_cyclomatic_complexity(content: str, language: str) -> int:
             r'\bcase\b', r'\bcatch\b',
             r'&&', r'\|\|',
         ]
-    
+
     complexity = 1  # Base complexity
-    
+
     for pattern in patterns:
         matches = re.findall(pattern, content, re.IGNORECASE)
         complexity += len(matches)
-    
+
     return complexity
 
 
 @dataclass
 class CodeChunk:
     """A chunk of code for embedding."""
-    
+
     content: str
     file_path: str
     language: str
@@ -81,33 +81,33 @@ class CodeChunk:
     parent_name: str | None = None
     docstring: str | None = None
     metadata: dict = field(default_factory=dict)
-    
+
     # NEW: Hierarchical structure fields
     level: int = 0  # 0=file/module, 1=class, 2=method/function
     qualified_name: str | None = None  # e.g., "UserService.create_user"
-    
+
     # NEW: Metrics fields
     cyclomatic_complexity: int | None = None
     line_count: int = 0
-    
+
     @property
     def token_estimate(self) -> int:
         """Estimate token count (roughly 4 chars per token)."""
         return len(self.content) // 4
-    
+
     def __post_init__(self):
         """Calculate derived fields after initialization."""
         # Calculate line_count if not set
         if self.line_count == 0 and self.content:
             self.line_count = self.content.count('\n') + 1
-        
+
         # Build qualified_name if not set
         if self.qualified_name is None:
             if self.parent_name and self.name:
                 self.qualified_name = f"{self.parent_name}.{self.name}"
             elif self.name:
                 self.qualified_name = self.name
-        
+
         # Set level based on chunk_type if not explicitly set
         if self.level == 0 and self.chunk_type:
             if self.chunk_type in ("module", "file", "block"):
@@ -157,24 +157,24 @@ LANGUAGE_MAP = {
 
 class CodeChunker:
     """Chunks code files into semantic units for embedding."""
-    
+
     # Chunk size limits
     MIN_CHUNK_SIZE = 50  # chars
     MAX_CHUNK_SIZE = 8000  # chars (~2000 tokens)
     OVERLAP_SIZE = 200  # chars for context overlap
-    
+
     def __init__(self):
         self.parsers: dict[str, Any] = {}
-    
+
     def detect_language(self, file_path: str) -> str:
         """Detect language from file extension."""
         ext = Path(file_path).suffix.lower()
         return LANGUAGE_MAP.get(ext, "text")
-    
+
     def chunk_file(self, file_path: str, content: str) -> list[CodeChunk]:
         """Chunk a file into semantic units."""
         language = self.detect_language(file_path)
-        
+
         if language == "python":
             return self._chunk_python(file_path, content)
         elif language in ("javascript", "typescript"):
@@ -182,29 +182,29 @@ class CodeChunker:
         else:
             # Fallback to simple chunking
             return self._chunk_simple(file_path, content, language)
-    
+
     def _chunk_python(self, file_path: str, content: str) -> list[CodeChunk]:
         """Chunk Python code using regex-based parsing."""
         chunks = []
         lines = content.split("\n")
-        
+
         # Patterns for Python constructs
         class_pattern = re.compile(r'^class\s+(\w+)')
         func_pattern = re.compile(r'^(async\s+)?def\s+(\w+)')
         docstring_pattern = re.compile(r'^\s*("""|\'\'\')(.+?)("""|\'\'\')', re.DOTALL)
-        
+
         current_class = None
         current_func = None
         func_start = 0
         func_lines: list[str] = []
         indent_level = 0
-        
+
         i = 0
         while i < len(lines):
             line = lines[i]
             stripped = line.lstrip()
             current_indent = len(line) - len(stripped)
-            
+
             # Check for class definition
             class_match = class_pattern.match(stripped)
             if class_match and current_indent == 0:
@@ -218,12 +218,12 @@ class CodeChunker:
                     )
                     chunks.append(chunk)
                     func_lines = []
-                
+
                 current_class = class_match.group(1)
                 current_func = None
                 i += 1
                 continue
-            
+
             # Check for function/method definition
             func_match = func_pattern.match(stripped)
             if func_match:
@@ -236,18 +236,18 @@ class CodeChunker:
                         current_class, "python"
                     )
                     chunks.append(chunk)
-                
+
                 # If function is at indent 0, it's not inside a class
                 if current_indent == 0:
                     current_class = None
-                
+
                 current_func = func_match.group(2)
                 func_start = i + 1
                 func_lines = [line]
                 indent_level = current_indent
                 i += 1
                 continue
-            
+
             # Accumulate function lines
             if current_func:
                 # Check if we're still inside the function
@@ -262,16 +262,16 @@ class CodeChunker:
                     chunks.append(chunk)
                     func_lines = []
                     current_func = None
-                    
+
                     # Check if class ended
                     if current_indent == 0 and current_class:
                         current_class = None
                     continue
                 else:
                     func_lines.append(line)
-            
+
             i += 1
-        
+
         # Save last function
         if func_lines and current_func:
             chunk = self._create_chunk(
@@ -281,20 +281,20 @@ class CodeChunker:
                 current_class, "python"
             )
             chunks.append(chunk)
-        
+
         # If no chunks found, chunk the whole file
         if not chunks:
             chunks = self._chunk_simple(file_path, content, "python")
-        
+
         return chunks
-    
+
     def _chunk_javascript(
         self, file_path: str, content: str, language: str
     ) -> list[CodeChunk]:
         """Chunk JavaScript/TypeScript code."""
         chunks = []
         lines = content.split("\n")
-        
+
         # Patterns for JS constructs
         func_patterns = [
             re.compile(r'^\s*(export\s+)?(async\s+)?function\s+(\w+)'),
@@ -304,21 +304,21 @@ class CodeChunker:
             re.compile(r'^\s*(async\s+)?(\w+)\s*\([^)]*\)\s*{'),
         ]
         class_pattern = re.compile(r'^\s*(export\s+)?class\s+(\w+)')
-        
+
         current_class = None
         brace_count = 0
         func_name = None
         func_start = 0
         func_lines: list[str] = []
-        
+
         for i, line in enumerate(lines):
             stripped = line.strip()
-            
+
             # Check for class
             class_match = class_pattern.match(line)
             if class_match:
                 current_class = class_match.group(2)
-            
+
             # Check for function start
             if not func_name:
                 for pattern in func_patterns:
@@ -332,7 +332,7 @@ class CodeChunker:
             else:
                 func_lines.append(line)
                 brace_count += line.count("{") - line.count("}")
-                
+
                 if brace_count <= 0:
                     # Function ended
                     chunk = self._create_chunk(
@@ -344,19 +344,19 @@ class CodeChunker:
                     chunks.append(chunk)
                     func_name = None
                     func_lines = []
-        
+
         # Fallback
         if not chunks:
             chunks = self._chunk_simple(file_path, content, language)
-        
+
         return chunks
-    
+
     def _chunk_simple(
         self, file_path: str, content: str, language: str
     ) -> list[CodeChunk]:
         """Simple chunking by size with overlap."""
         chunks = []
-        
+
         if len(content) <= self.MAX_CHUNK_SIZE:
             chunks.append(CodeChunk(
                 content=content,
@@ -373,10 +373,10 @@ class CodeChunker:
             current_chunk = ""
             chunk_start = 1
             current_line = 1
-            
+
             for section in sections:
                 section_lines = section.count("\n") + 1
-                
+
                 if len(current_chunk) + len(section) <= self.MAX_CHUNK_SIZE:
                     current_chunk += section + "\n\n"
                 else:
@@ -390,14 +390,14 @@ class CodeChunker:
                             line_start=chunk_start,
                             line_end=current_line,
                         ))
-                    
+
                     # Start new chunk with overlap
                     overlap = current_chunk[-self.OVERLAP_SIZE:] if len(current_chunk) > self.OVERLAP_SIZE else ""
                     current_chunk = overlap + section + "\n\n"
                     chunk_start = current_line
-                
+
                 current_line += section_lines
-            
+
             # Add last chunk
             if current_chunk.strip():
                 chunks.append(CodeChunk(
@@ -409,9 +409,9 @@ class CodeChunker:
                     line_start=chunk_start,
                     line_end=current_line,
                 ))
-        
+
         return chunks
-    
+
     def _create_chunk(
         self,
         file_path: str,
@@ -425,7 +425,7 @@ class CodeChunker:
     ) -> CodeChunk:
         """Create a code chunk with extracted docstring and complexity."""
         docstring = None
-        
+
         # Extract docstring for Python
         if language == "python":
             doc_match = re.search(
@@ -434,18 +434,18 @@ class CodeChunker:
             )
             if doc_match:
                 docstring = doc_match.group(2).strip()
-        
+
         # Extract JSDoc for JavaScript
         elif language in ("javascript", "typescript"):
             doc_match = re.search(r'/\*\*(.*?)\*/', content, re.DOTALL)
             if doc_match:
                 docstring = doc_match.group(1).strip()
-        
+
         # Calculate cyclomatic complexity for functions/methods
         complexity = None
         if chunk_type in ("function", "method"):
             complexity = calculate_cyclomatic_complexity(content, language)
-        
+
         return CodeChunk(
             content=content,
             file_path=file_path,

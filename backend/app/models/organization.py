@@ -64,7 +64,7 @@ class Organization(BaseModel):
         default=PlanType.SOLO,
         nullable=False,
     )
-    
+
     # GitHub organization fields (for org-level integrations)
     github_id: Mapped[int | None] = mapped_column(
         BigInteger,

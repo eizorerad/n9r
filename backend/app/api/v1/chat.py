@@ -1,7 +1,6 @@
 """Chat API endpoints with RAG support."""
 
 import logging
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -34,9 +33,9 @@ def get_qdrant_client() -> QdrantClient:
 
 class CreateThreadRequest(BaseModel):
     """Create chat thread request."""
-    title: Optional[str] = None
-    context_file: Optional[str] = None
-    context_issue_id: Optional[UUID] = None
+    title: str | None = None
+    context_file: str | None = None
+    context_issue_id: UUID | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -61,10 +60,10 @@ async def create_thread(
         )
     )
     repository = result.scalar_one_or_none()
-    
+
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
-    
+
     # Create thread
     thread = ChatThread(
         repository_id=repository_id,
@@ -76,7 +75,7 @@ async def create_thread(
     db.add(thread)
     await db.commit()
     await db.refresh(thread)
-    
+
     return {
         "id": str(thread.id),
         "title": thread.title,
@@ -103,7 +102,7 @@ async def list_threads(
         .limit(limit)
     )
     threads = result.scalars().all()
-    
+
     return {
         "data": [
             {
@@ -132,10 +131,10 @@ async def get_thread(
         .where(ChatThread.id == thread_id, ChatThread.user_id == user.id)
     )
     thread = result.scalar_one_or_none()
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    
+
     return {
         "id": str(thread.id),
         "title": thread.title,
@@ -170,10 +169,10 @@ async def send_message(
         .where(ChatThread.id == thread_id, ChatThread.user_id == user.id)
     )
     thread = result.scalar_one_or_none()
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    
+
     # Save user message
     user_message = ChatMessage(
         thread_id=thread_id,
@@ -182,10 +181,10 @@ async def send_message(
     )
     db.add(user_message)
     await db.commit()
-    
+
     # Build context for RAG
     messages = await _build_chat_messages(thread, payload.content)
-    
+
     if payload.stream:
         # Return streaming response
         return StreamingResponse(
@@ -196,7 +195,7 @@ async def send_message(
         # Non-streaming response
         llm = get_llm_gateway()
         response = await llm.chat(messages)
-        
+
         # Save assistant message
         assistant_message = ChatMessage(
             thread_id=thread_id,
@@ -206,7 +205,7 @@ async def send_message(
         db.add(assistant_message)
         thread.message_count += 2
         await db.commit()
-        
+
         return {
             "message": {
                 "id": str(assistant_message.id),
@@ -220,16 +219,16 @@ async def _stream_response(thread_id: UUID, messages: list, db):
     """Stream LLM response."""
     llm = get_llm_gateway()
     full_response = []
-    
+
     async for chunk in llm.complete_stream(
         prompt=messages[-1]["content"],
         system_prompt=messages[0]["content"] if messages[0]["role"] == "system" else None,
     ):
         full_response.append(chunk)
         yield f"data: {chunk}\n\n"
-    
+
     yield "data: [DONE]\n\n"
-    
+
     # Save complete response (would need separate db session in production)
     # This is simplified - in production use background task
 
@@ -244,15 +243,15 @@ async def _get_rag_context(
     try:
         llm = get_llm_gateway()
         qdrant = get_qdrant_client()
-        
+
         # Generate embedding for query
         query_embedding = await llm.embed([query])
-        
+
         # Build filter
         filter_conditions = [
             {"key": "repository_id", "match": {"value": str(repository_id)}}
         ]
-        
+
         # Optionally prioritize current file context
         if context_file:
             # First search in context file
@@ -267,7 +266,7 @@ async def _get_rag_context(
                 },
                 limit=2,
             )
-            
+
             # Then search broader
             other_results = qdrant.search(
                 collection_name=COLLECTION_NAME,
@@ -280,7 +279,7 @@ async def _get_rag_context(
                 },
                 limit=limit - len(file_results),
             )
-            
+
             results = list(file_results) + list(other_results)
         else:
             results = qdrant.search(
@@ -289,7 +288,7 @@ async def _get_rag_context(
                 query_filter={"must": filter_conditions},
                 limit=limit,
             )
-        
+
         # Format results
         return [
             {
@@ -309,19 +308,19 @@ async def _get_rag_context(
 
 
 async def _build_chat_messages(
-    thread: ChatThread, 
+    thread: ChatThread,
     user_message: str,
 ) -> list[dict]:
     """Build messages array with RAG context."""
     messages = []
-    
+
     # Get RAG context
     rag_chunks = await _get_rag_context(
         repository_id=thread.repository_id,
         query=user_message,
         context_file=thread.context_file,
     )
-    
+
     # Build context section
     context_section = ""
     if rag_chunks:
@@ -333,7 +332,7 @@ async def _build_chat_messages(
             if chunk['line_start']:
                 context_section += f" (lines {chunk['line_start']}-{chunk['line_end']})"
             context_section += f"\n```\n{chunk['content'][:1500]}\n```\n"
-    
+
     # System prompt with repository context
     system_prompt = f"""You are n9r, an AI assistant specialized in code analysis and improvement.
 You are helping with repository: {thread.repository.full_name}
@@ -347,19 +346,19 @@ Your role is to:
 Be concise, technical, and helpful. Reference specific files and line numbers when relevant.
 {context_section}
 """
-    
+
     if thread.context_file:
         system_prompt += f"\nUser is currently viewing: {thread.context_file}"
-    
+
     messages.append({"role": "system", "content": system_prompt})
-    
+
     # Add conversation history (last 10 messages)
     for msg in sorted(thread.messages, key=lambda x: x.created_at)[-10:]:
         messages.append({"role": msg.role, "content": msg.content})
-    
+
     # Add current message
     messages.append({"role": "user", "content": user_message})
-    
+
     return messages
 
 
@@ -377,11 +376,11 @@ async def delete_thread(
         )
     )
     thread = result.scalar_one_or_none()
-    
+
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-    
+
     await db.delete(thread)
     await db.commit()
-    
+
     return {"status": "deleted"}

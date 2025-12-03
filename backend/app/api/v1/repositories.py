@@ -7,18 +7,28 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.encryption import decrypt_token_or_none
 from app.models.repository import Repository
 from app.schemas.common import PaginatedResponse, PaginationMeta
 from app.schemas.repository import (
     AvailableRepository,
+    BranchListResponse,
+    BranchResponse,
+    CommitListResponse,
+    CommitResponse,
     RepositoryConnect,
     RepositoryDetail,
     RepositoryResponse,
     RepositoryStats,
     RepositoryUpdate,
 )
-from app.services.github import GitHubService
-from app.core.encryption import decrypt_token_or_none
+from app.services.github import (
+    GitHubAPIError,
+    GitHubAuthenticationError,
+    GitHubPermissionError,
+    GitHubRateLimitError,
+    GitHubService,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -85,23 +95,23 @@ async def list_available_repositories(
     """List available GitHub repositories for connection."""
     # Get user's GitHub token
     github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-    
+
     if not github_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub token not found. Please re-authenticate.",
         )
-    
+
     try:
         github = GitHubService(github_token)
         github_repos = await github.list_user_repositories(per_page=100)
-        
+
         # Get already connected repository IDs
         result = await db.execute(
             select(Repository.github_id).where(Repository.owner_id == current_user.id)
         )
         connected_ids = {row[0] for row in result.fetchall()}
-        
+
         available = []
         for repo in github_repos:
             available.append(
@@ -116,9 +126,9 @@ async def list_available_repositories(
                     is_connected=repo["id"] in connected_ids,
                 )
             )
-        
+
         return {"data": available}
-        
+
     except Exception as e:
         logger.error(f"Failed to list GitHub repositories: {e}")
         raise HTTPException(
@@ -161,37 +171,37 @@ async def connect_repository(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Repository already connected by another user",
             )
-    
+
     # Get user's GitHub token
     github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-    
+
     if not github_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub token not found. Please re-authenticate.",
         )
-    
+
     try:
         # Fetch repository details from GitHub
         github = GitHubService(github_token)
-        
+
         # List repos to find the one we're connecting
         github_repos = await github.list_user_repositories(per_page=100)
         github_repo = next(
             (r for r in github_repos if r["id"] == repo_data.github_id),
             None
         )
-        
+
         if not github_repo:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Repository not found or not accessible",
             )
-        
+
         # Create repository record
         # Convert mode enum to string value
         mode_value = repo_data.mode.value if hasattr(repo_data.mode, 'value') else str(repo_data.mode)
-        
+
         repository = Repository(
             github_id=github_repo["id"],
             owner_id=current_user.id,
@@ -206,29 +216,40 @@ async def connect_repository(
         )
         db.add(repository)
         await db.flush()
-        
+
+        # Get the latest commit SHA for the default branch
+        try:
+            branch_info = await github.get_branch(
+                owner=github_repo["full_name"].split("/")[0],
+                repo=github_repo["name"],
+                branch=repository.default_branch,
+            )
+            initial_commit_sha = branch_info.get("commit", {}).get("sha", "HEAD")
+        except Exception:
+            initial_commit_sha = "HEAD"
+
         # Create initial analysis record
         from app.models.analysis import Analysis
         analysis = Analysis(
             repository_id=repository.id,
-            commit_sha="HEAD",
+            commit_sha=initial_commit_sha,
             branch=repository.default_branch,
             status="pending",
         )
         db.add(analysis)
         await db.flush()
-        
+
         # Queue initial analysis with analysis_id
         from app.workers.analysis import analyze_repository
         analyze_repository.delay(
             repository_id=str(repository.id),
             analysis_id=str(analysis.id),
-            commit_sha=None,
+            commit_sha=initial_commit_sha,
             triggered_by="connect",
         )
-        
+
         logger.info(f"Repository {repository.full_name} connected by user {current_user.id}")
-        
+
         return RepositoryResponse(
             id=repository.id,
             github_id=repository.github_id,
@@ -243,7 +264,7 @@ async def connect_repository(
             pending_prs_count=0,
             open_issues_count=0,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -374,7 +395,7 @@ async def get_repository_files(
 ) -> dict:
     """Get file tree of a repository path."""
     from app.schemas.repository import FileTreeItem
-    
+
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -389,33 +410,33 @@ async def get_repository_files(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repository not found",
         )
-    
+
     # Get user's GitHub token
     github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-    
+
     if not github_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub token not found. Please re-authenticate.",
         )
-    
+
     try:
         github = GitHubService(github_token)
-        
+
         # Parse owner/repo from full_name
         owner, repo_name = repository.full_name.split("/")
-        
+
         contents = await github.get_repository_contents(
             owner=owner,
             repo=repo_name,
             path=path,
             ref=ref or repository.default_branch,
         )
-        
+
         # Handle single file case
         if isinstance(contents, dict):
             contents = [contents]
-        
+
         items = []
         for item in contents:
             items.append(
@@ -426,12 +447,12 @@ async def get_repository_files(
                     size=item.get("size"),
                 )
             )
-        
+
         # Sort: directories first, then files
         items.sort(key=lambda x: (x.type != "directory", x.name.lower()))
-        
+
         return {"data": items}
-        
+
     except Exception as e:
         logger.error(f"Failed to get repository files: {e}")
         raise HTTPException(
@@ -450,7 +471,7 @@ async def get_repository_file_content(
 ) -> dict:
     """Get content of a specific file."""
     from app.schemas.repository import FileContent
-    
+
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -465,29 +486,29 @@ async def get_repository_file_content(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Repository not found",
         )
-    
+
     # Get user's GitHub token
     github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-    
+
     if not github_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="GitHub token not found. Please re-authenticate.",
         )
-    
+
     try:
         github = GitHubService(github_token)
-        
+
         # Parse owner/repo from full_name
         owner, repo_name = repository.full_name.split("/")
-        
+
         content = await github.get_file_content(
             owner=owner,
             repo=repo_name,
             path=file_path,
             ref=ref or repository.default_branch,
         )
-        
+
         # Detect language from file extension
         language = None
         if "." in file_path:
@@ -525,7 +546,7 @@ async def get_repository_file_content(
                 "dockerfile": "dockerfile",
             }
             language = language_map.get(ext)
-        
+
         return FileContent(
             path=file_path,
             content=content,
@@ -533,7 +554,7 @@ async def get_repository_file_content(
             size=len(content),
             language=language,
         )
-        
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -544,4 +565,222 @@ async def get_repository_file_content(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to fetch file from GitHub",
+        )
+
+
+@router.get("/{repo_id}/branches", response_model=BranchListResponse)
+async def list_branches(
+    repo_id: UUID,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> BranchListResponse:
+    """List branches for a repository.
+    
+    Requirements: 1.1, 1.2, 1.3, 6.1, 6.4
+    """
+    # Verify repository ownership
+    result = await db.execute(
+        select(Repository).where(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id,
+        )
+    )
+    repository = result.scalar_one_or_none()
+
+    if not repository:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    # Get user's GitHub token
+    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
+
+    if not github_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub token not found. Please re-authenticate.",
+        )
+
+    try:
+        github = GitHubService(github_token)
+
+        # Parse owner/repo from full_name
+        owner, repo_name = repository.full_name.split("/")
+
+        # Fetch branches via GitHubService
+        branches = await github.list_branches(
+            owner=owner,
+            repo=repo_name,
+            per_page=100,
+        )
+
+        # Transform to response format, identifying default branch
+        branch_responses = [
+            BranchResponse(
+                name=branch["name"],
+                commit_sha=branch["commit_sha"],
+                is_default=(branch["name"] == repository.default_branch),
+                is_protected=branch.get("protected", False),
+            )
+            for branch in branches
+        ]
+
+        return BranchListResponse(data=branch_responses)
+
+    except GitHubRateLimitError as e:
+        logger.warning(f"GitHub rate limit exceeded for user {current_user.id}: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+        )
+    except GitHubAuthenticationError as e:
+        logger.warning(f"GitHub authentication failed for user {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=e.message,
+        )
+    except GitHubPermissionError as e:
+        logger.warning(f"GitHub permission denied for user {current_user.id} on repo {repo_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        )
+    except GitHubAPIError as e:
+        logger.error(f"GitHub API error listing branches: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=e.message,
+        )
+    except Exception as e:
+        logger.error(f"Failed to list branches: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch branches from GitHub",
+        )
+
+
+@router.get("/{repo_id}/commits", response_model=CommitListResponse)
+async def list_commits(
+    repo_id: UUID,
+    current_user: CurrentUser,
+    db: DbSession,
+    branch: str | None = Query(default=None, description="Branch name (defaults to repository's default branch)"),
+    per_page: int = Query(default=30, le=100, description="Number of commits to return"),
+) -> CommitListResponse:
+    """List commits for a repository branch with analysis status.
+    
+    Requirements: 2.1, 2.2, 3.1, 3.2, 3.3, 3.4, 6.1, 6.4
+    """
+    from app.models.analysis import Analysis
+
+    # Verify repository ownership
+    result = await db.execute(
+        select(Repository).where(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id,
+        )
+    )
+    repository = result.scalar_one_or_none()
+
+    if not repository:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Repository not found",
+        )
+
+    # Default to repository's default branch
+    target_branch = branch or repository.default_branch
+
+    # Get user's GitHub token
+    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
+
+    if not github_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub token not found. Please re-authenticate.",
+        )
+
+    try:
+        github = GitHubService(github_token)
+
+        # Parse owner/repo from full_name
+        owner, repo_name = repository.full_name.split("/")
+
+        # Fetch commits via GitHubService
+        commits = await github.list_commits(
+            owner=owner,
+            repo=repo_name,
+            sha=target_branch,
+            per_page=per_page,
+        )
+
+        # Get commit SHAs for analysis lookup
+        commit_shas = [commit["sha"] for commit in commits]
+
+        # Query Analysis table for matching commit SHAs
+        analysis_result = await db.execute(
+            select(Analysis).where(
+                Analysis.repository_id == repo_id,
+                Analysis.commit_sha.in_(commit_shas),
+            )
+        )
+        analyses = analysis_result.scalars().all()
+
+        # Build lookup dict by commit SHA
+        analysis_by_sha: dict[str, Analysis] = {
+            analysis.commit_sha: analysis for analysis in analyses
+        }
+
+        # Enrich commits with analysis info
+        commit_responses = []
+        for commit in commits:
+            analysis = analysis_by_sha.get(commit["sha"])
+
+            commit_responses.append(
+                CommitResponse(
+                    sha=commit["sha"],
+                    message=commit["message"],
+                    author_name=commit["author_name"],
+                    author_login=commit.get("author_login"),
+                    author_avatar_url=commit.get("author_avatar_url"),
+                    committed_at=commit["committed_at"],
+                    # Analysis info (if analyzed)
+                    analysis_id=analysis.id if analysis else None,
+                    vci_score=float(analysis.vci_score) if analysis and analysis.vci_score else None,
+                    analysis_status=analysis.status if analysis else None,
+                )
+            )
+
+        return CommitListResponse(commits=commit_responses, branch=target_branch)
+
+    except GitHubRateLimitError as e:
+        logger.warning(f"GitHub rate limit exceeded for user {current_user.id}: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=e.message,
+        )
+    except GitHubAuthenticationError as e:
+        logger.warning(f"GitHub authentication failed for user {current_user.id}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=e.message,
+        )
+    except GitHubPermissionError as e:
+        logger.warning(f"GitHub permission denied for user {current_user.id} on repo {repo_id}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=e.message,
+        )
+    except GitHubAPIError as e:
+        logger.error(f"GitHub API error listing commits: {e.message}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=e.message,
+        )
+    except Exception as e:
+        logger.error(f"Failed to list commits: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch commits from GitHub",
         )

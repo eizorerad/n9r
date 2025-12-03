@@ -11,21 +11,20 @@ Tests all vector-based code understanding features:
 - Code style consistency
 """
 
+
 import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import numpy as np
 
 
 class TestSemanticAPIRoutes:
     """Test that all semantic API routes are properly registered."""
-    
+
     def test_all_routes_registered(self):
         """Verify all 10 semantic endpoints are registered."""
         from app.api.v1 import semantic
-        
+
         routes = list(semantic.router.routes)
         route_paths = [r.path for r in routes]
-        
+
         expected_paths = [
             "/repositories/{repository_id}/semantic-search",
             "/repositories/{repository_id}/related-code",
@@ -38,16 +37,16 @@ class TestSemanticAPIRoutes:
             "/repositories/{repository_id}/style-consistency",
             "/repositories/{repository_id}/embedding-status",
         ]
-        
+
         for expected in expected_paths:
             assert expected in route_paths, f"Missing route: {expected}"
-        
+
         assert len(routes) == 10, f"Expected 10 routes, got {len(routes)}"
-    
+
     def test_routes_are_get_methods(self):
         """Verify all routes use GET method."""
         from app.api.v1 import semantic
-        
+
         for route in semantic.router.routes:
             methods = list(route.methods)
             assert "GET" in methods, f"Route {route.path} should be GET"
@@ -55,11 +54,11 @@ class TestSemanticAPIRoutes:
 
 class TestCodeChunker:
     """Test code chunker functionality."""
-    
+
     def test_chunk_python_file(self):
         """Test chunking a Python file."""
         from app.services.code_chunker import get_code_chunker
-        
+
         code = '''
 class UserService:
     def create_user(self, name):
@@ -73,25 +72,25 @@ class UserService:
 def standalone_function():
     pass
 '''
-        
+
         chunker = get_code_chunker()
         chunks = chunker.chunk_file("services/user.py", code)
-        
+
         assert len(chunks) >= 2, "Should create multiple chunks"
-        
+
         # Check method chunks
         method_chunks = [c for c in chunks if c.chunk_type == "method"]
         assert len(method_chunks) >= 2, "Should have method chunks"
-        
+
         # Check qualified names
         for chunk in method_chunks:
             assert chunk.qualified_name is not None
             assert "UserService" in chunk.qualified_name
-    
+
     def test_chunk_with_complexity(self):
         """Test that complexity is calculated for functions."""
         from app.services.code_chunker import get_code_chunker
-        
+
         code = '''
 def complex_function(x, y):
     if x > 0:
@@ -104,19 +103,19 @@ def complex_function(x, y):
         x -= 1
     return x and y
 '''
-        
+
         chunker = get_code_chunker()
         chunks = chunker.chunk_file("test.py", code)
-        
+
         assert len(chunks) >= 1
         func_chunk = chunks[0]
         assert func_chunk.cyclomatic_complexity is not None
         assert func_chunk.cyclomatic_complexity >= 5, "Complex function should have CC >= 5"
-    
+
     def test_chunk_javascript_file(self):
         """Test chunking a JavaScript file."""
         from app.services.code_chunker import get_code_chunker
-        
+
         code = '''
 function createUser(name) {
     if (name) {
@@ -129,16 +128,16 @@ const deleteUser = async (userId) => {
     return true;
 };
 '''
-        
+
         chunker = get_code_chunker()
         chunks = chunker.chunk_file("services/user.js", code)
-        
+
         assert len(chunks) >= 1, "Should create at least one chunk"
-    
+
     def test_hierarchical_levels(self):
         """Test that hierarchical levels are assigned correctly."""
         from app.services.code_chunker import get_code_chunker
-        
+
         code = '''
 class MyClass:
     def my_method(self):
@@ -147,10 +146,10 @@ class MyClass:
 def standalone():
     pass
 '''
-        
+
         chunker = get_code_chunker()
         chunks = chunker.chunk_file("test.py", code)
-        
+
         for chunk in chunks:
             if chunk.chunk_type == "method" and chunk.parent_name:
                 assert chunk.level == 2, "Methods should be level 2"
@@ -160,19 +159,19 @@ def standalone():
 
 class TestCyclomaticComplexity:
     """Test cyclomatic complexity calculation."""
-    
+
     def test_simple_function(self):
         """Test CC for simple function."""
         from app.services.code_chunker import calculate_cyclomatic_complexity
-        
+
         code = "def simple(): return 1"
         cc = calculate_cyclomatic_complexity(code, "python")
         assert cc == 1, "Simple function should have CC=1"
-    
+
     def test_function_with_if(self):
         """Test CC for function with if statement."""
         from app.services.code_chunker import calculate_cyclomatic_complexity
-        
+
         code = '''
 def func(x):
     if x > 0:
@@ -181,11 +180,11 @@ def func(x):
 '''
         cc = calculate_cyclomatic_complexity(code, "python")
         assert cc >= 2, "Function with if should have CC >= 2"
-    
+
     def test_function_with_loops(self):
         """Test CC for function with loops."""
         from app.services.code_chunker import calculate_cyclomatic_complexity
-        
+
         code = '''
 def func(items):
     for item in items:
@@ -194,11 +193,11 @@ def func(items):
 '''
         cc = calculate_cyclomatic_complexity(code, "python")
         assert cc >= 3, "Function with for and while should have CC >= 3"
-    
+
     def test_javascript_complexity(self):
         """Test CC for JavaScript code."""
         from app.services.code_chunker import calculate_cyclomatic_complexity
-        
+
         code = '''
 function test(x) {
     if (x > 0) {
@@ -213,30 +212,23 @@ function test(x) {
 
 class TestClusterAnalyzer:
     """Test cluster analyzer functionality."""
-    
+
     def test_cluster_analyzer_import(self):
         """Test that cluster analyzer can be imported."""
         from app.services.cluster_analyzer import (
-            ClusterAnalyzer,
             get_cluster_analyzer,
-            ArchitectureHealth,
-            ClusterInfo,
-            OutlierInfo,
-            CouplingHotspot,
         )
-        
+
         analyzer = get_cluster_analyzer()
         assert analyzer is not None
-    
+
     def test_architecture_health_dataclass(self):
         """Test ArchitectureHealth dataclass."""
         from app.services.cluster_analyzer import (
             ArchitectureHealth,
             ClusterInfo,
-            OutlierInfo,
-            CouplingHotspot,
         )
-        
+
         health = ArchitectureHealth(
             overall_score=75,
             clusters=[
@@ -257,7 +249,7 @@ class TestClusterAnalyzer:
             total_files=25,
             metrics={"avg_cohesion": 0.75},
         )
-        
+
         assert health.overall_score == 75
         assert len(health.clusters) == 1
         assert health.clusters[0].name == "services"
@@ -265,11 +257,11 @@ class TestClusterAnalyzer:
 
 class TestResponseModels:
     """Test API response models."""
-    
+
     def test_semantic_search_response(self):
         """Test SemanticSearchResponse model."""
         from app.api.v1.semantic import SemanticSearchResponse, SemanticSearchResult
-        
+
         response = SemanticSearchResponse(
             query="test query",
             results=[
@@ -287,20 +279,18 @@ class TestResponseModels:
             ],
             total=1,
         )
-        
+
         assert response.query == "test query"
         assert len(response.results) == 1
         assert response.results[0].similarity == 0.95
-    
+
     def test_architecture_health_response(self):
         """Test ArchitectureHealthResponse model."""
         from app.api.v1.semantic import (
             ArchitectureHealthResponse,
             ClusterInfoResponse,
-            OutlierInfoResponse,
-            CouplingHotspotResponse,
         )
-        
+
         response = ArchitectureHealthResponse(
             overall_score=80,
             clusters=[
@@ -321,21 +311,22 @@ class TestResponseModels:
             total_files=10,
             metrics={"avg_cohesion": 0.8},
         )
-        
+
         assert response.overall_score == 80
         assert len(response.clusters) == 1
 
 
 class TestEmbeddingsWorker:
     """Test embeddings worker functionality."""
-    
+
     def test_enhanced_payload_fields(self):
         """Test that embeddings worker stores enhanced payload fields."""
         import inspect
+
         from app.workers.embeddings import generate_embeddings
-        
+
         source = inspect.getsource(generate_embeddings)
-        
+
         # Check for enhanced fields
         required_fields = [
             "level",
@@ -344,30 +335,29 @@ class TestEmbeddingsWorker:
             "line_count",
             "cluster_id",
         ]
-        
+
         for field in required_fields:
             assert field in source, f"Missing field in payload: {field}"
 
 
 class TestQdrantMigration:
     """Test Qdrant schema migration."""
-    
+
     def test_migration_script_exists(self):
         """Test that migration script exists and is importable."""
-        import importlib.util
         from pathlib import Path
-        
+
         script_path = Path("scripts/migrate_qdrant_v2.py")
         assert script_path.exists(), "Migration script should exist"
-    
+
     def test_migration_indexes(self):
         """Test that migration adds required indexes."""
         # Read the migration script
         with open("scripts/migrate_qdrant_v2.py") as f:
             content = f.read()
-        
+
         required_indexes = ["level", "cyclomatic_complexity", "cluster_id", "qualified_name"]
-        
+
         for index in required_indexes:
             assert index in content, f"Migration should add index for: {index}"
 

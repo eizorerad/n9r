@@ -12,6 +12,7 @@ Create Date: 2024-11-30
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -26,19 +27,19 @@ def upgrade() -> None:
     # ===========================================
     # Fix chat_threads table
     # ===========================================
-    
+
     # Add message_count column
     op.add_column(
         "chat_threads",
         sa.Column("message_count", sa.Integer(), server_default="0", nullable=False),
     )
-    
+
     # Add context_file column (replacing context_type/context_ref pattern)
     op.add_column(
         "chat_threads",
         sa.Column("context_file", sa.Text(), nullable=True),
     )
-    
+
     # Add context_issue_id with foreign key
     op.add_column(
         "chat_threads",
@@ -52,14 +53,14 @@ def upgrade() -> None:
         ["id"],
         ondelete="SET NULL",
     )
-    
+
     # Migrate data: context_type='file' + context_ref -> context_file
     op.execute("""
         UPDATE chat_threads 
         SET context_file = context_ref 
         WHERE context_type = 'file' AND context_ref IS NOT NULL
     """)
-    
+
     # Drop old columns (keeping title which is correct)
     op.drop_column("chat_threads", "context_type")
     op.drop_column("chat_threads", "context_ref")
@@ -76,14 +77,14 @@ def downgrade() -> None:
         "chat_threads",
         sa.Column("context_ref", sa.String(length=255), nullable=True),
     )
-    
+
     # Migrate data back
     op.execute("""
         UPDATE chat_threads 
         SET context_type = 'file', context_ref = context_file 
         WHERE context_file IS NOT NULL
     """)
-    
+
     # Drop new columns
     op.drop_constraint("fk_chat_threads_context_issue_id", "chat_threads", type_="foreignkey")
     op.drop_column("chat_threads", "context_issue_id")

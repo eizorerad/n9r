@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -122,3 +122,66 @@ class AnalysisDetail(BaseSchema):
     report_url: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+# =============================================================================
+# Semantic Cache Schemas
+# =============================================================================
+
+
+class ClusterInfoCache(BaseModel):
+    """Cluster information for cache."""
+
+    id: int
+    name: str
+    file_count: int
+    chunk_count: int
+    cohesion: float
+    top_files: list[str]
+    dominant_language: str | None
+    status: str
+
+
+class OutlierInfoCache(BaseModel):
+    """Outlier information for cache."""
+
+    file_path: str
+    chunk_name: str | None
+    chunk_type: str | None
+    nearest_similarity: float
+    nearest_file: str | None
+    suggestion: str
+    confidence: float = 0.5
+    confidence_factors: list[str] = []
+    tier: str = "recommended"
+
+
+class CouplingHotspotCache(BaseModel):
+    """Coupling hotspot information for cache."""
+
+    file_path: str
+    clusters_connected: int
+    cluster_names: list[str]
+    suggestion: str
+
+
+class ArchitectureHealthCache(BaseModel):
+    """Architecture health data for cache."""
+
+    overall_score: int
+    clusters: list[ClusterInfoCache]
+    outliers: list[OutlierInfoCache]
+    coupling_hotspots: list[CouplingHotspotCache]
+    total_chunks: int
+    total_files: int
+    metrics: dict[str, Any]
+
+
+class SemanticCacheResponse(BaseModel):
+    """Response for semantic cache endpoint."""
+
+    analysis_id: UUID
+    commit_sha: str
+    architecture_health: ArchitectureHealthCache | None = None
+    computed_at: datetime | None = None
+    is_cached: bool

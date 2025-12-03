@@ -1,8 +1,6 @@
 """Token encryption/decryption utilities for secrets management."""
 
 import base64
-import os
-from typing import Optional
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -35,7 +33,7 @@ def encrypt_token(token: str) -> str:
     """
     if not token:
         return ""
-    
+
     key = _get_key()
     f = Fernet(key)
     encrypted = f.encrypt(token.encode())
@@ -56,7 +54,7 @@ def decrypt_token(encrypted_token: str) -> str:
     """
     if not encrypted_token:
         return ""
-    
+
     key = _get_key()
     f = Fernet(key)
     encrypted = base64.urlsafe_b64decode(encrypted_token.encode())
@@ -64,14 +62,14 @@ def decrypt_token(encrypted_token: str) -> str:
     return decrypted.decode()
 
 
-def encrypt_token_or_none(token: Optional[str]) -> Optional[str]:
+def encrypt_token_or_none(token: str | None) -> str | None:
     """Encrypt a token if it exists, otherwise return None."""
     if token is None:
         return None
     return encrypt_token(token)
 
 
-def decrypt_token_or_none(encrypted_token: Optional[str]) -> Optional[str]:
+def decrypt_token_or_none(encrypted_token: str | None) -> str | None:
     """Decrypt a token if it exists, otherwise return None."""
     if encrypted_token is None:
         return None
