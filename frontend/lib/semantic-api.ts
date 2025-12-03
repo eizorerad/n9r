@@ -50,6 +50,9 @@ export interface OutlierInfo {
   nearest_similarity: number;
   nearest_file: string | null;
   suggestion: string;
+  confidence: number;
+  confidence_factors: string[];
+  tier: string;
 }
 
 export interface CouplingHotspot {

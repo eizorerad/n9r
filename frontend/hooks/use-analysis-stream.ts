@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
-import { useAnalysisProgressStore, getAnalysisTaskId } from '@/lib/stores/analysis-progress-store'
+import { useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
 
 export type AnalysisStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
 
@@ -55,6 +55,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     // Global progress store
     const { addTask, updateTask, removeTask } = useAnalysisProgressStore()
     const taskId = getAnalysisTaskId(repositoryId)
+    const embeddingsTaskId = getEmbeddingsTaskId(repositoryId)
 
     // Track mount state
     useEffect(() => {
@@ -95,7 +96,8 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         setMessage('Starting analysis...')
         setVciScore(null)
 
-        // Add to global progress store
+        // Add both tasks to global progress store upfront
+        // This prevents the delay where embeddings task appears seconds after analysis starts
         addTask({
             id: taskId,
             type: 'analysis',
@@ -104,6 +106,16 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
             progress: 0,
             stage: 'queued',
             message: 'Starting analysis...',
+        })
+        
+        addTask({
+            id: embeddingsTaskId,
+            type: 'embeddings',
+            repositoryId: repoId,
+            status: 'pending',
+            progress: 0,
+            stage: 'waiting',
+            message: 'Waiting for code analysis...',
         })
 
         try {

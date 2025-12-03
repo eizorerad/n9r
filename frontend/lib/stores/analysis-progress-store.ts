@@ -28,6 +28,7 @@ interface AnalysisProgressState {
   // Computed
   getActiveTasks: () => ProgressTask[]
   hasActiveTasks: () => boolean
+  hasTask: (id: string) => boolean
 }
 
 export const useAnalysisProgressStore = create<AnalysisProgressState>((set, get) => ({
@@ -96,6 +97,11 @@ export const useAnalysisProgressStore = create<AnalysisProgressState>((set, get)
     return Object.values(tasks).some(
       (task) => task.status === 'pending' || task.status === 'running'
     )
+  },
+  
+  hasTask: (id) => {
+    const { tasks } = get()
+    return id in tasks
   },
 }))
 

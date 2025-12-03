@@ -262,7 +262,33 @@ function ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
   )
 }
 
+const tierColors: Record<string, { border: string; icon: string; badge: string }> = {
+  critical: {
+    border: 'border-l-red-500',
+    icon: 'text-red-400',
+    badge: 'bg-red-500/10 text-red-400 border-red-500/20',
+  },
+  recommended: {
+    border: 'border-l-amber-500',
+    icon: 'text-amber-400',
+    badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  },
+  informational: {
+    border: 'border-l-blue-500',
+    icon: 'text-blue-400',
+    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  },
+}
+
+const tierIcons: Record<string, string> = {
+  critical: '🔴',
+  recommended: '⚠',
+  informational: 'ℹ',
+}
+
 function IssuesTab({ outliers }: { outliers: OutlierInfo[] }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
+
   if (outliers.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -274,38 +300,72 @@ function IssuesTab({ outliers }: { outliers: OutlierInfo[] }) {
 
   return (
     <div className="space-y-3">
-      {outliers.map((outlier, idx) => (
-        <div
-          key={idx}
-          className="p-4 rounded-lg bg-background/30 border-l-2 border-l-amber-500 border border-border/50"
-        >
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 mt-0.5">⚠</span>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                <code className="text-sm">{outlier.file_path}</code>
-                {outlier.chunk_name && (
-                  <>
-                    <span className="text-muted-foreground/50">→</span>
-                    <span className="text-sm font-medium">{outlier.chunk_name}</span>
-                  </>
-                )}
-                {outlier.chunk_type && (
-                  <Badge variant="outline" className="text-xs">
-                    {outlier.chunk_type}
+      {outliers.map((outlier, idx) => {
+        const tier = outlier.tier || 'recommended'
+        const colors = tierColors[tier] || tierColors.recommended
+        const icon = tierIcons[tier] || '⚠'
+        const confidencePercent = Math.round((outlier.confidence || 0.5) * 100)
+        const isExpanded = expandedIdx === idx
+
+        return (
+          <div
+            key={idx}
+            className={cn(
+              'p-4 rounded-lg bg-background/30 border-l-2 border border-border/50',
+              colors.border
+            )}
+          >
+            <div className="flex items-start gap-3">
+              <span className={cn('mt-0.5', colors.icon)}>{icon}</span>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <code className="text-sm">{outlier.file_path}</code>
+                  {outlier.chunk_name && (
+                    <>
+                      <span className="text-muted-foreground/50">→</span>
+                      <span className="text-sm font-medium">{outlier.chunk_name}</span>
+                    </>
+                  )}
+                  {outlier.chunk_type && (
+                    <Badge variant="outline" className="text-xs">
+                      {outlier.chunk_type}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className={cn('text-xs capitalize', colors.badge)}>
+                    {tier}
                   </Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {confidencePercent}% confidence
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">{outlier.suggestion}</p>
+                {outlier.nearest_file && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Nearest: {outlier.nearest_file} ({Math.round(outlier.nearest_similarity * 100)}% similar)
+                  </p>
+                )}
+                {outlier.confidence_factors && outlier.confidence_factors.length > 0 && (
+                  <div className="mt-2">
+                    <button
+                      onClick={() => setExpandedIdx(isExpanded ? null : idx)}
+                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                    >
+                      {isExpanded ? '▼' : '▶'} {isExpanded ? 'Hide' : 'Show'} confidence factors ({outlier.confidence_factors.length})
+                    </button>
+                    {isExpanded && (
+                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground pl-4">
+                        {outlier.confidence_factors.map((factor, i) => (
+                          <li key={i} className="list-disc list-inside">{factor}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">{outlier.suggestion}</p>
-              {outlier.nearest_file && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Nearest: {outlier.nearest_file} ({Math.round(outlier.nearest_similarity * 100)}% similar)
-                </p>
-              )}
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

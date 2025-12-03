@@ -59,3 +59,39 @@ Standardized the frontend design by enforcing the Brand Green color globally. Mo
 
 ## What Was Done
 Implemented complete vector-based code understanding system using semantic embeddings. Features include: natural language code search, HDBSCAN cluster analysis for architecture health (47/100 score), outlier detection for dead/misplaced code, similar code detection, refactoring suggestions, and technical debt heatmap. Fixed Qdrant collection dimension mismatch (1536→3072 for Azure text-embedding-3-large). Generated 74 embeddings for test repository with 8 clusters and 20 outliers detected.
+
+
+# 02-dec-2025 6:30 pm - Bug Fixes & Mobile Responsive Dashboard
+
+## Files Created
+- `frontend/app/dashboard/layout.tsx` - Dashboard layout with session validation before render
+
+## Files Modified
+- `backend/app/workers/scheduled.py` - Fixed timezone-aware datetime (replaced `utcnow()` with `now(timezone.utc)`)
+- `frontend/lib/session.ts` - Added `validateSession()` and `getValidatedSession()` for backend token validation
+- `frontend/app/actions/repository.ts` - Added `handleUnauthorized()` for 401 handling with session cleanup
+- `frontend/app/login/page.tsx` - Added friendly "session expired" message
+- `frontend/app/dashboard/repository/[id]/page.tsx` - Complete bento grid layout rewrite, mobile responsive
+- `frontend/components/vci-score-card.tsx` - Mobile responsive sizing and padding
+- `frontend/components/analysis-metrics.tsx` - Mobile responsive grid, cards, and table layouts
+- `frontend/components/semantic-analysis-section.tsx` - Compact mobile tabs, removed duplicate headers
+- `docs/fix_progress/02-dec-2025-fix.md` - Documented fixes
+
+## What Was Done
+Fixed two critical bugs: (1) Celery scheduled tasks failing with "can't subtract offset-naive and offset-aware datetimes" error by using timezone-aware datetimes, (2) Dashboard showing empty state with 401 errors by validating session tokens against backend before rendering. Completely redesigned repository detail page with proper bento-style grid layout. Made entire dashboard mobile responsive with adaptive padding, text sizes, and component layouts that work from 320px mobile to 1600px desktop.
+
+
+# 03-dec-2025 - Balanced Architecture Filter
+
+## Files Created
+- `backend/app/services/architecture_filter.py` - Import analysis, boilerplate detection, architectural context, test evaluation, and confidence scoring modules
+- `backend/tests/test_architecture_filter.py` - Property-based tests (17 tests) for all filter modules
+
+## Files Modified
+- `backend/app/services/cluster_analyzer.py` - Updated OutlierInfo dataclass with confidence/tier fields, integrated balanced confidence scoring in _find_outliers
+- `backend/app/api/v1/semantic.py` - Updated OutlierInfoResponse with confidence, confidence_factors, and tier fields
+- `frontend/lib/semantic-api.ts` - Added confidence, confidence_factors, and tier to OutlierInfo interface
+- `frontend/components/architecture-health.tsx` - Added tier badges (critical/recommended/informational), confidence percentage display, expandable confidence factors
+
+## What Was Done
+Implemented balanced architecture filter to reduce false positives in outlier detection. Features include: import relationship analysis (Python/JS/TS), boilerplate detection (dunder methods, framework conventions, utility patterns), architectural layer context, test file relationship evaluation, and multi-factor confidence scoring. Outliers are now filtered by confidence (≥0.4), assigned tiers, sorted by confidence, and limited to 15 results. Frontend displays tier-colored badges and confidence factors for transparency.

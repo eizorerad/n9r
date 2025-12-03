@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { SemanticSearch } from '@/components/semantic-search'
@@ -42,7 +42,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   const [refreshKey, setRefreshKey] = useState(0)
   
   // Global progress store
-  const { addTask, updateTask } = useAnalysisProgressStore()
+  const { addTask, updateTask, hasTask } = useAnalysisProgressStore()
   const taskId = getEmbeddingsTaskId(repositoryId)
 
   // Try to get token from localStorage as fallback
@@ -55,104 +55,104 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     }
   }, [token])
 
-  // Poll for embedding status
-  const fetchEmbeddingStatus = useCallback(async () => {
-    if (!token) return null
-    
-    try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/repositories/${repositoryId}/embedding-status`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }
-      )
-      
-      if (response.ok) {
-        const data: EmbeddingStatus = await response.json()
-        
-        console.log('[SemanticAnalysis] Polling status:', data.status, 'progress:', data.progress)
-        
-        // If embeddings just completed (status changed to completed), trigger a refresh
-        setEmbeddingStatus(prev => {
-          const wasInProgress = prev?.status === 'pending' || prev?.status === 'running'
-          const isNowCompleted = data.status === 'completed' && data.vectors_stored > 0
-          const isNowInProgress = data.status === 'pending' || data.status === 'running'
-          
-          console.log('[SemanticAnalysis] prev:', prev?.status, 'wasInProgress:', wasInProgress, 'isNowInProgress:', isNowInProgress)
-          
-          // Sync with global progress store
-          if (isNowInProgress) {
-            // Embeddings in progress - add or update task
-            console.log('[SemanticAnalysis] Adding/updating embeddings task')
-            addTask({
-              id: taskId,
-              type: 'embeddings',
-              repositoryId,
-              status: data.status === 'pending' ? 'pending' : 'running',
-              progress: data.progress,
-              stage: data.stage || 'embedding',
-              message: data.message,
-            })
-          } else if (wasInProgress && isNowCompleted) {
-            // Completed - update store and trigger refresh
-            console.log('[SemanticAnalysis] Embeddings completed!')
-            updateTask(taskId, { status: 'completed', progress: 100 })
-            setTimeout(() => setRefreshKey(k => k + 1), 500)
-          } else if (prev?.status !== 'error' && data.status === 'error') {
-            // Failed
-            updateTask(taskId, { status: 'failed', message: data.message })
-          }
-          
-          return data
-        })
-        
-        return data
-      }
-    } catch (error) {
-      console.error('Failed to fetch embedding status:', error)
-    }
-    return null
-  }, [repositoryId, token, addTask, updateTask, taskId])
+  // Poll for embedding status - use ref to avoid dependency issues
+  const embeddingStatusRef = useRef<EmbeddingStatus | null>(null)
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    embeddingStatusRef.current = embeddingStatus
+  }, [embeddingStatus])
 
   // Poll while embeddings are being generated
   useEffect(() => {
     if (!token) return
     
-    // Initial fetch
-    fetchEmbeddingStatus()
+    let intervalId: NodeJS.Timeout | null = null
+    let isMounted = true
+    let currentInterval = 5000 // Start with moderate polling
     
-    // Set up polling - faster when in progress, slower when idle
-    let intervalId: NodeJS.Timeout
-    let lastStatus: string | undefined
+    const fetchStatus = async (): Promise<EmbeddingStatus | null> => {
+      try {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/repositories/${repositoryId}/embedding-status`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          }
+        )
+        
+        if (response.ok) {
+          return await response.json()
+        }
+      } catch (error) {
+        console.error('Failed to fetch embedding status:', error)
+      }
+      return null
+    }
     
     const poll = async () => {
-      const status = await fetchEmbeddingStatus()
-      const newStatus = status?.status
+      if (!isMounted) return
       
-      // Adjust polling rate based on status change
-      if (newStatus !== lastStatus) {
-        lastStatus = newStatus
-        clearInterval(intervalId)
-        const interval = (newStatus === 'running' || newStatus === 'pending') 
-          ? 2000  // Fast polling when in progress
-          : 10000 // Slow polling when idle
-        
-        intervalId = setInterval(poll, interval)
+      const data = await fetchStatus()
+      if (!isMounted || !data) return
+      
+      const prev = embeddingStatusRef.current
+      const wasInProgress = prev?.status === 'pending' || prev?.status === 'running'
+      const isNowCompleted = data.status === 'completed' && data.vectors_stored > 0
+      const isNowInProgress = data.status === 'pending' || data.status === 'running'
+      
+      // Update local state
+      setEmbeddingStatus(data)
+      
+      // Sync with global progress store
+      if (isNowInProgress) {
+        const taskExists = hasTask(taskId)
+        if (taskExists) {
+          updateTask(taskId, {
+            status: data.status === 'pending' ? 'pending' : 'running',
+            progress: data.progress,
+            stage: data.stage || 'embedding',
+            message: data.message,
+          })
+        } else {
+          addTask({
+            id: taskId,
+            type: 'embeddings',
+            repositoryId,
+            status: data.status === 'pending' ? 'pending' : 'running',
+            progress: data.progress,
+            stage: data.stage || 'embedding',
+            message: data.message,
+          })
+        }
+      } else if (wasInProgress && isNowCompleted) {
+        updateTask(taskId, { status: 'completed', progress: 100 })
+        setTimeout(() => setRefreshKey(k => k + 1), 500)
+      } else if (prev?.status !== 'error' && data.status === 'error') {
+        updateTask(taskId, { status: 'failed', message: data.message })
+      }
+      
+      // Adjust polling interval based on status
+      const newInterval = isNowInProgress ? 3000 : 15000
+      if (newInterval !== currentInterval) {
+        currentInterval = newInterval
+        if (intervalId) clearInterval(intervalId)
+        intervalId = setInterval(poll, currentInterval)
       }
     }
     
-    // Start with fast polling
-    intervalId = setInterval(poll, 3000)
+    // Initial fetch
+    poll()
+    
+    // Start polling
+    intervalId = setInterval(poll, currentInterval)
     
     return () => {
+      isMounted = false
       if (intervalId) clearInterval(intervalId)
     }
-  }, [token, fetchEmbeddingStatus])
-
-  // Check if embeddings are in progress
-  const isEmbeddingInProgress = embeddingStatus?.status === 'running' || embeddingStatus?.status === 'pending'
+  }, [token, repositoryId, taskId, addTask, updateTask, hasTask])
 
   if (!token) {
     return (

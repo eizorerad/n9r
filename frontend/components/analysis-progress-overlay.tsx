@@ -19,9 +19,11 @@ const STAGE_LABELS: Record<string, string> = {
   completed: 'Complete!',
   failed: 'Failed',
   // Embeddings stages
+  waiting: 'Waiting for code analysis...',
   chunking: 'Chunking code files...',
   embedding: 'Generating embeddings...',
   storing: 'Storing vectors...',
+  indexing: 'Storing vectors in Qdrant...',
 }
 
 function TaskIcon({ task }: { task: ProgressTask }) {
@@ -32,7 +34,12 @@ function TaskIcon({ task }: { task: ProgressTask }) {
     return <AlertCircle className="h-4 w-4 text-red-500" />
   }
   if (task.type === 'embeddings') {
-    return <Brain className="h-4 w-4 text-purple-500 animate-pulse" />
+    // Show muted icon when waiting for analysis to complete
+    const isWaiting = task.stage === 'waiting'
+    return <Brain className={cn(
+      "h-4 w-4",
+      isWaiting ? "text-muted-foreground" : "text-purple-500 animate-pulse"
+    )} />
   }
   return <Search className="h-4 w-4 text-blue-500 animate-pulse" />
 }

@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, GitBranch, RefreshCw, ExternalLink } from 'lucide-react'
+import { ArrowLeft, GitBranch, RefreshCw, ExternalLink, AlertCircle, Loader2 } from 'lucide-react'
 import { VCIScoreCard } from '@/components/vci-score-card'
 import { VCITrendChart } from '@/components/vci-trend-chart'
 import { IssuesList } from '@/components/issues-list'
@@ -84,14 +84,52 @@ function getGrade(score: number): string {
 
 // Repository Header Component
 async function RepositoryHeader({ id }: { id: string }) {
-  const repo = await getRepository(id)
+  const session = await getSession()
+  const [repo, latestAnalysis] = await Promise.all([
+    getRepository(id),
+    session?.accessToken ? getLatestAnalysis(id, session.accessToken) : null
+  ])
 
   if (!repo) {
     notFound()
   }
 
   const htmlUrl = `https://github.com/${repo.full_name}`
-  const grade = repo.vci_score ? getGrade(repo.vci_score) : null
+
+  // Determine status display
+  let statusDisplay = (
+    <span className="text-amber-500 font-medium">Not analyzed yet</span>
+  )
+
+  if (repo.last_analysis_at) {
+    statusDisplay = (
+      <span>
+        Last analyzed: {new Date(repo.last_analysis_at).toLocaleDateString()}
+      </span>
+    )
+  } else if (latestAnalysis) {
+    if (latestAnalysis.status === 'failed') {
+      statusDisplay = (
+        <span className="text-red-500 font-medium flex items-center gap-1" title={latestAnalysis.error_message || "Analysis failed"}>
+          <AlertCircle className="h-3 w-3" />
+          Analysis failed
+        </span>
+      )
+    } else if (['pending', 'running', 'queued'].includes(latestAnalysis.status)) {
+      statusDisplay = (
+        <span className="text-blue-500 font-medium flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Analysis in progress
+        </span>
+      )
+    } else if (latestAnalysis.status === 'completed' && latestAnalysis.completed_at) {
+      statusDisplay = (
+        <span>
+          Last analyzed: {new Date(latestAnalysis.completed_at).toLocaleDateString()}
+        </span>
+      )
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -120,13 +158,7 @@ async function RepositoryHeader({ id }: { id: string }) {
               {repo.mode.replace('_', ' ')}
             </span>
           )}
-          {repo.last_analysis_at ? (
-            <span>
-              Last analyzed: {new Date(repo.last_analysis_at).toLocaleDateString()}
-            </span>
-          ) : (
-            <span className="text-amber-500 font-medium">Not analyzed yet</span>
-          )}
+          {statusDisplay}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
