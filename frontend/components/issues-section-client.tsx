@@ -15,14 +15,24 @@ export function IssuesSectionClient({ repositoryId, token }: IssuesSectionClient
   const { selectedAnalysisId, selectedCommitSha } = useCommitSelectionStore()
   const { analysisData, loading, fetchAnalysis, currentAnalysisId } = useAnalysisDataStore()
 
-  // Fetch analysis data when selectedAnalysisId changes or when cache is invalidated
+  // Fetch analysis data when selectedAnalysisId changes
   useEffect(() => {
-    if (selectedAnalysisId && token && !analysisData && currentAnalysisId === selectedAnalysisId) {
-      fetchAnalysis(selectedAnalysisId, token)
-    } else if (selectedAnalysisId && token && currentAnalysisId !== selectedAnalysisId) {
+    if (selectedAnalysisId && token && currentAnalysisId !== selectedAnalysisId) {
       fetchAnalysis(selectedAnalysisId, token)
     }
-  }, [selectedAnalysisId, token, fetchAnalysis, analysisData, currentAnalysisId])
+  }, [selectedAnalysisId, token, fetchAnalysis, currentAnalysisId])
+
+  // Poll for updates when analysis is not completed
+  useEffect(() => {
+    if (!selectedAnalysisId || !token) return
+    if (analysisData?.status === 'completed') return
+    
+    const interval = setInterval(() => {
+      fetchAnalysis(selectedAnalysisId, token)
+    }, 3000)
+    
+    return () => clearInterval(interval)
+  }, [selectedAnalysisId, token, fetchAnalysis, analysisData?.status])
 
   // Check if data matches current selection
   const hasMatchingData = analysisData && currentAnalysisId === selectedAnalysisId

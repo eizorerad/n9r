@@ -106,7 +106,17 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
 
   if (!data) return null
 
+  console.log('[ArchitectureHealth] Rendering with data:', {
+    overall_score: data.overall_score,
+    total_files: data.total_files,
+    total_chunks: data.total_chunks,
+    clusters: data.clusters?.length,
+    metrics: data.metrics,
+  })
+
   const issueCount = data.outliers.length + data.coupling_hotspots.length
+  const hasScore = typeof data.overall_score === 'number'
+  const displayScore = hasScore ? data.overall_score : 0
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -114,7 +124,7 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
       <Card className="glass-panel border-border/50 relative overflow-hidden">
         <div className={cn(
           'absolute inset-0 opacity-5 bg-gradient-to-br',
-          getScoreGradient(data.overall_score)
+          getScoreGradient(displayScore)
         )} />
         <CardContent className="relative p-6">
           <div className="flex items-center justify-between">
@@ -125,8 +135,8 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
               </p>
             </div>
             <div className="text-right">
-              <div className={cn('text-4xl font-bold', getScoreColor(data.overall_score))}>
-                {data.overall_score}
+              <div className={cn('text-4xl font-bold', hasScore ? getScoreColor(displayScore) : 'text-muted-foreground')}>
+                {hasScore ? displayScore : '—'}
               </div>
               <div className="text-sm text-muted-foreground">/100</div>
             </div>

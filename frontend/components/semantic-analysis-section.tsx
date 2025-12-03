@@ -121,12 +121,19 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
         )
         if (response.ok) {
           const data = await response.json()
+          console.log('[SemanticAnalysis] Fetched cache:', {
+            is_cached: data.is_cached,
+            has_architecture_health: !!data.architecture_health,
+            overall_score: data.architecture_health?.overall_score,
+            total_chunks: data.architecture_health?.total_chunks,
+          })
           setSemanticCache(data)
         } else {
+          console.log('[SemanticAnalysis] Cache fetch failed:', response.status)
           setSemanticCache(null)
         }
       } catch (error) {
-        console.error('Failed to fetch semantic cache:', error)
+        console.error('[SemanticAnalysis] Failed to fetch semantic cache:', error)
         setSemanticCache(null)
       } finally {
         setCacheLoading(false)

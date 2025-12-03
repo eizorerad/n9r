@@ -67,8 +67,14 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
       return state._fetchPromise
     }
     
-    // If already have this analysis data, skip fetch
-    if (state.currentAnalysisId === analysisId && state.analysisData && !state.error) {
+    // Only use cache if analysis is completed - otherwise always re-fetch
+    // This ensures we get updated data when analysis finishes
+    if (
+      state.currentAnalysisId === analysisId && 
+      state.analysisData && 
+      !state.error &&
+      state.analysisData.status === 'completed'
+    ) {
       return
     }
 
@@ -89,12 +95,20 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
         
         const data = await response.json()
         
+        console.log('[AnalysisDataStore] Fetched analysis data:', {
+          analysisId,
+          status: data.status,
+          vci_score: data.vci_score,
+          grade: data.grade,
+          hasMetrics: !!data.metrics,
+        })
+        
         // Only update if this is still the current request
         if (get().currentAnalysisId === analysisId) {
           set({
             analysisData: {
               ...data,
-              grade: getGrade(data.vci_score),
+              grade: data.grade || getGrade(data.vci_score),
             },
             loading: false,
             error: null,

@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Search, AlertCircle, CheckCircle, BarChart3, Shield, Code2, Activity } from "lucide-react";
+import { Loader2, Search, AlertCircle, CheckCircle, BarChart3, Shield, Code2, Activity, Brain, Sparkles, Network, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -426,20 +426,78 @@ function PlaygroundContent() {
                 </Card>
               )}
 
-              {/* CTA */}
-              <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20">
-                <CardContent className="py-10 text-center">
-                  <h3 className="text-2xl font-bold mb-3">
-                    Want to fix these issues automatically?
-                  </h3>
-                  <p className="text-muted-foreground mb-8 max-w-lg mx-auto">
-                    Sign up for n9r to get AI-powered auto-healing PRs, deep architectural analysis, and continuous monitoring.
-                  </p>
-                  <Link href="/login">
-                    <Button className="h-12 px-8 text-lg bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20">
-                      Get Started Free
-                    </Button>
-                  </Link>
+              {/* AI Methods Section */}
+              {/* Combined AI & CTA Panel */}
+              <Card className="glass-panel border-border/50 mb-8 overflow-hidden relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/5 pointer-events-none" />
+
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-2xl font-bold text-center flex items-center justify-center gap-2">
+                    <Brain className="h-6 w-6 text-primary" />
+                    Deep Code Analysis Engines
+                  </CardTitle>
+                </CardHeader>
+
+                <CardContent className="space-y-10 relative pt-6">
+                  {/* Analysis Engines Grid */}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="flex gap-4 p-4 rounded-lg bg-background/40 border border-border/50 hover:border-primary/20 transition-colors group">
+                      <div className="mt-1 p-2 rounded-md bg-primary/5 group-hover:bg-primary/10 transition-colors">
+                        <Brain className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-1">Deductive Analysis</h4>
+                        <p className="text-sm text-muted-foreground">Uses formal logic and control flow analysis to mathematically prove bug existence.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 p-4 rounded-lg bg-background/40 border border-border/50 hover:border-primary/20 transition-colors group">
+                      <div className="mt-1 p-2 rounded-md bg-primary/5 group-hover:bg-primary/10 transition-colors">
+                        <Sparkles className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-1">Heuristic Analysis</h4>
+                        <p className="text-sm text-muted-foreground">Applies pattern recognition and best-practice models to identify potential issues.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 p-4 rounded-lg bg-background/40 border border-border/50 hover:border-primary/20 transition-colors group">
+                      <div className="mt-1 p-2 rounded-md bg-primary/5 group-hover:bg-primary/10 transition-colors">
+                        <Network className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-1">Holistic Analysis</h4>
+                        <p className="text-sm text-muted-foreground">Analyzes the entire codebase context to find structural issues and architectural debts.</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-4 p-4 rounded-lg bg-background/40 border border-border/50 hover:border-primary/20 transition-colors group">
+                      <div className="mt-1 p-2 rounded-md bg-primary/5 group-hover:bg-primary/10 transition-colors">
+                        <Search className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <h4 className="font-semibold mb-1">Semantic Code Search</h4>
+                        <p className="text-sm text-muted-foreground">Vector-based clustering to understand code relationships and meaning beyond syntax.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+
+                  {/* CTA Section */}
+                  <div className="text-center space-y-6">
+                    <div className="space-y-2">
+                      <h3 className="text-2xl font-bold">
+                        Want to fix these issues automatically?
+                      </h3>
+                      <p className="text-muted-foreground max-w-lg mx-auto">
+                        Sign up for n9r to get AI-powered auto-healing PRs, deep architectural analysis, and continuous monitoring.
+                      </p>
+                    </div>
+                    <Link href="/login">
+                      <Button className="h-12 px-8 text-lg bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all hover:scale-105">
+                        Get Started Free
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             </div>

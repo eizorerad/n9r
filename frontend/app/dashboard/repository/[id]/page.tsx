@@ -83,7 +83,7 @@ function getGrade(score: number): string {
   return 'F'
 }
 
-// Repository Header Component
+// Repository Header Component (left side info only)
 async function RepositoryHeader({ id }: { id: string }) {
   const session = await getSession()
   const [repo, latestAnalysis] = await Promise.all([
@@ -150,45 +150,43 @@ async function RepositoryHeader({ id }: { id: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
-        <div className="flex items-center gap-2 sm:gap-3 mb-2">
-          <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-          <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate">{repo.full_name}</h1>
-          <SelectedCommitIndicator headCommitSha={headCommitSha} />
-          <a
-            href={htmlUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <GitBranch className="h-4 w-4" />
-            {repo.default_branch}
-          </span>
-          {repo.mode && (
-            <span className="px-2.5 py-0.5 rounded-md bg-secondary text-secondary-foreground text-xs font-medium capitalize border border-border/50">
-              {repo.mode.replace('_', ' ')}
-            </span>
-          )}
-          {statusDisplay}
-        </div>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
+        <h1 className="text-lg sm:text-xl font-bold tracking-tight truncate">{repo.full_name}</h1>
+        <SelectedCommitIndicator headCommitSha={headCommitSha} />
+        <a
+          href={htmlUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+        >
+          <ExternalLink className="h-4 w-4" />
+        </a>
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <GitBranch className="h-3.5 w-3.5" />
+          {repo.default_branch}
+        </span>
+        {repo.mode && (
+          <span className="px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground text-xs font-medium capitalize border border-border/50">
+            {repo.mode.replace('_', ' ')}
+          </span>
+        )}
+        {statusDisplay}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <RunAnalysisButton
           repositoryId={id}
           hasAnalysis={!!repo.last_analysis_at}
         />
         <Link href={`/dashboard/repository/${id}/ide`}>
-          <Button variant="outline" size="sm" className="flex items-center gap-2 shadow-sm text-xs sm:text-sm">
-            <RefreshCw className="h-3 w-3 sm:h-4 sm:w-4" />
-            <span className="hidden xs:inline">Open</span> IDE
+          <Button variant="outline" size="sm" className="flex items-center gap-2 shadow-sm text-xs h-8">
+            <RefreshCw className="h-3 w-3" />
+            IDE
           </Button>
         </Link>
       </div>
@@ -378,11 +376,21 @@ export default async function RepositoryPage({
 
       {/* Content */}
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 max-w-[1600px]">
-        {/* Repository Header - Full Width */}
-        <div className="mb-6">
-          <Suspense fallback={<HeaderSkeleton />}>
-            <RepositoryHeader id={id} />
-          </Suspense>
+        {/* Repository Header + Code Health Row */}
+        <div className="flex flex-col lg:flex-row lg:items-start gap-4 mb-4 sm:mb-6">
+          {/* Left: Repository Info */}
+          <div className="flex-1 min-w-0">
+            <Suspense fallback={<HeaderSkeleton />}>
+              <RepositoryHeader id={id} />
+            </Suspense>
+          </div>
+          
+          {/* Right: Compact Code Health Panel */}
+          <div className="lg:w-[320px] xl:w-[360px] flex-shrink-0">
+            <Suspense fallback={<div className="h-32 bg-muted/30 rounded-xl animate-pulse" />}>
+              <VCISection id={id} />
+            </Suspense>
+          </div>
         </div>
 
         {/* Bento Grid Layout */}
@@ -391,7 +399,7 @@ export default async function RepositoryPage({
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 xl:row-span-2">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-cyan-500/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Commit Timeline</h2>
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Commit Timeline</h2>
             </div>
             <div className="max-h-[500px] xl:max-h-[600px] overflow-y-auto">
               <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
@@ -404,21 +412,10 @@ export default async function RepositoryPage({
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3 xl:row-span-2">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-purple-500/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Semantic Analysis</h2>
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Semantic Analysis</h2>
             </div>
             <Suspense fallback={<div className="h-96 bg-muted/30 rounded-lg animate-pulse" />}>
               <SemanticAnalysisSectionWrapper id={id} />
-            </Suspense>
-          </section>
-
-          {/* Code Health (VCI Score) - Takes 1 column */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-primary/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Code Health</h2>
-            </div>
-            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
-              <VCISection id={id} />
             </Suspense>
           </section>
 
@@ -426,7 +423,7 @@ export default async function RepositoryPage({
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-amber-500/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Issues</h2>
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Issues</h2>
             </div>
             <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
               <Suspense fallback={<IssuesSkeleton />}>
@@ -435,11 +432,11 @@ export default async function RepositoryPage({
             </div>
           </section>
 
-          {/* Analysis Details - Takes 2 columns */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
+          {/* Analysis Details - Takes 3 columns */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-blue-500/80" />
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight">Analysis Details</h2>
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Analysis Details</h2>
             </div>
             <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
               <MetricsSection id={id} />

@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { VCIScoreCard } from '@/components/vci-score-card'
-import { VCITrendChart } from '@/components/vci-trend-chart'
+import { VCIScoreCardCompact } from '@/components/vci-score-card-compact'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 import { useAnalysisDataStore } from '@/lib/stores/analysis-data-store'
 import { Loader2 } from 'lucide-react'
@@ -30,14 +29,27 @@ export function VCISectionClient({
   const { selectedAnalysisId, selectedCommitSha } = useCommitSelectionStore()
   const { analysisData, loading, fetchAnalysis, currentAnalysisId } = useAnalysisDataStore()
 
-  // Fetch analysis data when selectedAnalysisId changes or when cache is invalidated
+  // Fetch analysis data when selectedAnalysisId changes
   useEffect(() => {
-    if (selectedAnalysisId && token && !analysisData && currentAnalysisId === selectedAnalysisId) {
-      fetchAnalysis(selectedAnalysisId, token)
-    } else if (selectedAnalysisId && token && currentAnalysisId !== selectedAnalysisId) {
+    console.log('[VCI] Effect triggered:', { selectedAnalysisId, currentAnalysisId, hasData: !!analysisData })
+    if (selectedAnalysisId && token && currentAnalysisId !== selectedAnalysisId) {
+      console.log('[VCI] Fetching analysis:', selectedAnalysisId)
       fetchAnalysis(selectedAnalysisId, token)
     }
-  }, [selectedAnalysisId, token, fetchAnalysis, analysisData, currentAnalysisId])
+  }, [selectedAnalysisId, token, fetchAnalysis, currentAnalysisId])
+
+  // Poll for updates when analysis is not completed
+  useEffect(() => {
+    if (!selectedAnalysisId || !token) return
+    if (analysisData?.status === 'completed') return
+    
+    const interval = setInterval(() => {
+      console.log('[VCI] Polling for analysis update')
+      fetchAnalysis(selectedAnalysisId, token)
+    }, 3000)
+    
+    return () => clearInterval(interval)
+  }, [selectedAnalysisId, token, fetchAnalysis, analysisData?.status])
 
   // Check if data matches current selection
   const hasMatchingData = analysisData && currentAnalysisId === selectedAnalysisId
@@ -45,8 +57,8 @@ export function VCISectionClient({
   // Show loading state
   if (loading && currentAnalysisId === selectedAnalysisId) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex items-center justify-center h-[120px]">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
@@ -54,8 +66,8 @@ export function VCISectionClient({
   // Show empty state if no commit selected or no analysis
   if (!selectedCommitSha || !selectedAnalysisId) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-sm">Select a commit to view VCI score</p>
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex items-center justify-center h-[120px]">
+        <p className="text-xs text-muted-foreground">Select a commit to view VCI</p>
       </div>
     )
   }
@@ -63,9 +75,18 @@ export function VCISectionClient({
   // Show empty state if commit has no analysis or data doesn't match
   if (!hasMatchingData) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-sm mb-2">No analysis for this commit</p>
-        <p className="text-xs">Run an analysis to see the VCI score</p>
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
+        <p className="text-xs text-muted-foreground">No analysis for this commit</p>
+      </div>
+    )
+  }
+
+  // Show loading state if analysis is still running
+  if (analysisData.status !== 'completed') {
+    return (
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mb-2" />
+        <p className="text-xs text-muted-foreground">Analysis in progress...</p>
       </div>
     )
   }
@@ -73,16 +94,30 @@ export function VCISectionClient({
   const score = analysisData.vci_score
   const grade = analysisData.grade
 
+  console.log('[VCI] Rendering with data:', { 
+    score, 
+    grade, 
+    status: analysisData.status,
+    analysisId: currentAnalysisId,
+    metrics: analysisData.metrics ? Object.keys(analysisData.metrics) : null,
+  })
+
+  // If analysis completed but no VCI score, show error state
+  if (score === null) {
+    return (
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
+        <p className="text-xs text-muted-foreground">VCI score not available</p>
+        <p className="text-[10px] text-muted-foreground/60 mt-1">Analysis may have failed</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-4">
-      <VCIScoreCard
-        score={score}
-        grade={grade}
-        trend={initialTrend}
-      />
-      {initialHistory.length > 0 && (
-        <VCITrendChart data={initialHistory} />
-      )}
-    </div>
+    <VCIScoreCardCompact
+      score={score}
+      grade={grade}
+      trend={initialTrend}
+      historyData={initialHistory}
+    />
   )
 }

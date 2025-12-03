@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
 import { useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
@@ -43,7 +42,6 @@ interface UseAnalysisStreamResult {
 }
 
 export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult {
-    const router = useRouter()
     const queryClient = useQueryClient()
     const [analysisId, setAnalysisId] = useState<string | null>(null)
     const [status, setStatus] = useState<AnalysisStatus>('idle')
@@ -57,12 +55,14 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     const isMountedRef = useRef(true)
     
     // Global progress store
-    const { addTask, updateTask, removeTask } = useAnalysisProgressStore()
+    const { addTask, updateTask } = useAnalysisProgressStore()
     const taskId = getAnalysisTaskId(repositoryId)
     const embeddingsTaskId = getEmbeddingsTaskId(repositoryId)
     
     // Commit selection store - to update selectedAnalysisId when analysis completes
     const { selectedCommitSha, setSelectedCommit } = useCommitSelectionStore()
+    
+
 
     // Track mount state
     useEffect(() => {
@@ -299,12 +299,11 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         
                                         // Update commit selection store with the new analysis ID
                                         // This triggers all panels to re-fetch data for the completed analysis
-                                        // Requirements: 2.3, 6.2
-                                        // Note: We update even if selectedCommitSha was null (user ran analysis without selecting commit)
-                                        // In that case, we use the commit_sha from the analysis result if available
+                                        // Note: Don't call clearAnalysis() - it would interrupt the fetch
+                                        // that components trigger when they see the new selectedAnalysisId
                                         if (analysisId) {
-                                            // Use existing selected commit or the one from the analysis
                                             const commitSha = selectedCommitSha || update.commit_sha
+                                            console.log('[Analysis Complete] Setting selection:', { commitSha, analysisId, selectedCommitSha, updateCommitSha: update.commit_sha })
                                             if (commitSha) {
                                                 setSelectedCommit(commitSha, analysisId, repositoryId)
                                             }
@@ -318,11 +317,11 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         // Clear local analysisId after updating store
                                         setAnalysisId(null)
 
-                                        revalidateRepositoryPage(repositoryId).then(() => {
-                                            if (isMountedRef.current) {
-                                                router.refresh()
-                                            }
-                                        })
+                                        // Revalidate server data for next page load
+                                        // Don't call router.refresh() - it causes race conditions
+                                        // with embeddings task and remounts components losing state
+                                        // Client components already update via Zustand store
+                                        revalidateRepositoryPage(repositoryId)
                                         return
                                     } else if (update.status === 'failed') {
                                         setStatus('failed')
@@ -370,7 +369,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                 eventSourceRef.current.close()
             }
         }
-    }, [analysisId, status, router, repositoryId, updateTask, taskId, queryClient, selectedCommitSha, setSelectedCommit])
+    }, [analysisId, status, repositoryId, updateTask, taskId, queryClient, selectedCommitSha, setSelectedCommit])
 
     return {
         status,

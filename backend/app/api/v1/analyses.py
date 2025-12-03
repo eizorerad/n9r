@@ -72,7 +72,7 @@ async def list_analyses(
                 "commit_sha": a.commit_sha,
                 "branch": a.branch,
                 "status": a.status,
-                "vci_score": a.vci_score,
+                "vci_score": float(a.vci_score) if a.vci_score is not None else None,
                 "grade": a.grade,
                 "tech_debt_level": a.tech_debt_level,
                 "metrics": a.metrics or {},  # Include raw metrics!
@@ -459,7 +459,7 @@ async def get_analysis(
         "commit_sha": analysis.commit_sha,
         "branch": analysis.branch,
         "status": analysis.status,
-        "vci_score": analysis.vci_score,
+        "vci_score": float(analysis.vci_score) if analysis.vci_score is not None else None,
         "grade": analysis.grade,
         "metrics": analysis.metrics or {},
         "ai_report": analysis.ai_report,
@@ -530,7 +530,7 @@ async def get_analysis_metrics(
 
     return {
         "analysis_id": str(analysis_id),
-        "vci_score": analysis.vci_score,
+        "vci_score": float(analysis.vci_score) if analysis.vci_score is not None else None,
         "grade": analysis.grade,
         "breakdown": {
             "complexity": {
@@ -610,15 +610,15 @@ async def get_vci_history(
         "data_points": [
             {
                 "date": a.completed_at.isoformat() if a.completed_at else a.created_at.isoformat(),
-                "vci_score": a.vci_score,
+                "vci_score": float(a.vci_score) if a.vci_score is not None else None,
                 "grade": a.grade,
                 "commit_sha": a.commit_sha[:7] if a.commit_sha else None,
             }
             for a in analyses
         ],
         "trend": _calculate_trend(analyses) if len(analyses) >= 2 else "stable",
-        "current_score": analyses[-1].vci_score if analyses else None,
-        "previous_score": analyses[-2].vci_score if len(analyses) >= 2 else None,
+        "current_score": float(analyses[-1].vci_score) if analyses and analyses[-1].vci_score is not None else None,
+        "previous_score": float(analyses[-2].vci_score) if len(analyses) >= 2 and analyses[-2].vci_score is not None else None,
     }
 
 
@@ -634,7 +634,11 @@ def _calculate_trend(analyses: list) -> str:
     first_score = recent[0].vci_score
     last_score = recent[-1].vci_score
 
-    diff = last_score - first_score
+    # Handle None scores
+    if first_score is None or last_score is None:
+        return "stable"
+
+    diff = float(last_score) - float(first_score)
 
     if diff > 5:
         return "improving"
