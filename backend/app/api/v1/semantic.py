@@ -279,6 +279,9 @@ class OutlierInfoResponse(BaseModel):
     nearest_similarity: float
     nearest_file: str | None
     suggestion: str
+    confidence: float = 0.5
+    confidence_factors: list[str] = []
+    tier: str = "recommended"
 
 
 class CouplingHotspotResponse(BaseModel):
@@ -355,6 +358,9 @@ async def get_architecture_health(
                     nearest_similarity=o.nearest_similarity,
                     nearest_file=o.nearest_file,
                     suggestion=o.suggestion,
+                    confidence=o.confidence,
+                    confidence_factors=o.confidence_factors,
+                    tier=o.tier,
                 )
                 for o in health.outliers
             ],
@@ -425,6 +431,9 @@ async def get_outliers(
                     nearest_similarity=o.nearest_similarity,
                     nearest_file=o.nearest_file,
                     suggestion=o.suggestion,
+                    confidence=o.confidence,
+                    confidence_factors=o.confidence_factors,
+                    tier=o.tier,
                 )
                 for o in health.outliers
             ],

@@ -8,6 +8,7 @@ Uses HDBSCAN clustering on code embeddings to:
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from collections import defaultdict
 
@@ -21,6 +22,662 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "code_embeddings"
+
+# Regex patterns for import extraction
+# Python: from X import Y, import X
+PYTHON_FROM_IMPORT_PATTERN = re.compile(r"^\s*from\s+([\w.]+)\s+import", re.MULTILINE)
+PYTHON_IMPORT_PATTERN = re.compile(r"^\s*import\s+([\w.]+)", re.MULTILINE)
+
+# JavaScript/TypeScript: import X from 'Y', require('Y')
+JS_IMPORT_FROM_PATTERN = re.compile(r"""import\s+.*?\s+from\s+['"]([^'"]+)['"]""", re.MULTILINE)
+JS_REQUIRE_PATTERN = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""", re.MULTILINE)
+
+
+@dataclass
+class ImportAnalysis:
+    """Structured import relationship analysis between two files."""
+    a_imports_b: bool
+    b_imports_a: bool
+    shared_imports_count: int
+    is_circular: bool
+
+
+@dataclass
+class ArchContext:
+    """Simple architectural context for a file.
+    
+    Attributes:
+        directory: Parent directory path
+        filename: File name
+        layer: Detected architectural layer (models, services, api, tests, utils, workers, unknown)
+        is_test: Whether file is a test file
+    """
+    directory: str
+    filename: str
+    layer: str
+    is_test: bool
+
+
+# =============================================================================
+# Boilerplate Detection Constants
+# =============================================================================
+
+# Framework convention methods that are typically boilerplate
+FRAMEWORK_CONVENTIONS = frozenset({
+    "constructor",
+    "render",
+    "componentdidmount",
+    "componentdidupdate",
+    "componentwillunmount",
+    "equals",
+    "hashcode",
+    "initialize",
+    "tostring",
+    "valueof",
+    "setup",
+    "teardown",
+    "dispose",
+    "destroy",
+    "init",
+    "configure",
+    "getstate",
+    "setstate",
+    "shouldcomponentupdate",
+    "getderivedstatefromprops",
+    "getsnapshotbeforeupdate",
+    "componentdidcatch",
+    "clone",
+    "copy",
+    "compareto",
+    "finalize",
+})
+
+# Common utility function names that are typically boilerplate
+COMMON_UTILITY_NAMES = frozenset({
+    "get",
+    "set",
+    "run",
+    "add",
+    "put",
+    "pop",
+    "map",
+    "log",
+})
+
+# Utility directory patterns
+UTILITY_DIR_PATTERNS = ("/utils/", "/helpers/", "/lib/", "/common/")
+
+# Architectural pattern suffixes
+ARCHITECTURAL_SUFFIXES = (
+    "Factory",
+    "Adapter",
+    "Middleware",
+    "Provider",
+    "Interceptor",
+)
+
+
+# =============================================================================
+# Architectural Context Constants
+# =============================================================================
+
+# Layer keywords for architectural layer detection
+LAYER_KEYWORDS = {
+    "models": "models",
+    "model": "models",
+    "services": "services",
+    "service": "services",
+    "api": "api",
+    "apis": "api",
+    "endpoints": "api",
+    "routes": "api",
+    "tests": "tests",
+    "test": "tests",
+    "__tests__": "tests",
+    "utils": "utils",
+    "util": "utils",
+    "utilities": "utils",
+    "helpers": "utils",
+    "helper": "utils",
+    "lib": "utils",
+    "common": "utils",
+    "workers": "workers",
+    "worker": "workers",
+    "tasks": "workers",
+    "jobs": "workers",
+}
+
+# Test file patterns for detection
+TEST_FILE_PATTERNS = (
+    "test_",       # Python: test_foo.py
+    "_test.",      # Python: foo_test.py
+    ".test.",      # JS/TS: foo.test.js
+    ".spec.",      # JS/TS: foo.spec.ts
+    "/tests/",     # Directory: /path/tests/foo.py
+    "/__tests__/", # JS convention: __tests__/foo.js
+    "tests/",      # Directory at start: tests/foo.py
+    "__tests__/",  # JS convention at start: __tests__/foo.js
+)
+
+
+def get_arch_context(file_path: str) -> ArchContext:
+    """Get architectural context for a file.
+    
+    Detects:
+    - Architectural layer from path keywords (models, services, api, tests, utils, workers)
+    - Test file status from patterns (test_, _test., .test., .spec., /tests/, /__tests__/)
+    
+    Args:
+        file_path: The file path to analyze
+    
+    Returns:
+        ArchContext with directory, filename, layer, and is_test fields
+    """
+    if not file_path:
+        return ArchContext(
+            directory="",
+            filename="",
+            layer="unknown",
+            is_test=False,
+        )
+    
+    # Normalize path separators
+    normalized_path = file_path.replace("\\", "/")
+    
+    # Extract directory and filename
+    if "/" in normalized_path:
+        directory = normalized_path.rsplit("/", 1)[0]
+        filename = normalized_path.rsplit("/", 1)[1]
+    else:
+        directory = ""
+        filename = normalized_path
+    
+    # Detect if it's a test file
+    path_lower = normalized_path.lower()
+    filename_lower = filename.lower()
+    is_test = any(
+        pattern in path_lower or pattern in filename_lower
+        for pattern in TEST_FILE_PATTERNS
+    )
+    
+    # Detect architectural layer from path keywords
+    layer = "unknown"
+    path_parts = normalized_path.lower().split("/")
+    
+    # Check each path part for layer keywords
+    for part in path_parts:
+        if part in LAYER_KEYWORDS:
+            layer = LAYER_KEYWORDS[part]
+            break
+    
+    return ArchContext(
+        directory=directory,
+        filename=filename,
+        layer=layer,
+        is_test=is_test,
+    )
+
+
+def same_layer(file_a: str, file_b: str) -> bool:
+    """Check if two files are in the same architectural layer.
+    
+    Compares:
+    - Directory paths for exact match
+    - Detected layer types if both are known
+    
+    Args:
+        file_a: Path to the first file
+        file_b: Path to the second file
+    
+    Returns:
+        True if files are in the same layer, False otherwise
+    """
+    if not file_a or not file_b:
+        return False
+    
+    ctx_a = get_arch_context(file_a)
+    ctx_b = get_arch_context(file_b)
+    
+    # Same file is always in the same layer (reflexivity)
+    if file_a == file_b:
+        return True
+    
+    # Check for exact directory match
+    if ctx_a.directory and ctx_a.directory == ctx_b.directory:
+        return True
+    
+    # Check for same known layer type
+    if ctx_a.layer != "unknown" and ctx_b.layer != "unknown":
+        return ctx_a.layer == ctx_b.layer
+    
+    return False
+
+
+# =============================================================================
+# Test File Evaluation Constants
+# =============================================================================
+
+# Test prefixes to remove
+TEST_PREFIXES = ("test_", "Test")
+
+# Test suffixes to remove (before extension)
+TEST_SUFFIXES = ("_test", ".test", "_spec", ".spec", "Test", "Spec")
+
+
+def get_test_base_name(file_path: str) -> str:
+    """Extract base name from test file path by removing test markers.
+    
+    Removes:
+    - Test prefixes: test_, Test
+    - Test suffixes: _test, .test, _spec, .spec, Test, Spec
+    - File extensions before processing
+    
+    Args:
+        file_path: The test file path to process
+    
+    Returns:
+        The base name with all test markers removed
+    
+    Examples:
+        >>> get_test_base_name("tests/test_user.py")
+        'user'
+        >>> get_test_base_name("src/UserTest.ts")
+        'User'
+        >>> get_test_base_name("components/Button.spec.tsx")
+        'Button'
+    """
+    if not file_path:
+        return ""
+    
+    # Normalize path separators and get filename
+    normalized_path = file_path.replace("\\", "/")
+    if "/" in normalized_path:
+        filename = normalized_path.rsplit("/", 1)[1]
+    else:
+        filename = normalized_path
+    
+    # Remove file extension
+    # Handle double extensions like .spec.ts, .test.js
+    base = filename
+    for ext in (".tsx", ".jsx", ".ts", ".js", ".py", ".mjs", ".cjs"):
+        if base.endswith(ext):
+            base = base[:-len(ext)]
+            break
+    
+    # Remove test suffixes (check longer ones first to avoid partial matches)
+    # Sort by length descending to match longer suffixes first
+    for suffix in sorted(TEST_SUFFIXES, key=len, reverse=True):
+        if base.endswith(suffix):
+            base = base[:-len(suffix)]
+            break
+    
+    # Remove test prefixes
+    for prefix in TEST_PREFIXES:
+        if base.startswith(prefix):
+            base = base[len(prefix):]
+            break
+    
+    return base
+
+
+def evaluate_test_relationship(
+    outlier_path: str,
+    nearest_path: str,
+    similarity: float,
+) -> tuple[float, str]:
+    """Evaluate test file relationships and return confidence adjustment.
+    
+    Evaluates:
+    - Colocated tests: base names match -> -0.4 adjustment
+    - Tests similar to unrelated code: similarity > 0.7 -> +0.1 adjustment
+    - Orphaned tests: similarity < 0.4 -> +0.2 adjustment
+    
+    Args:
+        outlier_path: Path to the outlier (test) file
+        nearest_path: Path to the nearest neighbor file
+        similarity: Similarity score between outlier and nearest neighbor
+    
+    Returns:
+        A tuple of (confidence_adjustment, reason)
+    """
+    if not outlier_path:
+        return 0.0, ""
+    
+    # Check if outlier is a test file
+    outlier_ctx = get_arch_context(outlier_path)
+    if not outlier_ctx.is_test:
+        return 0.0, ""
+    
+    # Get base names for comparison
+    outlier_base = get_test_base_name(outlier_path)
+    
+    # Get nearest file's base name (without test markers if it's also a test)
+    if nearest_path:
+        nearest_ctx = get_arch_context(nearest_path)
+        if nearest_ctx.is_test:
+            nearest_base = get_test_base_name(nearest_path)
+        else:
+            # For non-test files, just get the filename without extension
+            normalized = nearest_path.replace("\\", "/")
+            if "/" in normalized:
+                nearest_base = normalized.rsplit("/", 1)[1]
+            else:
+                nearest_base = normalized
+            # Remove extension
+            for ext in (".tsx", ".jsx", ".ts", ".js", ".py", ".mjs", ".cjs"):
+                if nearest_base.endswith(ext):
+                    nearest_base = nearest_base[:-len(ext)]
+                    break
+    else:
+        nearest_base = ""
+    
+    # Check for colocated test (base names match)
+    if outlier_base and nearest_base and outlier_base.lower() == nearest_base.lower():
+        return -0.4, "Test file correctly colocated with subject"
+    
+    # Check for orphaned test (very low similarity)
+    if similarity < 0.4:
+        return 0.2, "Test file may be orphaned"
+    
+    # Check for test similar to unrelated code (high similarity but not colocated)
+    if similarity > 0.7:
+        return 0.1, "Test file similar to unrelated code"
+    
+    return 0.0, ""
+
+
+def calculate_balanced_confidence(
+    outlier_payload: dict,
+    nearest_payload: dict | None,
+    similarity: float,
+    import_analysis: ImportAnalysis,
+) -> tuple[float, list[str]]:
+    """Calculate confidence score with reasons for an outlier.
+    
+    Starts with a neutral score of 0.5 and applies adjustments based on:
+    - Boilerplate detection (-0.35)
+    - Import relationship (-0.30)
+    - Cross-layer penalty (-0.15)
+    - Test relationship adjustments (varies)
+    - Isolation boost (+0.30 for similarity < 0.25)
+    - High similarity same layer boost (+0.25)
+    - Circular import boost (+0.20)
+    - Shared imports boost (+0.10 for 3+ shared)
+    
+    Final score is clamped to [0.1, 0.9].
+    
+    Args:
+        outlier_payload: Metadata for the outlier chunk
+        nearest_payload: Metadata for the nearest neighbor chunk (may be None)
+        similarity: Similarity score between outlier and nearest neighbor
+        import_analysis: Import relationship analysis between the files
+    
+    Returns:
+        A tuple of (confidence score 0.1-0.9, list of reasons)
+    """
+    # Start with neutral confidence
+    confidence = 0.5
+    reasons: list[str] = []
+    
+    # Extract file paths and chunk info
+    outlier_path = outlier_payload.get("file_path", "")
+    outlier_name = outlier_payload.get("name", "")
+    nearest_path = nearest_payload.get("file_path", "") if nearest_payload else ""
+    
+    # ==========================================================================
+    # PENALTIES (reduce confidence - less likely to be actionable)
+    # ==========================================================================
+    
+    # 1. Boilerplate penalty (-0.35)
+    is_boilerplate, boilerplate_reason = is_likely_boilerplate(outlier_name, outlier_path)
+    if is_boilerplate:
+        confidence -= 0.35
+        reasons.append(f"Boilerplate: {boilerplate_reason}")
+    
+    # 2. Import relationship penalty (-0.30)
+    # If outlier already imports its nearest neighbor, it's likely intentional
+    if import_analysis.a_imports_b:
+        confidence -= 0.30
+        reasons.append("Already imports nearest neighbor")
+    
+    # 3. Cross-layer penalty (-0.15)
+    # Different architectural layers may naturally have different code patterns
+    if outlier_path and nearest_path and not same_layer(outlier_path, nearest_path):
+        confidence -= 0.15
+        reasons.append("Different architectural layer than nearest neighbor")
+    
+    # 4. Test relationship adjustments (varies)
+    test_adjustment, test_reason = evaluate_test_relationship(
+        outlier_path, nearest_path, similarity
+    )
+    if test_adjustment != 0.0:
+        confidence += test_adjustment
+        reasons.append(test_reason)
+    
+    # ==========================================================================
+    # BOOSTS (increase confidence - more likely to be actionable)
+    # ==========================================================================
+    
+    # 5. Isolation boost (+0.30 for similarity < 0.25)
+    # Very isolated code is likely orphaned/dead
+    if similarity < 0.25:
+        confidence += 0.30
+        reasons.append("Very isolated - likely orphaned/dead code")
+    
+    # 6. High similarity same layer boost (+0.25)
+    # High similarity in same layer without import = possible duplicate
+    if (
+        similarity > 0.8
+        and not import_analysis.a_imports_b
+        and outlier_path
+        and nearest_path
+        and same_layer(outlier_path, nearest_path)
+    ):
+        confidence += 0.25
+        reasons.append("High similarity in same layer - possible duplicate")
+    
+    # 7. Circular import boost (+0.20)
+    # Circular imports indicate architectural issues
+    if import_analysis.is_circular:
+        confidence += 0.20
+        reasons.append("Circular import detected - architectural issue")
+    
+    # 8. Shared imports boost (+0.10 for 3+ shared)
+    # Many shared imports suggest related code that should be reviewed
+    if import_analysis.shared_imports_count >= 3:
+        confidence += 0.10
+        reasons.append(f"Shares {import_analysis.shared_imports_count} imports with nearest neighbor")
+    
+    # ==========================================================================
+    # CLAMP to valid range [0.1, 0.9]
+    # ==========================================================================
+    confidence = max(0.1, min(0.9, confidence))
+    
+    return confidence, reasons
+
+
+def is_likely_boilerplate(name: str, file_path: str) -> tuple[bool, str]:
+    """Check if a function/method is likely boilerplate.
+    
+    Detects:
+    - Python dunder methods (__X__ pattern)
+    - Framework conventions (constructor, render, componentDidMount, etc.)
+    - Short names (<=3 chars) in utility directories
+    - Common utility names (get, set, run, add, put, pop, map, log)
+    - Architectural pattern suffixes (Factory, Adapter, Middleware, Provider, Interceptor)
+    
+    Args:
+        name: The function/method name to check
+        file_path: The file path where the function is located
+    
+    Returns:
+        A tuple of (is_boilerplate, reason) where reason explains the classification
+    """
+    if not name:
+        return False, ""
+    
+    # 1. Check for Python dunder methods (__X__ pattern)
+    if name.startswith("__") and name.endswith("__") and len(name) > 4:
+        return True, f"Python dunder method: {name}"
+    
+    # 2. Check for framework convention methods (case-insensitive)
+    name_lower = name.lower()
+    if name_lower in FRAMEWORK_CONVENTIONS:
+        return True, f"Framework convention method: {name}"
+    
+    # 3. Check for common utility names (regardless of directory)
+    if name_lower in COMMON_UTILITY_NAMES:
+        return True, f"Common utility name: {name}"
+    
+    # 4. Check for short names (<=3 chars) in utility directories
+    if len(name) <= 3:
+        file_path_lower = file_path.lower() if file_path else ""
+        for pattern in UTILITY_DIR_PATTERNS:
+            if pattern in file_path_lower:
+                return True, f"Short name in utility directory: {name} in {pattern}"
+    
+    # 5. Check for architectural pattern suffixes
+    for suffix in ARCHITECTURAL_SUFFIXES:
+        if name.endswith(suffix):
+            return True, f"Architectural pattern: {name} (ends with {suffix})"
+    
+    return False, ""
+
+
+def extract_imports(content: str, language: str) -> set[str]:
+    """Extract import statements from code content.
+    
+    Args:
+        content: The source code content to analyze
+        language: The programming language ('python', 'javascript', 'typescript')
+    
+    Returns:
+        A set of module paths extracted from import statements
+    """
+    if not content:
+        return set()
+    
+    imports: set[str] = set()
+    language_lower = language.lower() if language else ""
+    
+    if language_lower == "python":
+        # Extract from 'from X import Y' statements
+        for match in PYTHON_FROM_IMPORT_PATTERN.finditer(content):
+            imports.add(match.group(1))
+        
+        # Extract from 'import X' statements
+        for match in PYTHON_IMPORT_PATTERN.finditer(content):
+            imports.add(match.group(1))
+    
+    elif language_lower in ("javascript", "typescript", "js", "ts"):
+        # Extract from 'import X from "Y"' statements
+        for match in JS_IMPORT_FROM_PATTERN.finditer(content):
+            imports.add(match.group(1))
+        
+        # Extract from 'require("Y")' statements
+        for match in JS_REQUIRE_PATTERN.finditer(content):
+            imports.add(match.group(1))
+    
+    return imports
+
+
+def to_module_path(file_path: str) -> str:
+    """Convert a file path to a module path for import matching.
+    
+    Args:
+        file_path: The file path to convert (e.g., 'app/services/cluster_analyzer.py')
+    
+    Returns:
+        The module path (e.g., 'app.services.cluster_analyzer')
+    """
+    if not file_path:
+        return ""
+    
+    # Remove file extension
+    path = file_path
+    for ext in (".py", ".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"):
+        if path.endswith(ext):
+            path = path[:-len(ext)]
+            break
+    
+    # Remove index suffix (common in JS/TS)
+    if path.endswith("/index") or path.endswith("\\index"):
+        path = path[:-6]
+    
+    # Convert path separators to dots
+    module_path = path.replace("/", ".").replace("\\", ".")
+    
+    # Remove leading dots
+    module_path = module_path.lstrip(".")
+    
+    return module_path
+
+
+def analyze_import_relationship(
+    file_a: str,
+    file_b: str,
+    import_graph: dict[str, set[str]],
+) -> ImportAnalysis:
+    """Analyze import relationship between two files.
+    
+    Args:
+        file_a: Path to the first file
+        file_b: Path to the second file
+        import_graph: Mapping of file paths to their import statements
+    
+    Returns:
+        ImportAnalysis with relationship details
+    """
+    # Get imports for each file
+    imports_a = import_graph.get(file_a, set())
+    imports_b = import_graph.get(file_b, set())
+    
+    # Convert file paths to module paths for comparison
+    module_b = to_module_path(file_b)
+    module_a = to_module_path(file_a)
+    
+    # Also get the filename without extension for partial matching
+    filename_b = file_b.rsplit("/", 1)[-1].rsplit(".", 1)[0] if file_b else ""
+    filename_a = file_a.rsplit("/", 1)[-1].rsplit(".", 1)[0] if file_a else ""
+    
+    # Check if file A imports file B
+    a_imports_b = False
+    if imports_a:
+        for imp in imports_a:
+            # Check for exact module path match
+            if module_b and (imp == module_b or imp.endswith("." + module_b) or module_b.endswith("." + imp)):
+                a_imports_b = True
+                break
+            # Check for filename match (common in relative imports)
+            if filename_b and (imp == filename_b or imp.endswith("/" + filename_b) or imp.endswith("." + filename_b)):
+                a_imports_b = True
+                break
+    
+    # Check if file B imports file A
+    b_imports_a = False
+    if imports_b:
+        for imp in imports_b:
+            # Check for exact module path match
+            if module_a and (imp == module_a or imp.endswith("." + module_a) or module_a.endswith("." + imp)):
+                b_imports_a = True
+                break
+            # Check for filename match (common in relative imports)
+            if filename_a and (imp == filename_a or imp.endswith("/" + filename_a) or imp.endswith("." + filename_a)):
+                b_imports_a = True
+                break
+    
+    # Calculate shared imports
+    shared_imports_count = len(imports_a & imports_b) if imports_a and imports_b else 0
+    
+    # Detect circular imports
+    is_circular = a_imports_b and b_imports_a
+    
+    return ImportAnalysis(
+        a_imports_b=a_imports_b,
+        b_imports_a=b_imports_a,
+        shared_imports_count=shared_imports_count,
+        is_circular=is_circular,
+    )
 
 
 @dataclass
@@ -38,13 +695,28 @@ class ClusterInfo:
 
 @dataclass
 class OutlierInfo:
-    """Information about an outlier (potential dead/misplaced code)."""
+    """Information about an outlier (potential dead/misplaced code).
+    
+    Attributes:
+        file_path: Path to the outlier file
+        chunk_name: Name of the code chunk (function, class, etc.)
+        chunk_type: Type of the chunk (function, class, method)
+        nearest_similarity: Similarity score to nearest neighbor (0-1)
+        nearest_file: Path to the nearest neighbor file
+        suggestion: Human-readable suggestion for action
+        confidence: Confidence score (0.1-0.9) indicating how actionable the outlier is
+        confidence_factors: List of reasons explaining the confidence score
+        tier: Classification tier (critical, recommended, informational)
+    """
     file_path: str
     chunk_name: str | None
     chunk_type: str | None
     nearest_similarity: float
     nearest_file: str | None
     suggestion: str
+    confidence: float = 0.5
+    confidence_factors: list[str] = field(default_factory=list)
+    tier: str = "recommended"
 
 
 @dataclass
@@ -289,12 +961,25 @@ class ClusterAnalyzer:
         labels: np.ndarray, 
         payloads: list[dict]
     ) -> list[OutlierInfo]:
-        """Find outliers and generate suggestions."""
+        """Find outliers with balanced confidence scoring and filtering.
+        
+        Uses the balanced architecture filter to:
+        - Build import graph from payloads
+        - Analyze import relationships for each outlier
+        - Calculate balanced confidence scores
+        - Filter outliers with confidence < 0.4
+        - Assign tiers based on confidence
+        - Sort by confidence descending
+        - Limit to 15 results
+        """
         outliers = []
         outlier_mask = labels == -1
         
         if not np.any(outlier_mask):
             return outliers
+        
+        # Build import graph from payloads
+        import_graph = self._build_import_graph(payloads)
         
         # For each outlier, find nearest non-outlier
         non_outlier_mask = labels != -1
@@ -306,22 +991,46 @@ class ClusterAnalyzer:
                 continue
             
             # Find nearest neighbor
+            nearest_payload = None
             if len(non_outlier_vectors) > 0:
                 distances = cosine_distances([vector], non_outlier_vectors)[0]
                 nearest_idx = np.argmin(distances)
                 nearest_similarity = 1 - distances[nearest_idx]
-                nearest_file = non_outlier_payloads[nearest_idx].get("file_path")
+                nearest_payload = non_outlier_payloads[nearest_idx]
+                nearest_file = nearest_payload.get("file_path")
             else:
                 nearest_similarity = 0
                 nearest_file = None
             
-            # Generate suggestion
-            if nearest_similarity < 0.3:
-                suggestion = "Review for deletion — appears unused or orphaned"
-            elif nearest_similarity < 0.5:
-                suggestion = f"Consider moving closer to {nearest_file}" if nearest_file else "Review placement"
-            else:
-                suggestion = "Minor outlier — may be a utility or edge case"
+            # Analyze import relationship
+            outlier_file = payload.get("file_path", "")
+            import_analysis = analyze_import_relationship(
+                outlier_file,
+                nearest_file or "",
+                import_graph,
+            )
+            
+            # Calculate balanced confidence score
+            confidence, confidence_factors = calculate_balanced_confidence(
+                outlier_payload=payload,
+                nearest_payload=nearest_payload,
+                similarity=nearest_similarity,
+                import_analysis=import_analysis,
+            )
+            
+            # Filter out low confidence outliers (< 0.4)
+            if confidence < 0.4:
+                continue
+            
+            # Assign tier based on confidence
+            tier = self._assign_tier(confidence)
+            
+            # Generate suggestion based on confidence factors
+            suggestion = self._generate_suggestion(
+                confidence_factors=confidence_factors,
+                nearest_file=nearest_file,
+                similarity=nearest_similarity,
+            )
             
             outliers.append(OutlierInfo(
                 file_path=payload.get("file_path", "unknown"),
@@ -330,11 +1039,129 @@ class ClusterAnalyzer:
                 nearest_similarity=round(nearest_similarity, 3),
                 nearest_file=nearest_file,
                 suggestion=suggestion,
+                confidence=round(confidence, 3),
+                confidence_factors=confidence_factors,
+                tier=tier,
             ))
         
-        # Sort by similarity (most isolated first)
-        outliers.sort(key=lambda o: o.nearest_similarity)
-        return outliers[:20]  # Limit to top 20
+        # Sort by confidence descending (most actionable first)
+        outliers.sort(key=lambda o: o.confidence, reverse=True)
+        return outliers[:15]  # Limit to top 15
+    
+    def _build_import_graph(self, payloads: list[dict]) -> dict[str, set[str]]:
+        """Build import graph from payloads.
+        
+        Extracts imports from each unique file's content and builds a mapping
+        of file paths to their import statements.
+        
+        Args:
+            payloads: List of chunk payloads with file_path, content, and language
+        
+        Returns:
+            Dictionary mapping file paths to sets of imported module paths
+        """
+        import_graph: dict[str, set[str]] = {}
+        
+        # Group payloads by file to avoid duplicate processing
+        seen_files: set[str] = set()
+        
+        for payload in payloads:
+            file_path = payload.get("file_path", "")
+            if not file_path or file_path in seen_files:
+                continue
+            
+            seen_files.add(file_path)
+            
+            # Get content and language
+            content = payload.get("content", "")
+            language = payload.get("language", "")
+            
+            # Infer language from file extension if not provided
+            if not language:
+                if file_path.endswith(".py"):
+                    language = "python"
+                elif file_path.endswith((".js", ".jsx", ".mjs", ".cjs")):
+                    language = "javascript"
+                elif file_path.endswith((".ts", ".tsx")):
+                    language = "typescript"
+            
+            # Extract imports
+            if content and language:
+                imports = extract_imports(content, language)
+                if imports:
+                    import_graph[file_path] = imports
+        
+        return import_graph
+    
+    def _assign_tier(self, confidence: float) -> str:
+        """Assign tier based on confidence score.
+        
+        Args:
+            confidence: Confidence score (0.1-0.9)
+        
+        Returns:
+            Tier classification: "critical", "recommended", or "informational"
+        """
+        if confidence >= 0.7:
+            return "critical"
+        elif confidence >= 0.5:
+            return "recommended"
+        else:
+            return "informational"
+    
+    def _generate_suggestion(
+        self,
+        confidence_factors: list[str],
+        nearest_file: str | None,
+        similarity: float,
+    ) -> str:
+        """Generate human-readable suggestion based on confidence factors.
+        
+        Args:
+            confidence_factors: List of reasons explaining the confidence score
+            nearest_file: Path to the nearest neighbor file
+            similarity: Similarity score to nearest neighbor
+        
+        Returns:
+            Human-readable suggestion string
+        """
+        # Check for specific patterns in confidence factors
+        factors_lower = [f.lower() for f in confidence_factors]
+        
+        # Check for orphaned test FIRST (before general orphaned check)
+        # This ensures test files get the specific test-related suggestion
+        if any("test" in f and "orphaned" in f for f in factors_lower):
+            return "Test file may be orphaned — no matching subject found"
+        
+        # Check for orphaned/dead code (general case)
+        if any("orphaned" in f or "dead code" in f or "isolated" in f for f in factors_lower):
+            return "Review for deletion — appears unused"
+        
+        # Check for possible duplicate
+        if any("duplicate" in f for f in factors_lower):
+            if nearest_file:
+                return f"Possible duplicate of {nearest_file}"
+            return "Possible duplicate — review for consolidation"
+        
+        # Check for circular dependency
+        if any("circular" in f for f in factors_lower):
+            if nearest_file:
+                return f"Circular dependency with {nearest_file}"
+            return "Circular dependency detected — architectural issue"
+        
+        # Check for high similarity
+        if similarity > 0.7 and nearest_file:
+            return f"High similarity to {nearest_file} — review relationship"
+        
+        # Default suggestion based on similarity
+        if similarity < 0.3:
+            return "Review for deletion — appears unused or orphaned"
+        elif similarity < 0.5:
+            if nearest_file:
+                return f"Consider moving closer to {nearest_file}"
+            return "Review placement"
+        else:
+            return "Minor outlier — may be a utility or edge case"
     
     def _find_coupling_hotspots(
         self, 

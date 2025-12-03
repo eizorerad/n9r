@@ -1,0 +1,4 @@
+# file: /Users/leo/Documents/Projects/n9r/backend/app/services/cluster_analyzer.py
+# hypothesis_version: 6.148.5
+
+[0.0, 1e-10, 0.3, 0.5, 0.7, 1.0, 12.5, 17.5, 100, '-', '.', '.cjs', '.js', '.jsx', '.mjs', '.py', '.ts', '.tsx', '/', '/index', 'Review placement', '\\', '\\index', '_', 'actual_outlier_count', 'avg_cohesion', 'chunk_type', 'cluster_count', 'code_embeddings', 'euclidean', 'file_path', 'healthy', 'hotspot_count', 'javascript', 'js', 'key', 'language', 'match', 'moderate', 'must', 'name', 'outlier_percentage', 'python', 'repository_id', 'scattered', 'ts', 'typescript', 'unknown', 'value', 'warning']

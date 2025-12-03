@@ -1,0 +1,4 @@
+# file: /Users/leo/Documents/Projects/n9r/backend/app/core/redis.py
+# hypothesis_version: 6.148.5
+
+[0.1, 5.0, 6.0, 300, 600, 3600, ': keepalive\n', 'analysis:progress:', 'analysis:state:', 'analysis_id', 'chunks_processed', 'completed', 'data', 'embedding:progress:', 'embedding:state:', 'error', 'failed', 'message', 'oauth:state:', 'playground:scan:', 'progress', 'repository_id', 'running', 'stage', 'status', 'timeout', 'type', 'utf-8', 'vci_score', 'vectors_stored']

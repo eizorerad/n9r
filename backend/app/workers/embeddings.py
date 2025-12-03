@@ -131,21 +131,19 @@ def generate_embeddings(
                 "vectors_stored": 0,
             }
         
-        # Step 2: Generate embeddings in batches
+        # Step 2: Generate embeddings in parallel batches for speed
         publish_progress("embedding", 25, f"Generating embeddings for {len(all_chunks)} chunks...")
         
-        batch_size = 20
+        # Increased batch size (was 20) and parallel processing
+        batch_size = 50  # Larger batches = fewer API calls
+        concurrent_batches = 4  # Process 4 batches in parallel
         points: list[PointStruct] = []
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
         
-        for i in range(0, len(all_chunks), batch_size):
-            batch = all_chunks[i:i + batch_size]
-            batch_num = i // batch_size + 1
-            
-            # Prepare texts for embedding
+        def prepare_texts(batch: list[CodeChunk]) -> list[str]:
+            """Prepare texts for embedding."""
             texts = []
             for chunk in batch:
-                # Create embedding text with context
                 text = f"File: {chunk.file_path}\n"
                 if chunk.name:
                     text += f"Name: {chunk.name}\n"
@@ -155,52 +153,87 @@ def generate_embeddings(
                     text += f"Description: {chunk.docstring}\n"
                 text += f"\n{chunk.content}"
                 texts.append(text)
-            
-            # Generate embeddings (async call in sync worker)
+            return texts
+        
+        async def embed_batch(batch: list[CodeChunk], batch_idx: int) -> list[tuple[CodeChunk, list[float]]]:
+            """Embed a single batch asynchronously."""
+            texts = prepare_texts(batch)
             try:
-                embeddings = run_async(llm.embed(texts))
+                embeddings = await llm.embed(texts)
+                return list(zip(batch, embeddings))
             except Exception as e:
-                logger.error(f"Failed to generate embeddings: {e}")
-                continue
+                logger.error(f"Failed to embed batch {batch_idx}: {e}")
+                return []
+        
+        async def process_all_batches():
+            """Process all batches with controlled concurrency."""
+            all_results = []
+            batches = [
+                all_chunks[i:i + batch_size] 
+                for i in range(0, len(all_chunks), batch_size)
+            ]
             
-            # Create Qdrant points
-            for j, (chunk, embedding) in enumerate(zip(batch, embeddings)):
-                point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
+            # Process batches in groups of concurrent_batches
+            for group_idx in range(0, len(batches), concurrent_batches):
+                group = batches[group_idx:group_idx + concurrent_batches]
+                tasks = [
+                    embed_batch(batch, group_idx + i) 
+                    for i, batch in enumerate(group)
+                ]
                 
-                points.append(PointStruct(
-                    id=hash(point_id) % (2**63),  # Convert to int64
-                    vector=embedding,
-                    payload={
-                        "repository_id": repository_id,
-                        "commit_sha": commit_sha,
-                        "file_path": chunk.file_path,
-                        "language": chunk.language,
-                        "chunk_type": chunk.chunk_type,
-                        "name": chunk.name,
-                        "line_start": chunk.line_start,
-                        "line_end": chunk.line_end,
-                        "parent_name": chunk.parent_name,
-                        "docstring": chunk.docstring,
-                        "content": chunk.content[:2000],  # Limit stored content
-                        "token_estimate": chunk.token_estimate,
-                        # NEW: Hierarchical and metrics fields
-                        "level": chunk.level,
-                        "qualified_name": chunk.qualified_name,
-                        "cyclomatic_complexity": chunk.cyclomatic_complexity,
-                        "line_count": chunk.line_count,
-                        "cluster_id": None,  # Will be set by cluster analysis
-                    }
-                ))
+                # Run concurrent batches
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Batch failed: {result}")
+                    elif result:
+                        all_results.extend(result)
+                
+                # Update progress after each group
+                completed_batches = min(group_idx + len(group), len(batches))
+                progress = 25 + int(55 * completed_batches / len(batches))
+                publish_progress(
+                    "embedding", 
+                    min(progress, 80), 
+                    f"Embedding batch {completed_batches}/{len(batches)}...",
+                    chunks=len(all_chunks),
+                    vectors=len(all_results)
+                )
             
-            # Update progress
-            progress = 25 + int(55 * batch_num / total_batches)
-            publish_progress(
-                "embedding", 
-                min(progress, 80), 
-                f"Embedding batch {batch_num}/{total_batches}...",
-                chunks=len(all_chunks),
-                vectors=len(points)
-            )
+            return all_results
+        
+        # Run parallel embedding
+        chunk_embedding_pairs = run_async(process_all_batches())
+        
+        # Create Qdrant points from results
+        for chunk, embedding in chunk_embedding_pairs:
+            point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
+            
+            points.append(PointStruct(
+                id=hash(point_id) % (2**63),  # Convert to int64
+                vector=embedding,
+                payload={
+                    "repository_id": repository_id,
+                    "commit_sha": commit_sha,
+                    "file_path": chunk.file_path,
+                    "language": chunk.language,
+                    "chunk_type": chunk.chunk_type,
+                    "name": chunk.name,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
+                    "parent_name": chunk.parent_name,
+                    "docstring": chunk.docstring,
+                    "content": chunk.content[:2000],  # Limit stored content
+                    "token_estimate": chunk.token_estimate,
+                    # Hierarchical and metrics fields
+                    "level": chunk.level,
+                    "qualified_name": chunk.qualified_name,
+                    "cyclomatic_complexity": chunk.cyclomatic_complexity,
+                    "line_count": chunk.line_count,
+                    "cluster_id": None,  # Will be set by cluster analysis
+                }
+            ))
         
         logger.info(f"Generated {len(points)} embedding vectors")
         
