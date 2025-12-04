@@ -767,7 +767,8 @@ class ArchitectureHealth:
 
         return {
             "architecture_health": {
-                "score": int(self.overall_score),
+                "overall_score": int(self.overall_score),
+                "score": int(self.overall_score),  # Keep for backward compatibility
                 "total_chunks": int(self.total_chunks),
                 "total_files": int(self.total_files),
                 "clusters": [

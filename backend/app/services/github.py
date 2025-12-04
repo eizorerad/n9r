@@ -51,10 +51,19 @@ class GitHubAuthenticationError(GitHubAPIError):
         super().__init__(message, status_code=401)
 
 
+class GitHubTimeoutError(GitHubAPIError):
+    """Exception raised when GitHub API request times out."""
+
+    def __init__(self, message: str = "GitHub API request timed out. Please try again."):
+        super().__init__(message, status_code=504)
+
+
 class GitHubService:
     """Service for interacting with GitHub API."""
 
     BASE_URL = "https://api.github.com"
+    # Timeout configuration: 30s connect, 60s read
+    DEFAULT_TIMEOUT = httpx.Timeout(connect=30.0, read=60.0, write=30.0, pool=30.0)
 
     def __init__(self, access_token: str):
         """Initialize GitHub service with access token.
@@ -131,7 +140,7 @@ class GitHubService:
 
     async def get_user(self) -> dict[str, Any]:
         """Get the authenticated user's info."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/user",
                 headers=self._get_headers(),
@@ -157,7 +166,7 @@ class GitHubService:
         Returns:
             List of repository data dicts.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/user/repos",
                 headers=self._get_headers(),
@@ -181,7 +190,7 @@ class GitHubService:
         Returns:
             Repository data dict.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}",
                 headers=self._get_headers(),
@@ -211,7 +220,7 @@ class GitHubService:
         if ref:
             params["ref"] = ref
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
                 headers=self._get_headers(),
@@ -275,7 +284,7 @@ class GitHubService:
         """
         params = {"recursive": "1"} if recursive else {}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/{tree_sha}",
                 headers=self._get_headers(),
@@ -301,7 +310,7 @@ class GitHubService:
         Returns:
             Branch data dict.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/branches/{branch}",
                 headers=self._get_headers(),
@@ -331,24 +340,27 @@ class GitHubService:
             GitHubAuthenticationError: When authentication fails.
             GitHubAPIError: For other API errors.
         """
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.BASE_URL}/repos/{owner}/{repo}/branches",
-                headers=self._get_headers(),
-                params={"per_page": min(per_page, 100)},
-            )
-            self._handle_response_error(response)
-            branches = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/repos/{owner}/{repo}/branches",
+                    headers=self._get_headers(),
+                    params={"per_page": min(per_page, 100)},
+                )
+                self._handle_response_error(response)
+                branches = response.json()
 
-            # Transform to consistent format
-            return [
-                {
-                    "name": branch["name"],
-                    "commit_sha": branch["commit"]["sha"],
-                    "protected": branch.get("protected", False),
-                }
-                for branch in branches
-            ]
+                # Transform to consistent format
+                return [
+                    {
+                        "name": branch["name"],
+                        "commit_sha": branch["commit"]["sha"],
+                        "protected": branch.get("protected", False),
+                    }
+                    for branch in branches
+                ]
+        except httpx.TimeoutException:
+            raise GitHubTimeoutError()
 
     async def list_commits(
         self,
@@ -383,27 +395,30 @@ class GitHubService:
         if sha:
             params["sha"] = sha
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.BASE_URL}/repos/{owner}/{repo}/commits",
-                headers=self._get_headers(),
-                params=params,
-            )
-            self._handle_response_error(response)
-            commits = response.json()
+        try:
+            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+                response = await client.get(
+                    f"{self.BASE_URL}/repos/{owner}/{repo}/commits",
+                    headers=self._get_headers(),
+                    params=params,
+                )
+                self._handle_response_error(response)
+                commits = response.json()
 
-            # Transform to consistent format
-            return [
-                {
-                    "sha": commit["sha"],
-                    "message": commit["commit"]["message"],
-                    "author_name": commit["commit"]["author"]["name"],
-                    "author_login": commit["author"]["login"] if commit.get("author") else None,
-                    "author_avatar_url": commit["author"]["avatar_url"] if commit.get("author") else None,
-                    "committed_at": commit["commit"]["author"]["date"],
-                }
-                for commit in commits
-            ]
+                # Transform to consistent format
+                return [
+                    {
+                        "sha": commit["sha"],
+                        "message": commit["commit"]["message"],
+                        "author_name": commit["commit"]["author"]["name"],
+                        "author_login": commit["author"]["login"] if commit.get("author") else None,
+                        "author_avatar_url": commit["author"]["avatar_url"] if commit.get("author") else None,
+                        "committed_at": commit["commit"]["author"]["date"],
+                    }
+                    for commit in commits
+                ]
+        except httpx.TimeoutException:
+            raise GitHubTimeoutError()
 
     async def create_branch(
         self,
@@ -423,7 +438,7 @@ class GitHubService:
         Returns:
             Reference data dict.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/refs",
                 headers=self._get_headers(),
@@ -470,7 +485,7 @@ class GitHubService:
         if sha:
             payload["sha"] = sha
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.put(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
                 headers=self._get_headers(),
@@ -503,7 +518,7 @@ class GitHubService:
         Returns:
             Pull request data dict.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/pulls",
                 headers=self._get_headers(),
@@ -542,7 +557,7 @@ class GitHubService:
         if commit_title:
             payload["commit_title"] = commit_title
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.put(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pull_number}/merge",
                 headers=self._get_headers(),
@@ -567,7 +582,7 @@ class GitHubService:
         Returns:
             Updated PR data dict.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.patch(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pull_number}",
                 headers=self._get_headers(),
@@ -603,7 +618,7 @@ class GitHubService:
         if secret:
             config["secret"] = secret
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/hooks",
                 headers=self._get_headers(),
@@ -630,7 +645,7 @@ class GitHubService:
             repo: Repository name.
             hook_id: Webhook ID.
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.delete(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/hooks/{hook_id}",
                 headers=self._get_headers(),

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.celery import celery_app
 from app.core.database import get_sync_session
-from app.core.redis import publish_analysis_progress
+from app.core.redis import publish_analysis_progress, reset_embedding_state
 from app.services.repo_analyzer import RepoAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -284,6 +284,10 @@ def analyze_repository(
         if files_for_embedding:
             publish_progress("queueing_embeddings", 95, "Queueing embedding generation...")
             try:
+                # Reset embedding state BEFORE queueing to prevent frontend from seeing
+                # stale 'completed' status from previous analysis
+                reset_embedding_state(repository_id)
+                
                 from app.workers.embeddings import generate_embeddings
                 generate_embeddings.delay(
                     repository_id=repository_id,

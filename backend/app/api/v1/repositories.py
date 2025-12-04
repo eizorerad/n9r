@@ -28,6 +28,7 @@ from app.services.github import (
     GitHubPermissionError,
     GitHubRateLimitError,
     GitHubService,
+    GitHubTimeoutError,
 )
 
 router = APIRouter()
@@ -628,6 +629,12 @@ async def list_branches(
 
         return BranchListResponse(data=branch_responses)
 
+    except GitHubTimeoutError as e:
+        logger.warning(f"GitHub API timeout for user {current_user.id} on repo {repo_id}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=e.message,
+        )
     except GitHubRateLimitError as e:
         logger.warning(f"GitHub rate limit exceeded for user {current_user.id}: {e.message}")
         raise HTTPException(
@@ -754,6 +761,12 @@ async def list_commits(
 
         return CommitListResponse(commits=commit_responses, branch=target_branch)
 
+    except GitHubTimeoutError as e:
+        logger.warning(f"GitHub API timeout for user {current_user.id} on repo {repo_id}")
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=e.message,
+        )
     except GitHubRateLimitError as e:
         logger.warning(f"GitHub rate limit exceeded for user {current_user.id}: {e.message}")
         raise HTTPException(
@@ -779,8 +792,9 @@ async def list_commits(
             detail=e.message,
         )
     except Exception as e:
-        logger.error(f"Failed to list commits: {e}")
+        import traceback
+        logger.error(f"Failed to list commits: {e}\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to fetch commits from GitHub",
+            detail=f"Failed to fetch commits from GitHub: {str(e) or type(e).__name__}",
         )

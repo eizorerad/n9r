@@ -13,11 +13,17 @@ import {
   CouplingHotspot 
 } from '@/lib/semantic-api'
 
+// Cached data may have optional overall_score (for backward compatibility with 'score' field)
+type CachedArchitectureHealth = Omit<ArchitectureHealthResponse, 'overall_score'> & {
+  overall_score?: number
+  score?: number  // Legacy field
+}
+
 interface ArchitectureHealthProps {
   repositoryId: string
   token: string
   className?: string
-  cachedData?: ArchitectureHealthResponse
+  cachedData?: CachedArchitectureHealth
 }
 
 const statusColors: Record<string, string> = {
@@ -106,8 +112,13 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
 
   if (!data) return null
 
+  // Handle both 'overall_score' and legacy 'score' field for backward compatibility
+  const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
+  
   console.log('[ArchitectureHealth] Rendering with data:', {
     overall_score: data.overall_score,
+    score: (data as unknown as { score?: number }).score,
+    resolved_score: scoreValue,
     total_files: data.total_files,
     total_chunks: data.total_chunks,
     clusters: data.clusters?.length,
@@ -115,8 +126,8 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
   })
 
   const issueCount = data.outliers.length + data.coupling_hotspots.length
-  const hasScore = typeof data.overall_score === 'number'
-  const displayScore = hasScore ? data.overall_score : 0
+  const hasScore = typeof scoreValue === 'number'
+  const displayScore = hasScore ? scoreValue : 0
 
   return (
     <div className={cn('space-y-6', className)}>

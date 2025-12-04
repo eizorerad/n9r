@@ -26,7 +26,8 @@ interface SemanticCacheData {
   analysis_id: string
   commit_sha: string
   architecture_health: {
-    overall_score: number
+    overall_score?: number  // New field
+    score?: number  // Legacy field for backward compatibility
     clusters: Array<{
       id: number
       name: string
@@ -89,7 +90,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   const [cacheLoading, setCacheLoading] = useState(false)
   
   // Global progress store
-  const { addTask, updateTask, hasTask } = useAnalysisProgressStore()
+  const { addTask, updateTask, hasTask, removeTask } = useAnalysisProgressStore()
   const taskId = getEmbeddingsTaskId(repositoryId)
 
   // Try to get token from localStorage as fallback
@@ -142,21 +143,36 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     fetchSemanticCache()
   }, [selectedAnalysisId, token, refreshKey])
 
-  // Poll for embedding status - use ref to avoid dependency issues
+  // Poll for embedding status - use refs to avoid dependency issues
   const embeddingStatusRef = useRef<EmbeddingStatus | null>(null)
+  const semanticCacheRef = useRef<SemanticCacheData | null>(null)
+  // Track poll count to ignore stale 'completed' on first few polls when task exists
+  const pollCountRef = useRef(0)
   
-  // Keep ref in sync with state
+  // Keep refs in sync with state
   useEffect(() => {
     embeddingStatusRef.current = embeddingStatus
   }, [embeddingStatus])
+  
+  useEffect(() => {
+    semanticCacheRef.current = semanticCache
+  }, [semanticCache])
 
   // Poll while embeddings are being generated
   useEffect(() => {
     if (!token) return
     
+    console.log('[SemanticAnalysis] Polling effect started for repo:', repositoryId, 'analysis:', selectedAnalysisId)
+    
+    // Reset refs when analysis changes to avoid stale data
+    semanticCacheRef.current = null
+    embeddingStatusRef.current = null
+    
     let intervalId: NodeJS.Timeout | null = null
     let isMounted = true
-    let currentInterval = 5000 // Start with moderate polling
+    let currentInterval = 2000 // Start with faster polling to catch embeddings start
+    // Reset poll count when effect restarts
+    pollCountRef.current = 0
     
     const fetchStatus = async (): Promise<EmbeddingStatus | null> => {
       try {
@@ -181,24 +197,66 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     const poll = async () => {
       if (!isMounted) return
       
+      pollCountRef.current += 1
+      const pollCount = pollCountRef.current
+      
       const data = await fetchStatus()
-      if (!isMounted || !data) return
+      if (!isMounted || !data) {
+        console.log('[SemanticAnalysis] Poll: no data or unmounted')
+        return
+      }
       
       const prev = embeddingStatusRef.current
       const wasInProgress = prev?.status === 'pending' || prev?.status === 'running'
-      const isNowCompleted = data.status === 'completed' && data.vectors_stored > 0
+      const isNowCompleted = data.status === 'completed'
       const isNowInProgress = data.status === 'pending' || data.status === 'running'
+      const isNone = data.status === 'none'
+      // Check task existence at call time to avoid stale closure
+      const taskExists = hasTask(taskId)
+      
+      // Ignore stale 'completed' status on first few polls when task exists
+      // This handles race condition where backend hasn't reset state yet
+      // Use 5 polls (10 seconds at 2s interval) to give backend time to reset state
+      const isStaleCompleted = isNowCompleted && taskExists && pollCount <= 5 && !wasInProgress
+      
+      // Debug logging
+      console.log('[SemanticAnalysis] Poll result:', {
+        status: data.status,
+        stage: data.stage,
+        progress: data.progress,
+        vectors: data.vectors_stored,
+        taskExists,
+        wasInProgress,
+        isNowInProgress,
+        isNowCompleted,
+        isStaleCompleted,
+        pollCount,
+      })
+      
+      // If this looks like stale completed status, wait for backend to reset
+      if (isStaleCompleted) {
+        console.log('[SemanticAnalysis] Ignoring stale completed status, waiting for backend reset...')
+        // Keep task in waiting state
+        if (taskExists) {
+          updateTask(taskId, {
+            status: 'pending',
+            stage: 'waiting',
+            message: 'Waiting for embeddings to start...',
+          })
+        }
+        return // Don't process this poll, wait for next one
+      }
       
       // Update local state
       setEmbeddingStatus(data)
       
       // Sync with global progress store
       if (isNowInProgress) {
-        const taskExists = hasTask(taskId)
+        // Embeddings are actively running - update or create task
         if (taskExists) {
           updateTask(taskId, {
             status: data.status === 'pending' ? 'pending' : 'running',
-            progress: data.progress,
+            progress: data.progress || 0,
             stage: data.stage || 'embedding',
             message: data.message,
           })
@@ -208,20 +266,109 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
             type: 'embeddings',
             repositoryId,
             status: data.status === 'pending' ? 'pending' : 'running',
-            progress: data.progress,
+            progress: data.progress || 0,
             stage: data.stage || 'embedding',
             message: data.message,
           })
         }
-      } else if (wasInProgress && isNowCompleted) {
-        updateTask(taskId, { status: 'completed', progress: 100 })
-        setTimeout(() => setRefreshKey(k => k + 1), 500)
-      } else if (prev?.status !== 'error' && data.status === 'error') {
-        updateTask(taskId, { status: 'failed', message: data.message })
+      } else if (isNowCompleted) {
+        // Embeddings are done - handle completion regardless of previous state
+        // This fixes the race condition where we miss the "running" state
+        console.log('[SemanticAnalysis] Embeddings completed:', {
+          taskExists,
+          wasInProgress,
+          vectors: data.vectors_stored,
+          cacheStatus: semanticCacheRef.current?.is_cached,
+        })
+        
+        if (taskExists) {
+          updateTask(taskId, { 
+            status: 'completed', 
+            progress: 100, 
+            stage: 'completed', 
+            message: `${data.vectors_stored} vectors available` 
+          })
+          setTimeout(() => {
+            removeTask(taskId)
+          }, 2000)
+        } else if (wasInProgress) {
+          // Task wasn't in store but we saw it running - show brief completion
+          // This handles the case where polling missed adding the task
+          addTask({
+            id: taskId,
+            type: 'embeddings',
+            repositoryId,
+            status: 'completed',
+            progress: 100,
+            stage: 'completed',
+            message: `${data.vectors_stored} vectors generated`,
+          })
+          setTimeout(() => {
+            removeTask(taskId)
+          }, 3000)
+        }
+        
+        // Always refresh semantic data when embeddings complete
+        // Use a small delay to ensure backend has saved the cache
+        // Check if we need to refresh:
+        // - Cache must be loaded (not null) AND show is_cached: false
+        // - OR we just saw embeddings complete (wasInProgress or taskExists)
+        const cacheLoaded = semanticCacheRef.current !== null
+        const cacheShowsNotCached = cacheLoaded && !semanticCacheRef.current?.is_cached
+        const justCompleted = wasInProgress || taskExists
+        const needsRefresh = cacheShowsNotCached || justCompleted
+        
+        console.log('[SemanticAnalysis] Cache refresh check:', {
+          needsRefresh,
+          cacheLoaded,
+          cacheShowsNotCached,
+          justCompleted,
+          cacheRef: semanticCacheRef.current?.is_cached,
+          vectors: data.vectors_stored,
+        })
+        
+        if (needsRefresh) {
+          console.log('[SemanticAnalysis] Triggering cache refresh after delay...')
+          // Small delay to ensure backend has saved the semantic cache
+          setTimeout(() => {
+            console.log('[SemanticAnalysis] Executing cache refresh now')
+            setRefreshKey(k => k + 1)
+          }, 500)
+        }
+      } else if (isNone && taskExists) {
+        // No embeddings exist yet but task was created by startAnalysis
+        // Keep the task in "waiting" state - embeddings will start after analysis completes
+        // Don't update the task here - it already has the right "waiting" message
+      } else if (data.status === 'error') {
+        if (taskExists) {
+          updateTask(taskId, { status: 'failed', message: data.message })
+          setTimeout(() => removeTask(taskId), 5000)
+        }
+      }
+      
+      // Stop polling when:
+      // 1. Embeddings completed AND no task in store (task was removed after completion)
+      // 2. Error status AND no task in store
+      // 3. No embeddings ('none') AND no task waiting
+      // Key: if taskExists, keep polling to track progress even if API shows old 'completed' status
+      const shouldStopPolling = 
+        (data.status === 'completed' && !taskExists) || 
+        (data.status === 'error' && !taskExists) ||
+        (data.status === 'none' && !taskExists)
+      
+      if (shouldStopPolling) {
+        if (intervalId) {
+          clearInterval(intervalId)
+          intervalId = null
+        }
+        return
       }
       
       // Adjust polling interval based on status
-      const newInterval = isNowInProgress ? 3000 : 15000
+      // Use faster polling when waiting for embeddings to start or when in progress
+      // Also use fast polling on first few polls to catch the transition from completed to pending
+      const shouldPollFast = isNowInProgress || (isNone && taskExists) || pollCount <= 5
+      const newInterval = shouldPollFast ? 2000 : 10000
       if (newInterval !== currentInterval) {
         currentInterval = newInterval
         if (intervalId) clearInterval(intervalId)
@@ -232,14 +379,15 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     // Initial fetch
     poll()
     
-    // Start polling
+    // Start polling (will stop automatically when completed)
     intervalId = setInterval(poll, currentInterval)
     
     return () => {
+      console.log('[SemanticAnalysis] Polling effect cleanup')
       isMounted = false
       if (intervalId) clearInterval(intervalId)
     }
-  }, [token, repositoryId, taskId, addTask, updateTask, hasTask])
+  }, [token, repositoryId, taskId, selectedAnalysisId, addTask, updateTask, hasTask, removeTask])
 
   if (!token) {
     return (

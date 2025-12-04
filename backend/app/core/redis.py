@@ -358,6 +358,38 @@ async def get_embedding_state(repository_id: str) -> dict | None:
         return None
 
 
+def reset_embedding_state(repository_id: str) -> None:
+    """Reset embedding state to 'pending' when starting a new analysis.
+    
+    This prevents the frontend from seeing stale 'completed' status
+    from a previous analysis while new embeddings are being queued.
+    
+    Called by analysis worker before queueing embedding generation.
+    """
+    with get_sync_redis_context() as redis_client:
+        state_key = get_embedding_state_key(repository_id)
+        channel = get_embedding_channel(repository_id)
+
+        payload_dict = {
+            "repository_id": repository_id,
+            "stage": "pending",
+            "progress": 0,
+            "message": "Waiting for embedding generation to start...",
+            "status": "pending",
+            "chunks_processed": 0,
+            "vectors_stored": 0,
+        }
+
+        payload = json.dumps(payload_dict)
+
+        # Store pending state
+        redis_client.setex(state_key, EMBEDDING_STATE_TTL, payload)
+
+        # Publish for real-time updates
+        redis_client.publish(channel, payload)
+        logger.info(f"Reset embedding state to 'pending' for repository {repository_id}")
+
+
 async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int = 300):
     """
     Subscribe to embedding progress updates (async generator for SSE).

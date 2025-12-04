@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
-import { useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId } from '@/lib/stores/analysis-progress-store'
+import { useAnalysisProgressStore, getAnalysisTaskId } from '@/lib/stores/analysis-progress-store'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 
 export type AnalysisStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
@@ -57,7 +57,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     // Global progress store
     const { addTask, updateTask } = useAnalysisProgressStore()
     const taskId = getAnalysisTaskId(repositoryId)
-    const embeddingsTaskId = getEmbeddingsTaskId(repositoryId)
     
     // Commit selection store - to update selectedAnalysisId when analysis completes
     const { selectedCommitSha, setSelectedCommit } = useCommitSelectionStore()
@@ -96,6 +95,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     }, [])
 
     const startAnalysis = useCallback(async (repoId: string, commitSha?: string | null) => {
+        console.log('[useAnalysisStream] startAnalysis called:', { repoId, commitSha, taskId })
         setError(null)
         setStatus('pending')
         setProgress(0)
@@ -103,8 +103,12 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         setMessage('Starting analysis...')
         setVciScore(null)
 
-        // Add both tasks to global progress store upfront
-        // This prevents the delay where embeddings task appears seconds after analysis starts
+        // Add analysis task to global progress store
+        // NOTE: We do NOT add the embeddings task here anymore.
+        // The semantic-analysis-section.tsx polling will add it when it detects
+        // embeddings actually running via the API. This prevents "ghost" tasks
+        // that get stuck at 0% when the polling misses the running state.
+        console.log('[useAnalysisStream] Adding analysis task to store:', taskId)
         addTask({
             id: taskId,
             type: 'analysis',
@@ -113,16 +117,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
             progress: 0,
             stage: 'queued',
             message: 'Starting analysis...',
-        })
-        
-        addTask({
-            id: embeddingsTaskId,
-            type: 'embeddings',
-            repositoryId: repoId,
-            status: 'pending',
-            progress: 0,
-            stage: 'waiting',
-            message: 'Waiting for code analysis...',
         })
 
         try {
@@ -176,6 +170,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                         eventSourceRef.current.close()
                     }
 
+                    console.log('[SSE] Connecting to:', `${apiUrl}/analyses/${analysisId}/stream`)
                     const response = await fetch(`${apiUrl}/analyses/${analysisId}/stream`, {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`,
@@ -187,6 +182,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                         throw new Error(`SSE connection failed: ${response.status}`)
                     }
 
+                    console.log('[SSE] Connected successfully')
                     const reader = response.body?.getReader()
                     if (!reader) throw new Error('No response body')
 
@@ -208,6 +204,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                 const data = line.slice(6)
                                 try {
                                     const update: ProgressUpdate = JSON.parse(data)
+                                    console.log('[SSE] Received update:', update)
                                     if (!mounted) return
 
                                     setProgress(update.progress)
@@ -226,6 +223,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                     }
 
                                     if (update.status === 'completed') {
+                                        console.log('[SSE] Analysis completed! VCI:', update.vci_score)
                                         setStatus('idle') // Reset to idle or completed? The original code reset to idle.
                                         // Actually, original code set status to 'idle' but showed 'completed' UI momentarily?
                                         // Wait, original code:
@@ -294,8 +292,24 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         setStage('')
                                         setMessage('')
                                         
-                                        // Update global store
+                                        // Update global store - mark analysis as completed
                                         updateTask(taskId, { status: 'completed', progress: 100 })
+                                        
+                                        // Add embeddings task to progress store
+                                        // The backend queues embeddings after analysis completes
+                                        // This ensures the user sees the embeddings progress in the popup
+                                        const embeddingsTaskId = `embeddings-${repositoryId}`
+                                        console.log('[Analysis Complete] Adding embeddings task:', embeddingsTaskId)
+                                        addTask({
+                                            id: embeddingsTaskId,
+                                            type: 'embeddings',
+                                            repositoryId,
+                                            status: 'pending',
+                                            progress: 0,
+                                            stage: 'waiting',
+                                            message: 'Waiting for embeddings to start...',
+                                        })
+                                        console.log('[Analysis Complete] Embeddings task added')
                                         
                                         // Update commit selection store with the new analysis ID
                                         // This triggers all panels to re-fetch data for the completed analysis

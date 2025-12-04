@@ -102,6 +102,14 @@ export function AnalysisProgressOverlay() {
     setMounted(true)
   }, [])
   
+  // Debug: log tasks whenever they change
+  useEffect(() => {
+    console.log('[ProgressOverlay] Tasks updated:', {
+      count: Object.keys(tasks).length,
+      tasks: Object.values(tasks).map(t => ({ id: t.id, type: t.type, status: t.status, progress: t.progress }))
+    })
+  }, [tasks])
+  
   const taskList = Object.values(tasks)
   const activeTasks = taskList.filter(t => t.status === 'pending' || t.status === 'running')
   const completedTasks = taskList.filter(t => t.status === 'completed' || t.status === 'failed')

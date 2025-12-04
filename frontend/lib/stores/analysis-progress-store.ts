@@ -36,22 +36,31 @@ export const useAnalysisProgressStore = create<AnalysisProgressState>((set, get)
   minimized: false,
   
   addTask: (task) => {
-    set((state) => ({
-      tasks: {
+    console.log('[AnalysisProgressStore] addTask called:', task.id, task.type)
+    set((state) => {
+      const newTasks = {
         ...state.tasks,
         [task.id]: {
           ...task,
           startedAt: Date.now(),
         },
-      },
-      minimized: false, // Expand when new task starts
-    }))
+      }
+      console.log('[AnalysisProgressStore] New tasks state:', Object.keys(newTasks))
+      return {
+        tasks: newTasks,
+        minimized: false, // Expand when new task starts
+      }
+    })
   },
   
   updateTask: (id, updates) => {
+    console.log('[AnalysisProgressStore] updateTask called:', id, updates)
     set((state) => {
       const existingTask = state.tasks[id]
-      if (!existingTask) return state
+      if (!existingTask) {
+        console.log('[AnalysisProgressStore] Task not found:', id)
+        return state
+      }
       
       return {
         tasks: {
