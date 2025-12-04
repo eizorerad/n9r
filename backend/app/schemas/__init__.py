@@ -1,5 +1,19 @@
 """Pydantic schemas for request/response validation."""
 
+from app.schemas.ai_scan import (
+    AIScanCacheResponse,
+    AIScanConfidence,
+    AIScanDimension,
+    AIScanIssue,
+    AIScanProgressEvent,
+    AIScanRequest,
+    AIScanSeverity,
+    AIScanStatus,
+    AIScanTriggerResponse,
+    FileLocation,
+    InvestigationStatus,
+    RepoOverview,
+)
 from app.schemas.analysis import (
     AnalysisCreate,
     AnalysisDetail,
@@ -47,6 +61,19 @@ from app.schemas.user import (
 )
 
 __all__ = [
+    # AI Scan
+    "AIScanRequest",
+    "AIScanIssue",
+    "AIScanCacheResponse",
+    "AIScanTriggerResponse",
+    "AIScanProgressEvent",
+    "AIScanDimension",
+    "AIScanSeverity",
+    "AIScanConfidence",
+    "AIScanStatus",
+    "InvestigationStatus",
+    "FileLocation",
+    "RepoOverview",
     # Auth
     "AuthCallback",
     "AuthResponse",

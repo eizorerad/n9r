@@ -36,6 +36,7 @@ celery_app.conf.update(
 
     # Task routing
     task_routes={
+        "app.workers.ai_scan.*": {"queue": "ai_scan"},
         "app.workers.analysis.*": {"queue": "analysis"},
         "app.workers.embeddings.*": {"queue": "embeddings"},
         "app.workers.healing.*": {"queue": "healing"},
@@ -82,6 +83,7 @@ celery_app.conf.update(
 # Note: We import modules directly instead of using autodiscover_tasks()
 # because we need to control the import order and avoid loading LiteLLM
 # at module level (it's not fork-safe on macOS).
+import app.workers.ai_scan  # noqa: F401, E402
 import app.workers.analysis  # noqa: F401, E402
 import app.workers.embeddings  # noqa: F401, E402
 import app.workers.healing  # noqa: F401, E402

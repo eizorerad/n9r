@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, GitBranch, RefreshCw, ExternalLink, AlertCircle, Loader2 } from 'lucide-react'
+import { ArrowLeft, GitBranch, RefreshCw, ExternalLink, AlertCircle, Loader2, Brain } from 'lucide-react'
 import { RunAnalysisButton } from '@/components/run-analysis-button'
 import { SemanticAnalysisSection } from '@/components/semantic-analysis-section'
 import { CommitTimeline } from '@/components/commit-timeline'
@@ -8,6 +8,7 @@ import { VCISectionClient } from '@/components/vci-section-client'
 import { MetricsSectionClient } from '@/components/metrics-section-client'
 import { IssuesSectionClient } from '@/components/issues-section-client'
 import { SelectedCommitIndicator } from '@/components/selected-commit-indicator'
+import { AIInsightsPanel } from '@/components/ai-insights-panel'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { getRepository } from '@/lib/data/repositories'
@@ -268,6 +269,14 @@ async function IssuesSection({ id }: { id: string }) {
   return <IssuesSectionClient repositoryId={id} token={session.accessToken} />
 }
 
+// AI Insights Section Wrapper (passes token from server)
+async function AIInsightsSection({ id }: { id: string }) {
+  const session = await getSession()
+  if (!session?.accessToken) redirect('/login')
+
+  return <AIInsightsPanel repositoryId={id} token={session.accessToken} />
+}
+
 // Semantic Analysis Section Wrapper (passes token from server)
 async function SemanticAnalysisSectionWrapper({ id }: { id: string }) {
   const session = await getSession()
@@ -430,6 +439,20 @@ export default async function RepositoryPage({
                 <IssuesSection id={id} />
               </Suspense>
             </div>
+          </section>
+
+          {/* AI Insights - Takes 2 columns */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-pink-500/80" />
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                AI Insights
+              </h2>
+            </div>
+            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
+              <AIInsightsSection id={id} />
+            </Suspense>
           </section>
 
           {/* Analysis Details - Takes 3 columns */}

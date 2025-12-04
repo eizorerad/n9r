@@ -71,6 +71,10 @@ class Analysis(BaseModelNoUpdate):
         JSONB,
         nullable=True,
     )
+    ai_scan_cache: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
     # Relationships
     repository: Mapped["Repository"] = relationship(

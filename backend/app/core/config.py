@@ -113,6 +113,9 @@ class Settings(BaseSettings):
     default_llm_model: str = "gpt-4o"
     embedding_model: str = ""  # Auto-detected if empty
 
+    # AI Scan Settings
+    ai_scan_max_cost_per_scan: float = 5.0  # Maximum cost in USD per AI scan
+
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"

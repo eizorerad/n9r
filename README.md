@@ -215,7 +215,7 @@ Complexity score scales inversely with average CC. Heuristics score penalizes ge
    # Edit .env with your credentials
    ```
 
-3. **Start infrastructure**
+3. **Start infrastructure** (Postgres, Redis, Qdrant, MinIO)
    ```bash
    docker compose up -d
    ```
@@ -236,7 +236,7 @@ Complexity score scales inversely with average CC. Heuristics score penalizes ge
 6. **Start Celery worker** (new terminal)
    ```bash
    cd backend
-   uv run celery -A app.core.celery worker --loglevel=info
+   uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications --loglevel=info
    ```
 
 7. **Start frontend** (new terminal)
@@ -247,6 +247,27 @@ Complexity score scales inversely with average CC. Heuristics score penalizes ge
    ```
 
 8. **Open the app** → [http://localhost:3000](http://localhost:3000) 🌙
+
+### Production Deployment
+
+For production, all services run in Docker containers:
+
+1. **Build and start all services**
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+   ```
+
+2. **Check status**
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+   ```
+
+3. **View logs**
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml logs -f backend celery-worker
+   ```
+
+This starts: Postgres, Redis, Qdrant, MinIO, Backend API, Celery Worker, and Celery Beat.
 
 ---
 
