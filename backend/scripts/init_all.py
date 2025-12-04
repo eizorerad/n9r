@@ -101,6 +101,7 @@ def init_qdrant() -> None:
         client = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
+            timeout=settings.qdrant_timeout,
         )
 
         collection_name = settings.qdrant_collection_name

@@ -24,10 +24,11 @@ COLLECTION_NAME = "code_embeddings"
 
 
 def get_qdrant_client() -> QdrantClient:
-    """Get Qdrant client."""
+    """Get Qdrant client with configured timeout."""
     return QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
+        timeout=settings.qdrant_timeout,
     )
 
 

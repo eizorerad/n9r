@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -39,11 +39,15 @@ const riskColors: Record<string, string> = {
   low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
 }
 
-export function ArchitectureHealth({ repositoryId, token, className, cachedData }: ArchitectureHealthProps) {
+function ArchitectureHealthComponent({ repositoryId, token, className, cachedData }: ArchitectureHealthProps) {
   const [data, setData] = useState<ArchitectureHealthResponse | null>(cachedData || null)
   const [loading, setLoading] = useState(!cachedData)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
+
+  // Memoize cachedData check to prevent re-running effect on every parent render
+  const hasCachedData = useMemo(() => !!cachedData, [cachedData])
+  const cachedDataString = useMemo(() => JSON.stringify(cachedData), [cachedData])
 
   useEffect(() => {
     // If we have cached data, use it directly
@@ -56,7 +60,8 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
     
     // Only fetch from API if no cached data
     fetchData()
-  }, [repositoryId, token, cachedData])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repositoryId, token, cachedDataString])
 
   const fetchData = async () => {
     setLoading(true)
@@ -112,22 +117,18 @@ export function ArchitectureHealth({ repositoryId, token, className, cachedData 
 
   if (!data) return null
 
-  // Handle both 'overall_score' and legacy 'score' field for backward compatibility
-  const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
+  // Memoize derived values to prevent recalculation on every render
+  const computedValues = useMemo(() => {
+    // Handle both 'overall_score' and legacy 'score' field for backward compatibility
+    const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
+    const issueCount = data.outliers.length + data.coupling_hotspots.length
+    const hasScore = typeof scoreValue === 'number'
+    const displayScore = hasScore ? scoreValue : 0
+    
+    return { scoreValue, issueCount, hasScore, displayScore }
+  }, [data.overall_score, data.outliers.length, data.coupling_hotspots.length])
   
-  console.log('[ArchitectureHealth] Rendering with data:', {
-    overall_score: data.overall_score,
-    score: (data as unknown as { score?: number }).score,
-    resolved_score: scoreValue,
-    total_files: data.total_files,
-    total_chunks: data.total_chunks,
-    clusters: data.clusters?.length,
-    metrics: data.metrics,
-  })
-
-  const issueCount = data.outliers.length + data.coupling_hotspots.length
-  const hasScore = typeof scoreValue === 'number'
-  const displayScore = hasScore ? scoreValue : 0
+  const { scoreValue, issueCount, hasScore, displayScore } = computedValues
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -450,3 +451,20 @@ function HotspotsTab({ hotspots }: { hotspots: CouplingHotspot[] }) {
     </div>
   )
 }
+
+// Memoize component to prevent unnecessary re-renders
+// Only re-render when actual props change
+export const ArchitectureHealth = memo(ArchitectureHealthComponent, (prevProps, nextProps) => {
+  // Deep comparison for cachedData since it's an object
+  const prevCacheString = JSON.stringify(prevProps.cachedData)
+  const nextCacheString = JSON.stringify(nextProps.cachedData)
+  
+  return (
+    prevProps.repositoryId === nextProps.repositoryId &&
+    prevProps.token === nextProps.token &&
+    prevProps.className === nextProps.className &&
+    prevCacheString === nextCacheString
+  )
+})
+
+ArchitectureHealth.displayName = 'ArchitectureHealth'

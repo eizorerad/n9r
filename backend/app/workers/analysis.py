@@ -7,7 +7,8 @@ from sqlalchemy import select
 
 from app.core.celery import celery_app
 from app.core.database import get_sync_session
-from app.core.redis import publish_analysis_progress, reset_embedding_state
+from app.core.redis import publish_analysis_progress
+from app.services.analysis_state import AnalysisStateService
 from app.services.repo_analyzer import RepoAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -70,11 +71,14 @@ def _save_analysis_results(repository_id: str, analysis_id: str, result):
             analysis.completed_at = datetime.utcnow()
 
             # Close old open issues for this repository (to avoid duplicates)
+            # Important: Don't close issues from the current analysis (race condition protection)
+            # This prevents issues from being lost if two analyses somehow run in parallel
             db.execute(
                 update(Issue)
                 .where(
                     Issue.repository_id == repository_id,
                     Issue.status == "open",
+                    Issue.analysis_id != analysis.id,  # Don't close issues from current analysis
                 )
                 .values(status="closed")
             )
@@ -284,9 +288,15 @@ def analyze_repository(
         if files_for_embedding:
             publish_progress("queueing_embeddings", 95, "Queueing embedding generation...")
             try:
-                # Reset embedding state BEFORE queueing to prevent frontend from seeing
-                # stale 'completed' status from previous analysis
-                reset_embedding_state(repository_id)
+                # Mark embeddings as pending using AnalysisStateService (PostgreSQL SSOT)
+                # This replaces the old Redis-based reset_embedding_state call.
+                # The state service updates PostgreSQL and publishes events to Redis.
+                # Requirements: 2.1
+                from uuid import UUID
+                with get_sync_session() as db:
+                    state_service = AnalysisStateService(db, publish_events=True)
+                    state_service.mark_embeddings_pending(UUID(analysis_id))
+                    logger.info(f"Marked embeddings as pending for analysis {analysis_id}")
                 
                 from app.workers.embeddings import generate_embeddings
                 generate_embeddings.delay(

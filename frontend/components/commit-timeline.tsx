@@ -265,8 +265,12 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     
     // If the commit now has an analysis_id that differs from what's in the store,
     // update the store to trigger panel refreshes
+    // BUT: Only update if store has NO analysis_id yet (null)
+    // If store already has an analysis_id, it was set by use-analysis-stream after completion
+    // and we should NOT override it with stale data from commits list
     const newAnalysisId = currentCommit.analysis_id || null
-    if (newAnalysisId && newAnalysisId !== selectedAnalysisId) {
+    if (newAnalysisId && !selectedAnalysisId) {
+      // Store has no analysis_id, set it from commits list
       setSelectedCommit(selectedCommitSha, newAnalysisId, repositoryId)
     }
   }, [commits, selectedCommitSha, selectedAnalysisId, setSelectedCommit, repositoryId])

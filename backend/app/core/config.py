@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     # Qdrant
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
+    qdrant_timeout: int = 60  # Timeout in seconds for Qdrant operations
     qdrant_collection_name: str = "code_embeddings"
 
     # MinIO
@@ -115,6 +116,11 @@ class Settings(BaseSettings):
 
     # AI Scan Settings
     ai_scan_max_cost_per_scan: float = 5.0  # Maximum cost in USD per AI scan
+
+    # Feature Flags
+    # When True, use PostgreSQL as single source of truth for embeddings state
+    # When False, fall back to legacy Redis-based state management
+    use_postgres_embeddings_state: bool = True
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/1"

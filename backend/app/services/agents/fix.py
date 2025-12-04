@@ -38,6 +38,7 @@ class FixAgent:
         self.qdrant = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
+            timeout=settings.qdrant_timeout,
         )
 
     async def generate_fix(

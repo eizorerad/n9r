@@ -4,6 +4,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 import redis as sync_redis
 import redis.asyncio as aioredis
@@ -316,10 +317,21 @@ def publish_embedding_progress(
     status: str = "running",
     chunks_processed: int = 0,
     vectors_stored: int = 0,
+    analysis_id: str | None = None,
 ) -> None:
     """Publish embedding progress to Redis channel and store state.
     
     Used by embeddings worker to report progress.
+    
+    Args:
+        repository_id: UUID of the repository
+        stage: Current stage (initializing, chunking, embedding, indexing, completed, error)
+        progress: Progress percentage (0-100)
+        message: Human-readable status message
+        status: Status string (pending, running, completed, error)
+        chunks_processed: Number of chunks processed
+        vectors_stored: Number of vectors stored in Qdrant
+        analysis_id: UUID of the analysis that triggered this embedding generation
     """
     with get_sync_redis_context() as redis_client:
         channel = get_embedding_channel(repository_id)
@@ -334,6 +346,11 @@ def publish_embedding_progress(
             "chunks_processed": chunks_processed,
             "vectors_stored": vectors_stored,
         }
+        
+        # Include analysis_id if provided — allows frontend to verify
+        # embeddings belong to the currently selected analysis
+        if analysis_id:
+            payload_dict["analysis_id"] = analysis_id
 
         payload = json.dumps(payload_dict)
 
@@ -342,13 +359,14 @@ def publish_embedding_progress(
 
         # Publish for real-time updates
         redis_client.publish(channel, payload)
-        logger.debug(f"Published embedding progress: {stage} {progress}%")
+        logger.debug(f"Published embedding progress: {stage} {progress}% (analysis={analysis_id})")
 
 
 async def get_embedding_state(repository_id: str) -> dict | None:
     """Get current embedding progress state (async, for FastAPI).
     
     Returns dict with progress info, or None if no embedding in progress.
+    The dict includes 'analysis_id' if embeddings were triggered by an analysis.
     """
     async with aioredis.Redis(connection_pool=async_redis_pool) as client:
         state_key = get_embedding_state_key(repository_id)
@@ -358,13 +376,17 @@ async def get_embedding_state(repository_id: str) -> dict | None:
         return None
 
 
-def reset_embedding_state(repository_id: str) -> None:
+def reset_embedding_state(repository_id: str, analysis_id: str | None = None) -> None:
     """Reset embedding state to 'pending' when starting a new analysis.
     
     This prevents the frontend from seeing stale 'completed' status
     from a previous analysis while new embeddings are being queued.
     
     Called by analysis worker before queueing embedding generation.
+    
+    Args:
+        repository_id: UUID of the repository
+        analysis_id: UUID of the new analysis (allows frontend to verify state freshness)
     """
     with get_sync_redis_context() as redis_client:
         state_key = get_embedding_state_key(repository_id)
@@ -379,6 +401,10 @@ def reset_embedding_state(repository_id: str) -> None:
             "chunks_processed": 0,
             "vectors_stored": 0,
         }
+        
+        # Include analysis_id so frontend can verify this is for the current analysis
+        if analysis_id:
+            payload_dict["analysis_id"] = analysis_id
 
         payload = json.dumps(payload_dict)
 
@@ -387,7 +413,7 @@ def reset_embedding_state(repository_id: str) -> None:
 
         # Publish for real-time updates
         redis_client.publish(channel, payload)
-        logger.info(f"Reset embedding state to 'pending' for repository {repository_id}")
+        logger.info(f"Reset embedding state to 'pending' for repository {repository_id} (analysis={analysis_id})")
 
 
 async def subscribe_embedding_progress(repository_id: str, timeout_seconds: int = 300):
@@ -525,3 +551,214 @@ def check_playground_rate_limit(client_ip: str, max_requests: int = 5) -> bool:
         pipe.execute()
 
         return True
+
+
+# =============================================================================
+# Analysis State Events (PostgreSQL-backed state with Redis pub/sub)
+# =============================================================================
+
+ANALYSIS_EVENTS_PREFIX = "analysis:events:"
+
+
+def get_analysis_events_channel(analysis_id: str) -> str:
+    """Get Redis channel name for analysis state events.
+    
+    Args:
+        analysis_id: UUID of the analysis
+        
+    Returns:
+        Channel name in format 'analysis:events:{analysis_id}'
+    """
+    return f"{ANALYSIS_EVENTS_PREFIX}{analysis_id}"
+
+
+def publish_analysis_event(
+    analysis_id: str,
+    event_type: str,
+    status_data: dict | None = None,
+) -> bool:
+    """
+    Publish analysis state change event to Redis pub/sub.
+    
+    This function is non-blocking: it catches and logs errors without raising,
+    ensuring that state updates in PostgreSQL are not affected by Redis failures.
+    
+    The event is published to channel 'analysis:events:{analysis_id}'.
+    
+    Args:
+        analysis_id: UUID of the analysis (as string)
+        event_type: Type of event (e.g., 'embeddings_status_changed', 
+                    'semantic_cache_status_changed', 'embeddings_progress_updated')
+        status_data: Additional status data to include in the event payload.
+                     Should contain relevant status fields like embeddings_status,
+                     embeddings_progress, semantic_cache_status, etc.
+    
+    Returns:
+        True if event was published successfully, False otherwise.
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 7.1, 7.2, 7.4**
+    
+    Example:
+        >>> publish_analysis_event(
+        ...     analysis_id="123e4567-e89b-12d3-a456-426614174000",
+        ...     event_type="embeddings_status_changed",
+        ...     status_data={
+        ...         "embeddings_status": "running",
+        ...         "embeddings_progress": 50,
+        ...         "embeddings_stage": "embedding",
+        ...     }
+        ... )
+        True
+    """
+    from datetime import datetime, timezone
+    
+    try:
+        channel = get_analysis_events_channel(analysis_id)
+        
+        # Build event payload (Requirements 7.4)
+        payload_dict = {
+            "analysis_id": analysis_id,
+            "event_type": event_type,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        # Merge status data if provided
+        if status_data:
+            payload_dict.update(status_data)
+        
+        payload = json.dumps(payload_dict)
+        
+        # Publish to Redis (non-blocking - Requirements 7.2)
+        with get_sync_redis_context() as redis_client:
+            redis_client.publish(channel, payload)
+            logger.debug(f"Published analysis event to {channel}: {event_type}")
+        
+        return True
+        
+    except Exception as e:
+        # Non-blocking: log and continue (Requirements 7.2)
+        logger.warning(f"Failed to publish analysis event: {e}")
+        return False
+
+
+async def publish_analysis_event_async(
+    analysis_id: str,
+    event_type: str,
+    status_data: dict | None = None,
+) -> bool:
+    """
+    Async version of publish_analysis_event for FastAPI handlers.
+    
+    Non-blocking: catches and logs errors without raising.
+    
+    Args:
+        analysis_id: UUID of the analysis (as string)
+        event_type: Type of event
+        status_data: Additional status data to include
+        
+    Returns:
+        True if event was published successfully, False otherwise.
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 7.1, 7.2, 7.4**
+    """
+    from datetime import datetime, timezone
+    
+    try:
+        channel = get_analysis_events_channel(analysis_id)
+        
+        payload_dict = {
+            "analysis_id": analysis_id,
+            "event_type": event_type,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        if status_data:
+            payload_dict.update(status_data)
+        
+        payload = json.dumps(payload_dict)
+        
+        async with aioredis.Redis(connection_pool=async_redis_pool) as client:
+            await client.publish(channel, payload)
+            logger.debug(f"Published analysis event (async) to {channel}: {event_type}")
+        
+        return True
+        
+    except Exception as e:
+        logger.warning(f"Failed to publish analysis event (async): {e}")
+        return False
+
+
+async def subscribe_analysis_events(analysis_id: str, timeout_seconds: int = 600):
+    """
+    Subscribe to analysis state events (async generator for SSE).
+    
+    Yields JSON-encoded state change events.
+    
+    Args:
+        analysis_id: The analysis ID to subscribe to
+        timeout_seconds: Max time to wait for updates (default 10 minutes)
+        
+    Yields:
+        JSON-encoded event payloads
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 7.1, 7.3**
+    """
+    import asyncio
+
+    client = aioredis.Redis(connection_pool=async_redis_pool)
+    pubsub = client.pubsub()
+    channel = get_analysis_events_channel(analysis_id)
+
+    start_time = asyncio.get_event_loop().time()
+    last_message_time = start_time
+    keepalive_interval = 30
+
+    try:
+        await pubsub.subscribe(channel)
+        logger.info(f"Subscribed to analysis events channel: {channel}")
+
+        while True:
+            current_time = asyncio.get_event_loop().time()
+
+            if current_time - start_time > timeout_seconds:
+                logger.warning(f"Analysis events subscription timed out for {analysis_id}")
+                yield json.dumps({
+                    "analysis_id": analysis_id,
+                    "event_type": "timeout",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                break
+
+            time_since_last = current_time - last_message_time
+            wait_timeout = max(0.1, keepalive_interval - time_since_last)
+
+            try:
+                message = await asyncio.wait_for(
+                    pubsub.get_message(ignore_subscribe_messages=True, timeout=wait_timeout),
+                    timeout=wait_timeout + 1
+                )
+
+                if message and message["type"] == "message":
+                    last_message_time = asyncio.get_event_loop().time()
+                    data = message["data"]
+                    if isinstance(data, bytes):
+                        data = data.decode("utf-8")
+                    yield data
+
+                elif current_time - last_message_time >= keepalive_interval:
+                    last_message_time = current_time
+                    yield ": keepalive\n"
+
+            except TimeoutError:
+                if current_time - last_message_time >= keepalive_interval:
+                    last_message_time = current_time
+                    yield ": keepalive\n"
+                continue
+
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.aclose()
+        await client.aclose()

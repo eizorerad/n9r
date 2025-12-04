@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { runAnalysis, getApiUrl, getAccessToken, revalidateRepositoryPage } from '@/app/actions/analysis'
 import { useAnalysisProgressStore, getAnalysisTaskId } from '@/lib/stores/analysis-progress-store'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
+import { getAnalysisStatusQueryKey } from '@/lib/hooks/use-analysis-status'
 
 export type AnalysisStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
 
@@ -295,21 +296,11 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         // Update global store - mark analysis as completed
                                         updateTask(taskId, { status: 'completed', progress: 100 })
                                         
-                                        // Add embeddings task to progress store
-                                        // The backend queues embeddings after analysis completes
-                                        // This ensures the user sees the embeddings progress in the popup
-                                        const embeddingsTaskId = `embeddings-${repositoryId}`
-                                        console.log('[Analysis Complete] Adding embeddings task:', embeddingsTaskId)
-                                        addTask({
-                                            id: embeddingsTaskId,
-                                            type: 'embeddings',
-                                            repositoryId,
-                                            status: 'pending',
-                                            progress: 0,
-                                            stage: 'waiting',
-                                            message: 'Waiting for embeddings to start...',
-                                        })
-                                        console.log('[Analysis Complete] Embeddings task added')
+                                        // NOTE: We do NOT add embeddings task here anymore.
+                                        // The useAnalysisStatus hook (via useAnalysisStatusWithStore) handles
+                                        // embeddings progress tracking by polling the full-status endpoint.
+                                        // This prevents "ghost" tasks and ensures single source of truth.
+                                        // Requirements: 4.1
                                         
                                         // Update commit selection store with the new analysis ID
                                         // This triggers all panels to re-fetch data for the completed analysis
@@ -327,6 +318,13 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         // This will show the new VCI score in the commit list
                                         // Requirements: 2.3
                                         queryClient.invalidateQueries({ queryKey: ['commits', repositoryId] })
+                                        
+                                        // Invalidate React Query cache for analysis status
+                                        // This triggers useAnalysisStatus to refetch and pick up embeddings progress
+                                        // Requirements: 4.1
+                                        queryClient.invalidateQueries({ 
+                                            queryKey: getAnalysisStatusQueryKey(repositoryId, analysisId) 
+                                        })
                                         
                                         // Clear local analysisId after updating store
                                         setAnalysisId(null)

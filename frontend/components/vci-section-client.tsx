@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect } from 'react'
+import { memo, useMemo } from 'react'
 import { VCIScoreCardCompact } from '@/components/vci-score-card-compact'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
-import { useAnalysisDataStore } from '@/lib/stores/analysis-data-store'
+import { useAnalysisStatus } from '@/lib/hooks/use-analysis-status'
 import { Loader2 } from 'lucide-react'
 
 interface VCIHistoryPoint {
@@ -20,42 +20,60 @@ interface VCISectionClientProps {
   initialTrend: 'improving' | 'stable' | 'declining'
 }
 
-export function VCISectionClient({
+/**
+ * VCI Section Client Component
+ *
+ * Refactored to use the shared useAnalysisStatus hook instead of independent polling.
+ * This leverages React Query's caching and smart polling intervals.
+ *
+ * **Feature: progress-tracking-refactor**
+ * **Validates: Requirements 4.1**
+ *
+ * **Optimization: Memoized to prevent re-renders from parent**
+ * Uses useMemo for derived values to break object reference chains
+ */
+function VCISectionClientComponent({
   repositoryId,
   token,
   initialHistory,
   initialTrend,
 }: VCISectionClientProps) {
   const { selectedAnalysisId, selectedCommitSha } = useCommitSelectionStore()
-  const { analysisData, loading, fetchAnalysis, currentAnalysisId } = useAnalysisDataStore()
 
-  // Fetch analysis data when selectedAnalysisId changes
-  useEffect(() => {
-    console.log('[VCI] Effect triggered:', { selectedAnalysisId, currentAnalysisId, hasData: !!analysisData })
-    if (selectedAnalysisId && token && currentAnalysisId !== selectedAnalysisId) {
-      console.log('[VCI] Fetching analysis:', selectedAnalysisId)
-      fetchAnalysis(selectedAnalysisId, token)
+  // Use the shared useAnalysisStatus hook for smart polling and React Query cache
+  // This replaces the manual polling logic and useAnalysisDataStore
+  const {
+    data: analysisStatus,
+    isLoading,
+  } = useAnalysisStatus({
+    analysisId: selectedAnalysisId,
+    repositoryId,
+    token,
+    enabled: !!selectedAnalysisId && !!token,
+  })
+  
+  // Memoize derived values to prevent re-renders when object reference changes
+  // but actual values remain the same
+  const derivedData = useMemo(() => {
+    if (!analysisStatus) return null
+    
+    return {
+      score: analysisStatus.vci_score,
+      grade: analysisStatus.grade,
+      status: analysisStatus.analysis_status,
+      analysisId: analysisStatus.analysis_id,
+      stage: analysisStatus.overall_stage,
     }
-  }, [selectedAnalysisId, token, fetchAnalysis, currentAnalysisId])
-
-  // Poll for updates when analysis is not completed
-  useEffect(() => {
-    if (!selectedAnalysisId || !token) return
-    if (analysisData?.status === 'completed') return
-    
-    const interval = setInterval(() => {
-      console.log('[VCI] Polling for analysis update')
-      fetchAnalysis(selectedAnalysisId, token)
-    }, 3000)
-    
-    return () => clearInterval(interval)
-  }, [selectedAnalysisId, token, fetchAnalysis, analysisData?.status])
-
-  // Check if data matches current selection
-  const hasMatchingData = analysisData && currentAnalysisId === selectedAnalysisId
+  }, [
+    analysisStatus?.vci_score,
+    analysisStatus?.grade,
+    analysisStatus?.analysis_status,
+    analysisStatus?.analysis_id,
+    analysisStatus?.overall_stage,
+  ])
 
   // Show loading state
-  if (loading && currentAnalysisId === selectedAnalysisId) {
+  if (isLoading) {
     return (
       <div className="glass-panel border border-border/50 rounded-xl p-3 flex items-center justify-center h-[120px]">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -72,8 +90,8 @@ export function VCISectionClient({
     )
   }
 
-  // Show empty state if commit has no analysis or data doesn't match
-  if (!hasMatchingData) {
+  // Show empty state if no data available
+  if (!analysisStatus) {
     return (
       <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
         <p className="text-xs text-muted-foreground">No analysis for this commit</p>
@@ -82,28 +100,23 @@ export function VCISectionClient({
   }
 
   // Show loading state if analysis is still running
-  if (analysisData.status !== 'completed') {
+  if (derivedData && derivedData.status !== 'completed') {
     return (
       <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mb-2" />
         <p className="text-xs text-muted-foreground">Analysis in progress...</p>
+        {derivedData.stage && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1">{derivedData.stage}</p>
+        )}
       </div>
     )
   }
 
-  const score = analysisData.vci_score
-  const grade = analysisData.grade
-
-  console.log('[VCI] Rendering with data:', { 
-    score, 
-    grade, 
-    status: analysisData.status,
-    analysisId: currentAnalysisId,
-    metrics: analysisData.metrics ? Object.keys(analysisData.metrics) : null,
-  })
+  const score = derivedData?.score ?? null
+  const grade = derivedData?.grade ?? null
 
   // If analysis completed but no VCI score, show error state
-  if (score === null) {
+  if (derivedData && score === null) {
     return (
       <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
         <p className="text-xs text-muted-foreground">VCI score not available</p>
@@ -121,3 +134,16 @@ export function VCISectionClient({
     />
   )
 }
+
+// Memoize component with custom comparison to prevent unnecessary re-renders
+// Only re-render if actual values change, not object references
+export const VCISectionClient = memo(VCISectionClientComponent, (prevProps, nextProps) => {
+  return (
+    prevProps.repositoryId === nextProps.repositoryId &&
+    prevProps.token === nextProps.token &&
+    prevProps.initialHistory === nextProps.initialHistory &&
+    prevProps.initialTrend === nextProps.initialTrend
+  )
+})
+
+VCISectionClient.displayName = 'VCISectionClient'

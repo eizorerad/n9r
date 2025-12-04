@@ -15,6 +15,14 @@ from app.core.redis import publish_analysis_progress, subscribe_analysis_progres
 from app.models.analysis import Analysis
 from app.models.issue import Issue
 from app.models.repository import Repository
+from app.schemas.analysis import (
+    AnalysisFullStatusResponse,
+    EmbeddingsStatus,
+    SemanticCacheStatus,
+    compute_is_complete,
+    compute_overall_progress,
+    compute_overall_stage,
+)
 from app.workers.analysis import analyze_repository
 
 router = APIRouter()
@@ -494,6 +502,105 @@ async def get_analysis(
             "low": sum(1 for i in issues if i.severity == "low"),
         },
     }
+
+
+@router.get("/analyses/{analysis_id}/full-status", response_model=AnalysisFullStatusResponse)
+async def get_analysis_full_status(
+    analysis_id: UUID,
+    db: DbSession,
+    user: CurrentUser,
+) -> AnalysisFullStatusResponse:
+    """
+    Get full analysis status including embeddings and semantic cache state.
+    
+    This endpoint provides a single source of truth for all analysis state,
+    enabling simplified frontend polling with computed overall progress.
+    
+    Returns:
+        AnalysisFullStatusResponse with all status fields and computed progress
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 1.3, 4.1, 4.2, 4.3**
+    """
+    # Single database query to fetch analysis with repository (Requirements 1.3)
+    result = await db.execute(
+        select(Analysis)
+        .options(selectinload(Analysis.repository))
+        .where(Analysis.id == analysis_id)
+    )
+    analysis = result.scalar_one_or_none()
+
+    # Return 404 for non-existent analysis (don't leak existence for unauthorized)
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found",
+        )
+
+    # Verify access - return 404 to not leak existence
+    if analysis.repository.owner_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found",
+        )
+
+    # Compute overall progress (Requirements 4.2)
+    overall_progress = compute_overall_progress(
+        analysis_status=analysis.status,
+        embeddings_status=analysis.embeddings_status,
+        embeddings_progress=analysis.embeddings_progress,
+        semantic_cache_status=analysis.semantic_cache_status,
+    )
+
+    # Compute overall stage (Requirements 4.3)
+    overall_stage = compute_overall_stage(
+        analysis_status=analysis.status,
+        embeddings_status=analysis.embeddings_status,
+        embeddings_stage=analysis.embeddings_stage,
+        semantic_cache_status=analysis.semantic_cache_status,
+    )
+
+    # Compute is_complete flag (Requirements 4.2)
+    is_complete = compute_is_complete(
+        analysis_status=analysis.status,
+        embeddings_status=analysis.embeddings_status,
+        semantic_cache_status=analysis.semantic_cache_status,
+    )
+
+    # Determine if semantic cache exists
+    has_semantic_cache = (
+        analysis.semantic_cache is not None
+        and analysis.semantic_cache.get("architecture_health") is not None
+    )
+
+    return AnalysisFullStatusResponse(
+        # Identity
+        analysis_id=str(analysis.id),
+        repository_id=str(analysis.repository_id),
+        commit_sha=analysis.commit_sha,
+        # Analysis status
+        analysis_status=analysis.status,
+        vci_score=float(analysis.vci_score) if analysis.vci_score is not None else None,
+        grade=analysis.grade,
+        # Embeddings status
+        embeddings_status=EmbeddingsStatus(analysis.embeddings_status),
+        embeddings_progress=analysis.embeddings_progress,
+        embeddings_stage=analysis.embeddings_stage,
+        embeddings_message=analysis.embeddings_message,
+        embeddings_error=analysis.embeddings_error,
+        vectors_count=analysis.vectors_count,
+        # Semantic cache status
+        semantic_cache_status=SemanticCacheStatus(analysis.semantic_cache_status),
+        has_semantic_cache=has_semantic_cache,
+        # Timestamps
+        state_updated_at=analysis.state_updated_at,
+        embeddings_started_at=analysis.embeddings_started_at,
+        embeddings_completed_at=analysis.embeddings_completed_at,
+        # Computed fields
+        overall_progress=overall_progress,
+        overall_stage=overall_stage,
+        is_complete=is_complete,
+    )
 
 
 @router.get("/analyses/{analysis_id}/metrics")

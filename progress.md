@@ -113,3 +113,33 @@ Implemented balanced architecture filter to reduce false positives in outlier de
 
 ## What Was Done
 Implemented Commit Selector MVP allowing users to view commit history per branch, see which commits have been analyzed (with VCI scores), and trigger analysis on any historical commit. Backend includes GitHubService extensions for branch/commit listing with proper error handling (rate limits, permissions), API endpoints with analysis enrichment, and property-based tests. Frontend features a CommitTimeline component with branch selector, timeline visualization, relative timestamps, and polling for analysis status updates.
+
+
+# 04-dec-2025 - Progress Tracking Refactor (PostgreSQL-Based State)
+
+## Files Created
+- `backend/alembic/versions/007_add_embeddings_tracking.py` - Migration adding embeddings_status, embeddings_progress, embeddings_stage, embeddings_message, embeddings_error, embeddings_started_at, embeddings_completed_at, vectors_count, semantic_cache_status, state_updated_at columns with CHECK constraints and indexes
+- `backend/app/services/analysis_state.py` - AnalysisStateService with state transition validation, convenience methods, and Redis event publishing
+- `backend/tests/test_analysis_state_service.py` - Property tests for state transitions, progress bounds, timestamp updates
+- `backend/tests/test_analysis_state_constraints.py` - Property test for database constraint enforcement
+- `backend/tests/test_embeddings_workflow.py` - Integration test for full embeddings workflow
+- `backend/tests/test_full_status_api.py` - Unit tests for /analyses/{id}/full-status endpoint
+- `backend/tests/test_state_persistence.py` - Property tests for state persistence across restarts and Redis independence
+- `frontend/lib/hooks/use-analysis-status.ts` - React Query hook with smart polling for analysis status
+- `frontend/__tests__/hooks/use-analysis-status.test.ts` - Unit tests for useAnalysisStatus hook
+
+## Files Modified
+- `backend/app/models/analysis.py` - Added embeddings tracking columns, semantic_cache_status, state_updated_at to Analysis model
+- `backend/app/schemas/analysis.py` - Added AnalysisFullStatusResponse schema with computed fields (overall_progress, overall_stage, is_complete)
+- `backend/app/api/v1/analyses.py` - Added GET /analyses/{id}/full-status endpoint
+- `backend/app/api/v1/semantic.py` - Updated GET /repositories/{id}/embedding-status for backward compatibility (reads from PostgreSQL)
+- `backend/app/workers/embeddings.py` - Refactored to use AnalysisStateService, separated semantic cache into dedicated task
+- `backend/app/workers/analysis.py` - Updated to mark embeddings pending via state service
+- `backend/app/core/redis.py` - Added publish_analysis_event function for non-blocking event publishing
+- `backend/app/core/config.py` - Added use_postgres_embeddings_state feature flag
+- `frontend/components/semantic-analysis-section.tsx` - Refactored to use useAnalysisStatus hook
+- `frontend/components/vci-section-client.tsx` - Refactored to use shared useAnalysisStatus hook
+- `frontend/hooks/use-analysis-stream.ts` - Removed embeddings task creation, invalidates React Query cache on analysis complete
+
+## What Was Done
+Major architecture shift from Redis-only to PostgreSQL-based state management for embeddings and semantic cache progress tracking. State is now persisted in PostgreSQL with proper constraints, enabling recovery after restarts and eliminating Redis dependency for critical state. Features include: validated state transitions (pending→processing→completed/failed), progress tracking with stage information, automatic semantic cache task queuing on embeddings completion, Redis event publishing for real-time updates, backward-compatible legacy endpoint, and feature flag for gradual rollout. Frontend uses React Query with smart polling intervals that stop when is_complete is true. All 7 phases completed with property-based tests validating state persistence, transitions, progress bounds, and event publishing.

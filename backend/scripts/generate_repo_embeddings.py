@@ -193,7 +193,7 @@ def main():
 
         chunker = get_code_chunker()
         llm = get_llm_gateway()
-        qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
+        qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port, timeout=settings.qdrant_timeout)
 
         COLLECTION_NAME = "code_embeddings"
 

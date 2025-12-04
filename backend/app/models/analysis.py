@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -74,6 +74,66 @@ class Analysis(BaseModelNoUpdate):
     ai_scan_cache: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
+    )
+
+    # Embeddings tracking columns (Requirements 2.1, 2.2, 2.3, 2.4)
+    # Valid values: 'none', 'pending', 'running', 'completed', 'failed'
+    embeddings_status: Mapped[str] = mapped_column(
+        String(20),
+        server_default="none",
+        nullable=False,
+    )
+    # Progress percentage (0-100)
+    embeddings_progress: Mapped[int] = mapped_column(
+        Integer,
+        server_default="0",
+        nullable=False,
+    )
+    # Current stage: 'initializing', 'chunking', 'embedding', 'indexing', 'completed'
+    embeddings_stage: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    # Human-readable progress message
+    embeddings_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    # Error message if embeddings_status is 'failed'
+    embeddings_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    # Timestamp when embeddings generation started
+    embeddings_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Timestamp when embeddings generation completed
+    embeddings_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Number of vectors stored in Qdrant
+    vectors_count: Mapped[int] = mapped_column(
+        Integer,
+        server_default="0",
+        nullable=False,
+    )
+
+    # Semantic cache status tracking (Requirements 3.1, 3.2)
+    # Valid values: 'none', 'pending', 'computing', 'completed', 'failed'
+    semantic_cache_status: Mapped[str] = mapped_column(
+        String(20),
+        server_default="none",
+        nullable=False,
+    )
+
+    # Timestamp for polling optimization (Requirements 1.4)
+    state_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
     )
 
     # Relationships

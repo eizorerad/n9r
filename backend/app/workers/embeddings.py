@@ -1,4 +1,11 @@
-"""Embedding generation tasks."""
+"""Embedding generation tasks.
+
+This module handles code embedding generation for semantic search.
+State is managed through AnalysisStateService with PostgreSQL as the single source of truth.
+
+**Feature: progress-tracking-refactor**
+**Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3**
+"""
 
 import asyncio
 import logging
@@ -6,6 +13,8 @@ from uuid import UUID
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import FieldCondition, Filter, FilterSelector, MatchValue, PointStruct
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app.core.celery import celery_app
 from app.core.config import settings
@@ -33,11 +42,77 @@ COLLECTION_NAME = "code_embeddings"
 
 
 def get_qdrant_client() -> QdrantClient:
-    """Get Qdrant client."""
+    """Get Qdrant client with configured timeout."""
     return QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
+        timeout=settings.qdrant_timeout,
     )
+
+
+def _get_db_session() -> Session:
+    """Create a new database session for worker tasks.
+    
+    Returns:
+        SQLAlchemy Session instance
+    """
+    engine = create_engine(str(settings.database_url))
+    return Session(engine)
+
+
+def _update_embeddings_state(
+    analysis_id: str,
+    status: str | None = None,
+    progress: int | None = None,
+    stage: str | None = None,
+    message: str | None = None,
+    error: str | None = None,
+    vectors_count: int | None = None,
+) -> None:
+    """Update embeddings state in PostgreSQL via AnalysisStateService.
+    
+    This is the primary state update mechanism. Redis pub/sub is used for
+    real-time updates but PostgreSQL is the single source of truth.
+    
+    Args:
+        analysis_id: UUID of the analysis (as string)
+        status: New embeddings_status (if changing status)
+        progress: Progress percentage (0-100)
+        stage: Current stage name
+        message: Human-readable progress message
+        error: Error message (for failed status)
+        vectors_count: Number of vectors stored
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
+    """
+    from app.services.analysis_state import AnalysisStateService
+    
+    try:
+        with _get_db_session() as session:
+            state_service = AnalysisStateService(session, publish_events=True)
+            
+            if status == "running":
+                # Use start_embeddings for pending -> running transition
+                state_service.start_embeddings(UUID(analysis_id))
+            elif status == "completed":
+                # Use complete_embeddings for running -> completed transition
+                state_service.complete_embeddings(UUID(analysis_id), vectors_count or 0)
+            elif status == "failed":
+                # Use fail_embeddings for -> failed transition
+                state_service.fail_embeddings(UUID(analysis_id), error or "Unknown error")
+            elif progress is not None and stage is not None:
+                # Progress update without status change
+                state_service.update_embeddings_progress(
+                    UUID(analysis_id),
+                    progress=progress,
+                    stage=stage,
+                    message=message,
+                )
+            
+    except Exception as e:
+        logger.warning(f"Failed to update embeddings state in PostgreSQL: {e}")
+        # Don't raise - we still want to continue processing
 
 
 def _compute_and_store_semantic_cache(
@@ -46,6 +121,9 @@ def _compute_and_store_semantic_cache(
 ) -> dict | None:
     """Compute semantic analysis and store in Analysis.semantic_cache.
     
+    This function is DEPRECATED. Use compute_semantic_cache task instead.
+    Kept for backward compatibility during migration.
+    
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis to update
@@ -53,10 +131,6 @@ def _compute_and_store_semantic_cache(
     Returns:
         The computed semantic cache dict, or None if failed
     """
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
-
-    from app.core.config import settings
     from app.models.analysis import Analysis
     from app.services.cluster_analyzer import get_cluster_analyzer
 
@@ -69,8 +143,7 @@ def _compute_and_store_semantic_cache(
         semantic_cache = health.to_cacheable_dict()
 
         # Store in database
-        engine = create_engine(str(settings.database_url))
-        with Session(engine) as session:
+        with _get_db_session() as session:
             analysis = session.get(Analysis, UUID(analysis_id))
             if analysis:
                 analysis.semantic_cache = semantic_cache
@@ -97,6 +170,10 @@ def generate_embeddings(
     """
     Generate code embeddings for a repository.
     
+    State is managed through AnalysisStateService with PostgreSQL as the single
+    source of truth. Redis pub/sub is used for real-time updates but is not
+    critical path.
+    
     Args:
         repository_id: UUID of the repository
         commit_sha: Optional specific commit
@@ -105,12 +182,50 @@ def generate_embeddings(
     
     Returns:
         dict with embedding generation results
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     """
     logger.info(f"Generating embeddings for repository {repository_id}")
 
     def publish_progress(stage: str, progress: int, message: str | None = None,
                          status: str = "running", chunks: int = 0, vectors: int = 0):
-        """Helper to publish embedding progress."""
+        """Helper to publish embedding progress.
+        
+        Updates state in PostgreSQL (primary) and Redis (for real-time updates).
+        """
+        # Update PostgreSQL state via AnalysisStateService (primary source of truth)
+        if analysis_id:
+            if status == "running" and stage == "initializing" and progress <= 5:
+                # Transition from pending -> running
+                _update_embeddings_state(
+                    analysis_id=analysis_id,
+                    status="running",
+                )
+            elif status == "completed":
+                # Transition from running -> completed
+                _update_embeddings_state(
+                    analysis_id=analysis_id,
+                    status="completed",
+                    vectors_count=vectors,
+                )
+            elif status == "error" or status == "failed":
+                # Transition to failed
+                _update_embeddings_state(
+                    analysis_id=analysis_id,
+                    status="failed",
+                    error=message,
+                )
+            else:
+                # Progress update without status change
+                _update_embeddings_state(
+                    analysis_id=analysis_id,
+                    progress=progress,
+                    stage=stage,
+                    message=message,
+                )
+        
+        # Also publish to Redis for backward compatibility and real-time updates
         publish_embedding_progress(
             repository_id=repository_id,
             stage=stage,
@@ -119,6 +234,7 @@ def generate_embeddings(
             status=status,
             chunks_processed=chunks,
             vectors_stored=vectors,
+            analysis_id=analysis_id,
         )
         self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
 
@@ -327,22 +443,7 @@ def generate_embeddings(
                     "vectors_generated": len(points),
                 }
 
-        # Step 4: Compute semantic analysis and cache results
-        semantic_cache = None
-        if analysis_id and len(points) >= 5:
-            publish_progress("semantic_analysis", 92, "Computing semantic analysis...",
-                           chunks=len(all_chunks), vectors=len(points))
-            try:
-                semantic_cache = _compute_and_store_semantic_cache(
-                    repository_id=repository_id,
-                    analysis_id=analysis_id,
-                )
-                logger.info(f"Semantic cache computed for analysis {analysis_id}")
-            except Exception as e:
-                logger.warning(f"Failed to compute semantic cache: {e}")
-                # Don't fail the whole task, just log the warning
-
-        # Publish completion
+        # Publish completion for embeddings
         publish_progress(
             "completed", 100,
             f"Generated {len(points)} embeddings",
@@ -351,13 +452,29 @@ def generate_embeddings(
             vectors=len(points)
         )
 
+        # Step 4: Queue semantic cache computation as separate task
+        # This is triggered automatically when embeddings complete (Requirements 2.5, 3.1)
+        semantic_cache_queued = False
+        if analysis_id and len(points) >= 5:
+            try:
+                # Queue the semantic cache computation task
+                compute_semantic_cache.delay(
+                    repository_id=repository_id,
+                    analysis_id=analysis_id,
+                )
+                semantic_cache_queued = True
+                logger.info(f"Queued semantic cache computation for analysis {analysis_id}")
+            except Exception as e:
+                logger.warning(f"Failed to queue semantic cache computation: {e}")
+                # Don't fail the whole task, just log the warning
+
         results = {
             "repository_id": repository_id,
             "commit_sha": commit_sha,
             "chunks_processed": len(all_chunks),
             "vectors_stored": len(points),
             "status": "completed",
-            "semantic_cache_computed": semantic_cache is not None,
+            "semantic_cache_queued": semantic_cache_queued,
         }
 
         logger.info(f"Embeddings generated for repository {repository_id}: {results}")
@@ -365,13 +482,98 @@ def generate_embeddings(
 
     except Exception as e:
         logger.error(f"Embedding generation failed for repository {repository_id}: {e}")
+        
+        # Update PostgreSQL state via AnalysisStateService (primary source of truth)
+        if analysis_id:
+            _update_embeddings_state(
+                analysis_id=analysis_id,
+                status="failed",
+                error=str(e),
+            )
+        
+        # Also publish to Redis for backward compatibility
         publish_embedding_progress(
             repository_id=repository_id,
             stage="error",
             progress=0,
             message=str(e),
             status="error",
+            analysis_id=analysis_id,
         )
+        self.update_state(
+            state="FAILURE",
+            meta={"error": str(e)}
+        )
+        raise
+
+
+@celery_app.task(bind=True, name="app.workers.embeddings.compute_semantic_cache")
+def compute_semantic_cache(
+    self,
+    repository_id: str,
+    analysis_id: str,
+) -> dict:
+    """
+    Compute semantic cache (cluster analysis) for an analysis.
+    
+    This task is automatically queued when embeddings generation completes.
+    State is managed through AnalysisStateService with PostgreSQL as the
+    single source of truth.
+    
+    Args:
+        repository_id: UUID of the repository
+        analysis_id: UUID of the analysis to update
+    
+    Returns:
+        dict with semantic cache computation results
+        
+    **Feature: progress-tracking-refactor**
+    **Validates: Requirements 3.1, 3.2, 3.3**
+    """
+    from app.models.analysis import Analysis
+    from app.services.analysis_state import AnalysisStateService
+    from app.services.cluster_analyzer import get_cluster_analyzer
+
+    logger.info(f"Computing semantic cache for analysis {analysis_id}")
+
+    try:
+        # Transition semantic_cache_status: pending -> computing (Requirements 3.1)
+        with _get_db_session() as session:
+            state_service = AnalysisStateService(session, publish_events=True)
+            state_service.start_semantic_cache(UUID(analysis_id))
+        
+        # Run cluster analysis
+        analyzer = get_cluster_analyzer()
+        health = run_async(analyzer.analyze(repository_id))
+
+        # Convert to cacheable dict
+        semantic_cache = health.to_cacheable_dict()
+
+        # Transition semantic_cache_status: computing -> completed (Requirements 3.2)
+        with _get_db_session() as session:
+            state_service = AnalysisStateService(session, publish_events=True)
+            state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
+
+        logger.info(f"Semantic cache computed for analysis {analysis_id}")
+
+        return {
+            "repository_id": repository_id,
+            "analysis_id": analysis_id,
+            "status": "completed",
+            "clusters_count": len(semantic_cache.get("clusters", [])),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to compute semantic cache for analysis {analysis_id}: {e}")
+        
+        # Transition semantic_cache_status: -> failed (Requirements 3.3)
+        try:
+            with _get_db_session() as session:
+                state_service = AnalysisStateService(session, publish_events=True)
+                state_service.fail_semantic_cache(UUID(analysis_id), str(e))
+        except Exception as state_error:
+            logger.warning(f"Failed to update semantic cache state to failed: {state_error}")
+        
         self.update_state(
             state="FAILURE",
             meta={"error": str(e)}

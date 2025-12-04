@@ -30,10 +30,11 @@ COLLECTION_NAME = "code_embeddings"
 
 
 def get_qdrant_client() -> QdrantClient:
-    """Get Qdrant client."""
+    """Get Qdrant client with configured timeout."""
     return QdrantClient(
         host=settings.qdrant_host,
         port=settings.qdrant_port,
+        timeout=settings.qdrant_timeout,
     )
 
 
@@ -1068,7 +1069,7 @@ async def check_style_consistency(
 
 
 # ============================================================================
-# Embedding Status
+# Embedding Status (Legacy Endpoint - DEPRECATED)
 # ============================================================================
 
 class EmbeddingStatusResponse(BaseModel):
@@ -1080,6 +1081,7 @@ class EmbeddingStatusResponse(BaseModel):
     message: str | None
     chunks_processed: int
     vectors_stored: int
+    analysis_id: str | None = None  # Analysis that triggered these embeddings
 
 
 @router.get("/repositories/{repository_id}/embedding-status")
@@ -1091,9 +1093,18 @@ async def get_embedding_status(
     """
     Get current embedding generation status for a repository.
     
+    DEPRECATED: Use GET /analyses/{id}/full-status instead.
+    This endpoint is maintained for backward compatibility.
+    
     Returns the progress of any ongoing embedding generation,
     or the last known status if completed.
     """
+    # Log deprecation warning (Requirements 8.3)
+    logger.warning(
+        f"DEPRECATED: GET /repositories/{repository_id}/embedding-status called. "
+        "Use GET /analyses/{{id}}/full-status instead."
+    )
+    
     # Verify repository access
     result = await db.execute(
         select(Repository).where(
@@ -1105,54 +1116,99 @@ async def get_embedding_status(
     if not repository:
         raise HTTPException(status_code=404, detail="Repository not found")
 
-    from app.core.redis import get_embedding_state
-
-    # Get embedding state from Redis
-    state = await get_embedding_state(str(repository_id))
-
-    if state:
+    # Find the most recent analysis for this repository (Requirements 8.3)
+    from app.models.analysis import Analysis
+    
+    most_recent_analysis_result = await db.execute(
+        select(Analysis)
+        .where(Analysis.repository_id == repository_id)
+        .order_by(Analysis.created_at.desc())
+        .limit(1)
+    )
+    analysis = most_recent_analysis_result.scalar_one_or_none()
+    
+    if not analysis:
+        # No analysis exists for this repository
         return EmbeddingStatusResponse(
             repository_id=str(repository_id),
-            status=state.get("status", "unknown"),
-            stage=state.get("stage"),
-            progress=state.get("progress", 0),
-            message=state.get("message"),
-            chunks_processed=state.get("chunks_processed", 0),
-            vectors_stored=state.get("vectors_stored", 0),
+            status="none",
+            stage=None,
+            progress=0,
+            message="No embeddings generated yet",
+            chunks_processed=0,
+            vectors_stored=0,
+            analysis_id=None,
         )
-
-    # No state in Redis — check if vectors exist in Qdrant
-    try:
-        qdrant = get_qdrant_client()
-        count = qdrant.count(
-            collection_name=COLLECTION_NAME,
-            count_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}}
-                ]
-            }
-        )
-
-        if count.count > 0:
-            return EmbeddingStatusResponse(
-                repository_id=str(repository_id),
-                status="completed",
-                stage="completed",
-                progress=100,
-                message=f"{count.count} vectors available",
-                chunks_processed=count.count,
-                vectors_stored=count.count,
+    
+    # Read embeddings status from PostgreSQL (single source of truth)
+    embeddings_status = analysis.embeddings_status
+    
+    # Map 'none' status to check if we should report 'none' or look for existing vectors
+    if embeddings_status == "none":
+        # Check if vectors exist in Qdrant for backward compatibility
+        # This handles legacy data before the migration
+        try:
+            qdrant = get_qdrant_client()
+            count = qdrant.count(
+                collection_name=COLLECTION_NAME,
+                count_filter={
+                    "must": [
+                        {"key": "repository_id", "match": {"value": str(repository_id)}}
+                    ]
+                }
             )
-    except Exception as e:
-        logger.warning(f"Failed to check Qdrant: {e}")
-
-    # No embeddings exist
+            if count.count > 0:
+                # Vectors exist but status is 'none' - legacy data
+                return EmbeddingStatusResponse(
+                    repository_id=str(repository_id),
+                    status="completed",
+                    stage="completed",
+                    progress=100,
+                    message=f"{count.count} vectors available",
+                    chunks_processed=count.count,
+                    vectors_stored=count.count,
+                    analysis_id=str(analysis.id),
+                )
+        except Exception as e:
+            logger.warning(f"Failed to check Qdrant for legacy vectors: {e}")
+        
+        return EmbeddingStatusResponse(
+            repository_id=str(repository_id),
+            status="none",
+            stage=None,
+            progress=0,
+            message="No embeddings generated yet",
+            chunks_processed=0,
+            vectors_stored=0,
+            analysis_id=str(analysis.id),
+        )
+    
+    # Return status from PostgreSQL in the existing format
+    # Map embeddings_status to the legacy status values
+    status_mapping = {
+        "pending": "pending",
+        "running": "running",
+        "completed": "completed",
+        "failed": "error",  # Legacy format used 'error' instead of 'failed'
+    }
+    
+    legacy_status = status_mapping.get(embeddings_status, embeddings_status)
+    
+    # Build message based on status
+    if embeddings_status == "completed":
+        message = f"{analysis.vectors_count} vectors available"
+    elif embeddings_status == "failed":
+        message = analysis.embeddings_error or "Embedding generation failed"
+    else:
+        message = analysis.embeddings_message
+    
     return EmbeddingStatusResponse(
         repository_id=str(repository_id),
-        status="none",
-        stage=None,
-        progress=0,
-        message="No embeddings generated yet",
-        chunks_processed=0,
-        vectors_stored=0,
+        status=legacy_status,
+        stage=analysis.embeddings_stage,
+        progress=analysis.embeddings_progress,
+        message=message,
+        chunks_processed=analysis.vectors_count,  # Use vectors_count as proxy
+        vectors_stored=analysis.vectors_count,
+        analysis_id=str(analysis.id),
     )

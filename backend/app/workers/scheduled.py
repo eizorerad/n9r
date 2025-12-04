@@ -248,6 +248,7 @@ def health_check() -> dict:
         client = QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
+            timeout=settings.qdrant_timeout,
         )
         client.get_collections()
         health_status["components"]["qdrant"] = "healthy"

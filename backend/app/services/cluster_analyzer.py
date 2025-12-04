@@ -822,6 +822,7 @@ class ClusterAnalyzer:
         self.qdrant = qdrant_client or QdrantClient(
             host=settings.qdrant_host,
             port=settings.qdrant_port,
+            timeout=settings.qdrant_timeout,
         )
 
     async def analyze(self, repo_id: str) -> ArchitectureHealth:
