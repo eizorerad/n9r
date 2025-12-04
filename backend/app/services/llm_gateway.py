@@ -87,7 +87,7 @@ class LLMGateway:
         "analysis": "anthropic/claude-3-5-sonnet-20241022",
         "fast": "openai/gpt-4o-mini",
         "embedding": "openai/text-embedding-3-small",
-        "code": "anthropic/claude-sonnet-4-20250514",
+        "code": "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
     }
 
     # Fallback chain for reliability

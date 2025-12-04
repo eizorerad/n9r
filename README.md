@@ -236,7 +236,7 @@ Complexity score scales inversely with average CC. Heuristics score penalizes ge
 6. **Start Celery worker** (new terminal)
    ```bash
    cd backend
-   uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications --loglevel=info
+   uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications,ai_scan --loglevel=info
    ```
 
 7. **Start frontend** (new terminal)

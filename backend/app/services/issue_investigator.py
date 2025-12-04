@@ -250,7 +250,7 @@ class IssueInvestigator:
         llm_gateway: LLMGateway,
         repo_path: Path,
         sandbox: Sandbox | None = None,
-        model: str = "anthropic/claude-sonnet-4-20250514",
+        model: str = "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
     ):
         """Initialize the IssueInvestigator.
         
@@ -748,7 +748,7 @@ def get_issue_investigator(
     llm_gateway: LLMGateway | None = None,
     repo_path: Path | str | None = None,
     sandbox: Sandbox | None = None,
-    model: str = "anthropic/claude-sonnet-4-20250514",
+    model: str = "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
 ) -> IssueInvestigator:
     """Create an IssueInvestigator instance.
     

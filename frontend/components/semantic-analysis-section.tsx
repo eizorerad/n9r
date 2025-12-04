@@ -172,23 +172,22 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     fetchSemanticCache()
   }, [selectedAnalysisId, token, refreshKey, fetchSemanticCache])
 
-  // Refresh semantic cache when status changes (using derived values to prevent loops)
+  // Refresh semantic cache when status changes to completed
+  // Only refresh once per status change to avoid glitching
   useEffect(() => {
     if (!derivedStatus || isRefreshingRef.current) return
 
     const isCached = semanticCache?.is_cached || false
     
-    // Only trigger refresh if status changed AND cache is not yet available
-    // Refresh when semantic cache status becomes completed
+    // Refresh when semantic cache status becomes completed (one-time only)
     if (
       derivedStatus.semanticCacheStatus === 'completed' &&
-      derivedStatus.hasSemanticCache &&
       !isCached &&
       lastRefreshedCacheStatus.current !== 'completed'
     ) {
       console.log('[SemanticAnalysis] Semantic cache completed, refreshing...')
       lastRefreshedCacheStatus.current = 'completed'
-      setRefreshKey(k => k + 1)
+      fetchSemanticCache()
       return
     }
     
@@ -199,17 +198,16 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       !isCached &&
       lastRefreshedEmbeddingsStatus.current !== 'completed'
     ) {
-      console.log('[SemanticAnalysis] Embeddings completed, refreshing cache...')
+      console.log('[SemanticAnalysis] Embeddings completed, will refresh when semantic cache completes')
       lastRefreshedEmbeddingsStatus.current = 'completed'
-      // Single refresh after embeddings, no timer needed
-      setRefreshKey(k => k + 1)
+      // Don't refresh here - wait for semantic cache to complete
     }
   }, [
     derivedStatus?.semanticCacheStatus,
-    derivedStatus?.hasSemanticCache,
     derivedStatus?.embeddingsStatus,
     derivedStatus?.vectorsCount,
     semanticCache?.is_cached,
+    fetchSemanticCache,
   ])
 
   if (!token) {

@@ -34,14 +34,11 @@ uv run pytest
 uv run ruff check .
 uv run mypy .
 
-# Start Celery worker
-uv run celery -A app.core.celery worker --loglevel=info
+# Start Celery worker (all queues including ai_scan)
+uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications,ai_scan --loglevel=info
 
 # Start Celery beat scheduler
 uv run celery -A app.core.celery beat --loglevel=info
-
-
-uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications --loglevel=info
 
 ```
 ## API Documentation
