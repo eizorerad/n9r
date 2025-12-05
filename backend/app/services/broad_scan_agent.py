@@ -287,7 +287,7 @@ class BroadScanAgent:
         """Extract JSON from response that may be wrapped in markdown code blocks.
         
         Some models (especially Claude) may wrap JSON in ```json ... ``` blocks
-        even when response_format is set to json_object.
+        or include markdown headers before the JSON content.
         
         Args:
             response_content: Raw response string from the model
@@ -297,7 +297,7 @@ class BroadScanAgent:
         """
         content = response_content.strip()
         
-        # Check for markdown code block wrapping
+        # Check for markdown code block wrapping at the start
         if content.startswith("```"):
             # Find the end of the first line (```json or just ```)
             first_newline = content.find("\n")
@@ -308,6 +308,51 @@ class BroadScanAgent:
             # Remove closing ```
             if content.endswith("```"):
                 content = content[:-3].strip()
+            return content
+        
+        # Look for ```json code block anywhere in the response
+        # (Claude sometimes adds markdown headers before the JSON)
+        import re
+        json_block_match = re.search(r'```(?:json)?\s*\n([\s\S]*?)\n```', content)
+        if json_block_match:
+            logger.debug("Found JSON in markdown code block within response")
+            return json_block_match.group(1).strip()
+        
+        # Try to find raw JSON object starting with {
+        # This handles cases where there's text before the JSON
+        json_start = content.find('{')
+        if json_start > 0:
+            # There's content before the JSON - try to extract just the JSON
+            potential_json = content[json_start:]
+            # Find the matching closing brace by counting braces
+            brace_count = 0
+            json_end = -1
+            in_string = False
+            escape_next = False
+            
+            for i, char in enumerate(potential_json):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\' and in_string:
+                    escape_next = True
+                    continue
+                if char == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_end = i + 1
+                        break
+            
+            if json_end > 0:
+                logger.debug(f"Extracted JSON object starting at position {json_start}")
+                return potential_json[:json_end]
         
         return content
     

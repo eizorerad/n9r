@@ -8,7 +8,7 @@
 docs/
 .kiro/
 backend/.hypothesis/
-
+infra/
 
 # Python / Backend
 __pycache__/

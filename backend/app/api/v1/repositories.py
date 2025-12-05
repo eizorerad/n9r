@@ -16,6 +16,8 @@ from app.schemas.repository import (
     BranchResponse,
     CommitListResponse,
     CommitResponse,
+    FileContent,
+    FileTreeItem,
     RepositoryConnect,
     RepositoryDetail,
     RepositoryResponse,
@@ -395,8 +397,6 @@ async def get_repository_files(
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
 ) -> dict:
     """Get file tree of a repository path."""
-    from app.schemas.repository import FileTreeItem
-
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -462,17 +462,15 @@ async def get_repository_files(
         )
 
 
-@router.get("/{repo_id}/files/{file_path:path}")
+@router.get("/{repo_id}/files/{file_path:path}", response_model=FileContent)
 async def get_repository_file_content(
     repo_id: UUID,
     file_path: str,
     current_user: CurrentUser,
     db: DbSession,
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
-) -> dict:
+) -> FileContent:
     """Get content of a specific file."""
-    from app.schemas.repository import FileContent
-
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -502,6 +500,44 @@ async def get_repository_file_content(
 
         # Parse owner/repo from full_name
         owner, repo_name = repository.full_name.split("/")
+
+        # First, get file metadata to check size
+        try:
+            file_info = await github.get_repository_contents(
+                owner=owner,
+                repo=repo_name,
+                path=file_path,
+                ref=ref or repository.default_branch,
+            )
+            
+            # Check if path is a directory
+            if isinstance(file_info, list):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Path '{file_path}' is a directory, not a file",
+                )
+            
+            file_size = file_info.get("size", 0)
+            
+            # Check for large files (GitHub limits to 1MB for content API)
+            if file_size > 1_000_000:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File is too large ({file_size:,} bytes). Files over 1MB cannot be displayed in the IDE.",
+                )
+            
+            # Check for binary files - GitHub returns empty content for binary files
+            file_content = file_info.get("content", "")
+            if not file_content and file_size > 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="This file appears to be binary and cannot be displayed as text.",
+                )
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not get file metadata, trying direct content: {e}")
 
         content = await github.get_file_content(
             owner=owner,
@@ -561,6 +597,14 @@ async def get_repository_file_content(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         )
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This file appears to be binary and cannot be displayed as text.",
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         logger.error(f"Failed to get file content: {e}")
         raise HTTPException(

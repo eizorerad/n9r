@@ -17,7 +17,6 @@ import {
   CheckCircle,
   XCircle,
   HelpCircle,
-  Play,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -461,20 +460,16 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     return <ScanInProgress />
   }
 
-  // No scan yet - show "Run AI Scan" button (Requirement 6.3)
-  // Also show button if AI scan was skipped (disabled in settings) but user wants to run manually
+  // No scan yet - show informational message
+  // AI scan starts automatically with the main "Run Analysis" button
   if (!scanData || !scanData.is_cached || aiScanStatus === 'none' || aiScanStatus === 'skipped') {
     return (
       <div className="flex flex-col items-center justify-center py-8">
         <Brain className="h-10 w-10 mb-3 text-primary/60" />
         <p className="text-sm font-medium mb-1">AI-Powered Analysis</p>
-        <p className="text-xs text-muted-foreground mb-4 text-center max-w-xs">
-          Scan your codebase with multiple AI models to detect security issues, API mismatches, and code health problems.
+        <p className="text-xs text-muted-foreground text-center max-w-xs">
+          AI scan runs automatically when you start the main analysis. It detects security issues, API mismatches, and code health problems.
         </p>
-        <Button onClick={handleRunScan} size="sm" className="gap-2">
-          <Play className="h-3.5 w-3.5" />
-          Run AI Scan
-        </Button>
       </div>
     )
   }
@@ -544,18 +539,6 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
       {/* Issues list */}
       <div className="max-h-[400px] overflow-y-auto">
         <IssuesBySeverity issues={scanData.issues} />
-      </div>
-
-      {/* Re-run button */}
-      <div className="px-3 pb-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full text-xs"
-          onClick={handleRunScan}
-        >
-          Re-run AI Scan
-        </Button>
       </div>
     </div>
   )

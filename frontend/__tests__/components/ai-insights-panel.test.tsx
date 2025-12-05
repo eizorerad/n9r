@@ -107,10 +107,10 @@ describe('AIInsightsPanel', () => {
   })
 
   /**
-   * Test: When AI scan cache is empty, show "Run AI Scan" button
-   * Requirements: 6.3
+   * Test: When AI scan cache is empty, show informational message
+   * AI scan starts automatically with main analysis
    */
-  it('should show Run AI Scan button when no cache exists', async () => {
+  it('should show informational message when no cache exists', async () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
 
@@ -139,10 +139,10 @@ describe('AIInsightsPanel', () => {
     render(<AIInsightsPanel repositoryId={mockRepositoryId} token={mockToken} />)
 
     await waitFor(() => {
-      expect(screen.getByText('Run AI Scan')).toBeInTheDocument()
+      expect(screen.getByText('AI-Powered Analysis')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('AI-Powered Analysis')).toBeInTheDocument()
+    expect(screen.getByText(/AI scan runs automatically when you start the main analysis/)).toBeInTheDocument()
   })
 
   /**

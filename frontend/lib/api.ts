@@ -227,6 +227,59 @@ export const repositoryApi = {
         is_connected: boolean;
       }>;
     }>("/repositories/available", { token }),
+
+  /**
+   * Get file tree for a repository path
+   * @param token - Auth token
+   * @param repoId - Repository UUID
+   * @param params.path - Path within repository (empty for root)
+   * @param params.ref - Git reference (branch/tag/commit)
+   */
+  files: (
+    token: string,
+    repoId: string,
+    params?: { path?: string; ref?: string }
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (params?.path) searchParams.set("path", params.path);
+    if (params?.ref) searchParams.set("ref", params.ref);
+    const query = searchParams.toString();
+    return request<{
+      data: Array<{
+        name: string;
+        path: string;
+        type: "file" | "directory";
+        size: number | null;
+      }>;
+    }>(`/repositories/${repoId}/files${query ? `?${query}` : ""}`, { token });
+  },
+
+  /**
+   * Get content of a specific file
+   * @param token - Auth token
+   * @param repoId - Repository UUID
+   * @param filePath - File path within repository
+   * @param ref - Git reference (branch/tag/commit)
+   */
+  fileContent: (
+    token: string,
+    repoId: string,
+    filePath: string,
+    ref?: string
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (ref) searchParams.set("ref", ref);
+    const query = searchParams.toString();
+    // Encode file path for URL (handles special characters, slashes are kept)
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+    return request<{
+      path: string;
+      content: string;
+      encoding: string;
+      size: number;
+      language: string | null;
+    }>(`/repositories/${repoId}/files/${encodedPath}${query ? `?${query}` : ""}`, { token });
+  },
 };
 
 // Health API

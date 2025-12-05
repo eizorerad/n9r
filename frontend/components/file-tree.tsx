@@ -1,20 +1,25 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { ChevronRight, ChevronDown, File, Folder, FolderOpen, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export interface FileNode {
   name: string
   path: string
   type: 'file' | 'directory'
+  size?: number | null
   children?: FileNode[]
+  // For lazy loading: undefined means not loaded, [] means empty dir
+  isLoaded?: boolean
 }
 
 interface FileTreeProps {
   files: FileNode[]
   selectedPath?: string
   onSelect?: (path: string, type: 'file' | 'directory') => void
+  onExpand?: (path: string) => Promise<void> | void
+  isLoading?: (path: string) => boolean
   className?: string
 }
 
@@ -23,6 +28,8 @@ interface FileTreeItemProps {
   level: number
   selectedPath?: string
   onSelect?: (path: string, type: 'file' | 'directory') => void
+  onExpand?: (path: string) => Promise<void> | void
+  isLoading?: (path: string) => boolean
 }
 
 // File icon based on extension
@@ -49,40 +56,51 @@ function getFileColor(name: string): string {
   return fileIcons[ext]?.color || 'text-gray-400'
 }
 
-function FileTreeItem({ node, level, selectedPath, onSelect }: FileTreeItemProps) {
-  const [isOpen, setIsOpen] = useState(level < 2) // Auto-expand first 2 levels
+function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading }: FileTreeItemProps) {
+  const [isOpen, setIsOpen] = useState(level < 1) // Only auto-expand root level for lazy loading
   const isSelected = selectedPath === node.path
   const isDirectory = node.type === 'directory'
+  const isCurrentlyLoading = isLoading?.(node.path) ?? false
+  const hasChildren = node.children && node.children.length > 0
 
-  const handleClick = () => {
+  const handleClick = useCallback(async () => {
     if (isDirectory) {
-      setIsOpen(!isOpen)
+      const newOpenState = !isOpen
+      setIsOpen(newOpenState)
+      
+      // Trigger lazy loading when expanding a directory that hasn't been loaded
+      if (newOpenState && !node.isLoaded && onExpand) {
+        await onExpand(node.path)
+      }
     }
     onSelect?.(node.path, node.type)
-  }
+  }, [isDirectory, isOpen, node.path, node.type, node.isLoaded, onExpand, onSelect])
 
   return (
     <div>
       <button
         onClick={handleClick}
         className={cn(
-          'w-full flex items-center gap-1 px-2 py-1 text-sm hover:bg-gray-800/50 rounded transition-colors text-left',
-          isSelected && 'bg-gray-800 text-white',
-          !isSelected && 'text-gray-300'
+          'w-full flex items-center gap-1 px-2 py-1 text-sm hover:bg-muted/50 rounded transition-colors text-left group',
+          isSelected && 'bg-muted text-foreground',
+          !isSelected && 'text-muted-foreground'
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
+        title={node.path}
       >
         {/* Expand/collapse icon for directories */}
         {isDirectory ? (
-          <span className="w-4 h-4 flex items-center justify-center">
-            {isOpen ? (
-              <ChevronDown className="h-3 w-3 text-gray-500" />
+          <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+            {isCurrentlyLoading ? (
+              <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
+            ) : isOpen ? (
+              <ChevronDown className="h-3 w-3 text-muted-foreground" />
             ) : (
-              <ChevronRight className="h-3 w-3 text-gray-500" />
+              <ChevronRight className="h-3 w-3 text-muted-foreground" />
             )}
           </span>
         ) : (
-          <span className="w-4" />
+          <span className="w-4 flex-shrink-0" />
         )}
 
         {/* Icon */}
@@ -101,15 +119,17 @@ function FileTreeItem({ node, level, selectedPath, onSelect }: FileTreeItemProps
       </button>
 
       {/* Children */}
-      {isDirectory && isOpen && node.children && (
+      {isDirectory && isOpen && hasChildren && (
         <div>
-          {node.children.map((child) => (
+          {node.children!.map((child) => (
             <FileTreeItem
               key={child.path}
               node={child}
               level={level + 1}
               selectedPath={selectedPath}
               onSelect={onSelect}
+              onExpand={onExpand}
+              isLoading={isLoading}
             />
           ))}
         </div>
@@ -118,10 +138,10 @@ function FileTreeItem({ node, level, selectedPath, onSelect }: FileTreeItemProps
   )
 }
 
-export function FileTree({ files, selectedPath, onSelect, className }: FileTreeProps) {
+export function FileTree({ files, selectedPath, onSelect, onExpand, isLoading, className }: FileTreeProps) {
   if (!files || files.length === 0) {
     return (
-      <div className={cn('p-4 text-gray-500 text-sm', className)}>
+      <div className={cn('p-4 text-muted-foreground text-sm', className)}>
         No files found
       </div>
     )
@@ -142,6 +162,8 @@ export function FileTree({ files, selectedPath, onSelect, className }: FileTreeP
           level={0}
           selectedPath={selectedPath}
           onSelect={onSelect}
+          onExpand={onExpand}
+          isLoading={isLoading}
         />
       ))}
     </div>
