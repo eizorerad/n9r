@@ -22,7 +22,6 @@ import {
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import {
   Collapsible,
   CollapsibleContent,
@@ -31,14 +30,12 @@ import {
 import {
   type AIScanIssue,
   type AIScanCacheResponse,
-  type AIScanProgressEvent,
-  type AIScanStatus,
   triggerAIScan,
   getAIScanResults,
-  getAIScanStreamUrl,
   AIScanApiError,
 } from '@/lib/ai-scan-api'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
+import { useAnalysisStatusWithStore } from '@/lib/hooks/use-analysis-status'
 
 // =============================================================================
 // Types
@@ -135,17 +132,7 @@ const INVESTIGATION_STATUS_CONFIG = {
   },
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  queued: 'Waiting for worker...',
-  pending: 'Initializing...',
-  generating_view: 'Generating repository view...',
-  scanning: 'Scanning with AI models...',
-  merging: 'Merging and deduplicating issues...',
-  investigating: 'Investigating high-severity issues...',
-  saving: 'Saving results...',
-  completed: 'AI scan complete!',
-  failed: 'AI scan failed',
-}
+
 
 // =============================================================================
 // Issue Card Component
@@ -298,18 +285,17 @@ function IssuesBySeverity({ issues }: { issues: AIScanIssue[] }) {
 }
 
 // =============================================================================
-// Progress Display Component
+// Progress Display Component (Simplified - Requirements 3.2)
 // =============================================================================
 
-function ScanProgress({
-  stage,
-  progress,
-  message,
-}: {
-  stage: string
-  progress: number
-  message: string
-}) {
+/**
+ * Simplified progress display that points users to the unified progress popup.
+ * The detailed progress is now shown in the AnalysisProgressOverlay component.
+ * 
+ * **Feature: ai-scan-progress-fix**
+ * **Validates: Requirements 3.2**
+ */
+function ScanInProgress() {
   return (
     <div className="flex flex-col items-center justify-center py-6 px-4">
       <div className="relative mb-4">
@@ -318,13 +304,10 @@ function ScanProgress({
           <Loader2 className="h-4 w-4 text-primary animate-spin" />
         </div>
       </div>
-      <p className="text-sm font-medium mb-2">
-        {STAGE_LABELS[stage] || message || 'Processing...'}
+      <p className="text-sm font-medium mb-1">AI scan in progress...</p>
+      <p className="text-xs text-muted-foreground text-center">
+        Check the progress popup in the bottom-right corner for details
       </p>
-      <div className="w-full max-w-xs">
-        <Progress value={progress} className="h-1.5" />
-      </div>
-      <p className="text-xs text-muted-foreground mt-2">{progress}% complete</p>
     </div>
   )
 }
@@ -336,22 +319,29 @@ function ScanProgress({
 /**
  * AI Insights Panel - displays AI scan results or allows triggering a scan.
  * 
- * Requirements: 6.1, 6.2, 6.3, 6.4
+ * Now uses the unified useAnalysisStatusWithStore hook for status tracking,
+ * which syncs AI scan progress to the global progress popup.
+ * 
+ * **Feature: ai-scan-progress-fix**
+ * **Validates: Requirements 3.2, 3.3, 6.1, 6.2, 6.3, 6.4**
  */
 export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
   const { selectedAnalysisId } = useCommitSelectionStore()
   
-  // State
+  // Use unified status hook for AI scan status (Requirements 3.3)
+  // This automatically syncs progress to the global progress store
+  const { data: fullStatus, refetch: refetchStatus } = useAnalysisStatusWithStore({
+    analysisId: selectedAnalysisId,
+    repositoryId,
+    token,
+  })
+  
+  // Local state for scan results (issues, etc.)
   const [scanData, setScanData] = useState<AIScanCacheResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [scanStatus, setScanStatus] = useState<AIScanStatus | null>(null)
-  const [progress, setProgress] = useState(0)
-  const [stage, setStage] = useState('')
-  const [message, setMessage] = useState('')
   
   // Refs
-  const abortControllerRef = useRef<AbortController | null>(null)
   const isMountedRef = useRef(true)
 
   // Cleanup on unmount
@@ -359,13 +349,10 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
-      }
     }
   }, [])
 
-  // Fetch AI scan results when analysis changes
+  // Fetch AI scan results when analysis changes or AI scan completes
   useEffect(() => {
     if (!selectedAnalysisId || !token) {
       setScanData(null)
@@ -382,12 +369,6 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
         if (!isMountedRef.current) return
         
         setScanData(results)
-        setScanStatus(results.status)
-        
-        // If scan is in progress, start SSE streaming
-        if (results.status === 'pending' || results.status === 'running') {
-          startSSEStream(selectedAnalysisId)
-        }
       } catch (err) {
         if (!isMountedRef.current) return
         if (err instanceof AIScanApiError && err.isNotFound()) {
@@ -405,98 +386,44 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     fetchResults()
   }, [selectedAnalysisId, token])
 
-  // SSE streaming for progress updates
-  const startSSEStream = useCallback(async (analysisId: string) => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-    }
-    
-    abortControllerRef.current = new AbortController()
-    const streamUrl = getAIScanStreamUrl(analysisId)
-    
-    try {
-      const response = await fetch(streamUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'text/event-stream',
-        },
-        signal: abortControllerRef.current.signal,
-      })
-
-      if (!response.ok) {
-        throw new Error(`SSE connection failed: ${response.status}`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response body')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const event: AIScanProgressEvent = JSON.parse(line.slice(6))
-              if (!isMountedRef.current) return
-
-              setProgress(event.progress)
-              setStage(event.stage)
-              setMessage(event.message)
-              setScanStatus(event.status)
-
-              if (event.status === 'completed' || event.status === 'failed') {
-                // Refresh results
-                const results = await getAIScanResults(analysisId, token)
-                if (isMountedRef.current) {
-                  setScanData(results)
-                }
-                return
-              }
-            } catch {
-              // Ignore parse errors
-            }
+  // Refetch scan results when AI scan completes (detected via fullStatus)
+  useEffect(() => {
+    if (fullStatus?.ai_scan_status === 'completed' && selectedAnalysisId && token) {
+      // Refetch results when scan completes
+      getAIScanResults(selectedAnalysisId, token)
+        .then((results) => {
+          if (isMountedRef.current) {
+            setScanData(results)
           }
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return
-      }
-      console.error('SSE stream error:', err)
+        })
+        .catch(() => {
+          // Ignore errors - will be handled by main fetch
+        })
     }
-  }, [token])
+  }, [fullStatus?.ai_scan_status, selectedAnalysisId, token])
 
   // Trigger AI scan
   const handleRunScan = useCallback(async () => {
     if (!selectedAnalysisId || !token) return
 
     setError(null)
-    setScanStatus('pending')
-    setProgress(0)
-    setStage('queued')
-    setMessage('Starting AI scan...')
 
     try {
       await triggerAIScan(selectedAnalysisId, token)
-      startSSEStream(selectedAnalysisId)
+      // Refetch status to pick up the new pending/running state
+      refetchStatus()
     } catch (err) {
       if (err instanceof AIScanApiError && err.isConflict()) {
-        // Scan already in progress, start streaming
-        startSSEStream(selectedAnalysisId)
+        // Scan already in progress - just refetch status
+        refetchStatus()
       } else {
         setError(err instanceof Error ? err.message : 'Failed to start AI scan')
-        setScanStatus(null)
       }
     }
-  }, [selectedAnalysisId, token, startSSEStream])
+  }, [selectedAnalysisId, token, refetchStatus])
+
+  // Get AI scan status from unified status hook
+  const aiScanStatus = fullStatus?.ai_scan_status
 
   // Render states
   if (!selectedAnalysisId) {
@@ -528,13 +455,15 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     )
   }
 
-  // Scan in progress
-  if (scanStatus === 'pending' || scanStatus === 'running') {
-    return <ScanProgress stage={stage} progress={progress} message={message} />
+  // Scan in progress - show simplified message pointing to progress popup (Requirements 3.2)
+  // Progress details are now shown in the unified AnalysisProgressOverlay
+  if (aiScanStatus === 'pending' || aiScanStatus === 'running') {
+    return <ScanInProgress />
   }
 
   // No scan yet - show "Run AI Scan" button (Requirement 6.3)
-  if (!scanData || !scanData.is_cached) {
+  // Also show button if AI scan was skipped (disabled in settings) but user wants to run manually
+  if (!scanData || !scanData.is_cached || aiScanStatus === 'none' || aiScanStatus === 'skipped') {
     return (
       <div className="flex flex-col items-center justify-center py-8">
         <Brain className="h-10 w-10 mb-3 text-primary/60" />
@@ -550,12 +479,17 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     )
   }
 
-  // Scan failed
-  if (scanData.status === 'failed') {
+  // Scan failed - show error and retry button
+  if (aiScanStatus === 'failed' || scanData.status === 'failed') {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
         <XCircle className="h-8 w-8 mb-2 text-destructive" />
         <p className="text-sm text-destructive">AI scan failed</p>
+        {fullStatus?.ai_scan_error && (
+          <p className="text-xs text-muted-foreground mt-1 text-center max-w-xs">
+            {fullStatus.ai_scan_error}
+          </p>
+        )}
         <Button variant="outline" size="sm" className="mt-3" onClick={handleRunScan}>
           Retry Scan
         </Button>

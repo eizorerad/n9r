@@ -928,11 +928,11 @@ class TestOverallProgressComputation:
     @settings(max_examples=100)
     def test_analysis_running_returns_midpoint(self, embeddings_progress: int):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
-        Property: When analysis_status is 'running', overall_progress SHALL be 20
-        (mid-point of analysis phase 0-40%).
+        Property: When analysis_status is 'running', overall_progress SHALL be 15
+        (mid-point of analysis phase 0-30%).
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -941,10 +941,12 @@ class TestOverallProgressComputation:
             embeddings_status="none",
             embeddings_progress=embeddings_progress,
             semantic_cache_status="none",
+            ai_scan_status="none",
+            ai_scan_progress=0,
         )
         
-        assert progress == 20, (
-            f"overall_progress should be 20 when analysis is running, got: {progress}"
+        assert progress == 15, (
+            f"overall_progress should be 15 when analysis is running, got: {progress}"
         )
 
     @given(embeddings_progress=st.integers(min_value=0, max_value=100))
@@ -973,12 +975,12 @@ class TestOverallProgressComputation:
     @settings(max_examples=100)
     def test_embeddings_running_scales_progress(self, embeddings_progress: int):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
         Property: When embeddings_status is 'running', overall_progress SHALL scale
-        embeddings_progress from (0-100) to (40-90).
-        Formula: 40 + int(embeddings_progress * 0.5)
+        embeddings_progress from (0-100) to (30-60).
+        Formula: 30 + int(embeddings_progress * 0.3)
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -987,9 +989,11 @@ class TestOverallProgressComputation:
             embeddings_status="running",
             embeddings_progress=embeddings_progress,
             semantic_cache_status="none",
+            ai_scan_status="none",
+            ai_scan_progress=0,
         )
         
-        expected = 40 + int(embeddings_progress * 0.5)
+        expected = 30 + int(embeddings_progress * 0.3)
         
         assert progress == expected, (
             f"overall_progress should be {expected} when embeddings running "
@@ -1001,15 +1005,15 @@ class TestOverallProgressComputation:
         embeddings_progress=st.integers(min_value=0, max_value=100),
     )
     @settings(max_examples=100)
-    def test_embeddings_not_started_returns_40(
+    def test_embeddings_not_started_returns_30(
         self, embeddings_status: str, embeddings_progress: int
     ):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
         Property: When analysis is completed and embeddings_status is 'none' or 'pending',
-        overall_progress SHALL be 40 (start of embeddings phase).
+        overall_progress SHALL be 30 (start of embeddings phase).
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -1018,23 +1022,25 @@ class TestOverallProgressComputation:
             embeddings_status=embeddings_status,
             embeddings_progress=embeddings_progress,
             semantic_cache_status="none",
+            ai_scan_status="none",
+            ai_scan_progress=0,
         )
         
-        assert progress == 40, (
-            f"overall_progress should be 40 when embeddings not started, got: {progress}"
+        assert progress == 30, (
+            f"overall_progress should be 30 when embeddings not started, got: {progress}"
         )
 
     @given(
         semantic_cache_status=st.sampled_from(["none", "pending"]),
     )
     @settings(max_examples=100)
-    def test_semantic_cache_not_started_returns_90(self, semantic_cache_status: str):
+    def test_semantic_cache_not_started_returns_60(self, semantic_cache_status: str):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
         Property: When embeddings are completed and semantic_cache_status is 'none' or 'pending',
-        overall_progress SHALL be 90 (start of semantic cache phase).
+        overall_progress SHALL be 60 (start of semantic cache phase).
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -1043,19 +1049,21 @@ class TestOverallProgressComputation:
             embeddings_status="completed",
             embeddings_progress=100,
             semantic_cache_status=semantic_cache_status,
+            ai_scan_status="none",
+            ai_scan_progress=0,
         )
         
-        assert progress == 90, (
-            f"overall_progress should be 90 when semantic cache not started, got: {progress}"
+        assert progress == 60, (
+            f"overall_progress should be 60 when semantic cache not started, got: {progress}"
         )
 
-    def test_semantic_cache_computing_returns_95(self):
+    def test_semantic_cache_computing_returns_70(self):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
-        Property: When semantic_cache_status is 'computing', overall_progress SHALL be 95
-        (mid-point of semantic cache phase 90-100%).
+        Property: When semantic_cache_status is 'computing', overall_progress SHALL be 70
+        (mid-point of semantic cache phase 60-80%).
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -1064,18 +1072,20 @@ class TestOverallProgressComputation:
             embeddings_status="completed",
             embeddings_progress=100,
             semantic_cache_status="computing",
+            ai_scan_status="none",
+            ai_scan_progress=0,
         )
         
-        assert progress == 95, (
-            f"overall_progress should be 95 when semantic cache computing, got: {progress}"
+        assert progress == 70, (
+            f"overall_progress should be 70 when semantic cache computing, got: {progress}"
         )
 
     def test_all_complete_returns_100(self):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 3.4, 4.2**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 3.4, 4.2, 6.1**
         
-        Property: When all phases are completed, overall_progress SHALL be 100.
+        Property: When all phases are completed (including AI scan), overall_progress SHALL be 100.
         """
         from app.schemas.analysis import compute_overall_progress
         
@@ -1084,6 +1094,8 @@ class TestOverallProgressComputation:
             embeddings_status="completed",
             embeddings_progress=100,
             semantic_cache_status="completed",
+            ai_scan_status="completed",
+            ai_scan_progress=100,
         )
         
         assert progress == 100, (
@@ -1094,6 +1106,7 @@ class TestOverallProgressComputation:
         analysis_status=st.sampled_from(["pending", "running", "completed", "failed"]),
         embeddings_status=st.sampled_from(["none", "pending", "running", "completed", "failed"]),
         semantic_cache_status=st.sampled_from(["none", "pending", "computing", "completed", "failed"]),
+        ai_scan_status=st.sampled_from(["none", "pending", "running", "completed", "failed", "skipped"]),
     )
     @settings(max_examples=200)
     def test_is_complete_only_when_all_completed(
@@ -1101,13 +1114,14 @@ class TestOverallProgressComputation:
         analysis_status: str,
         embeddings_status: str,
         semantic_cache_status: str,
+        ai_scan_status: str,
     ):
         """
-        **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-        **Validates: Requirements 4.2, 4.3**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
+        **Validates: Requirements 4.2, 4.3, 6.1**
         
-        Property: is_complete SHALL be True if and only if all three phases
-        (analysis, embeddings, semantic_cache) are 'completed'.
+        Property: is_complete SHALL be True if and only if all four phases
+        (analysis, embeddings, semantic_cache, ai_scan) are 'completed' or ai_scan is 'skipped'.
         """
         from app.schemas.analysis import compute_is_complete
         
@@ -1115,18 +1129,20 @@ class TestOverallProgressComputation:
             analysis_status=analysis_status,
             embeddings_status=embeddings_status,
             semantic_cache_status=semantic_cache_status,
+            ai_scan_status=ai_scan_status,
         )
         
         expected = (
             analysis_status == "completed"
             and embeddings_status == "completed"
             and semantic_cache_status == "completed"
+            and ai_scan_status in ("completed", "skipped")
         )
         
         assert is_complete == expected, (
             f"is_complete should be {expected}, got: {is_complete}\n"
             f"Inputs: analysis={analysis_status}, embeddings={embeddings_status}, "
-            f"semantic={semantic_cache_status}"
+            f"semantic={semantic_cache_status}, ai_scan={ai_scan_status}"
         )
 
     @given(

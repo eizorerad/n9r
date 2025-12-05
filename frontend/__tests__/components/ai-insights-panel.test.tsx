@@ -2,7 +2,10 @@
  * Unit Tests for AIInsightsPanel
  * 
  * Tests rendering with cached data, without cache, and progress display.
- * Requirements: 6.1, 6.2, 6.3
+ * Now uses unified useAnalysisStatusWithStore hook for status tracking.
+ * 
+ * **Feature: ai-scan-progress-fix**
+ * **Validates: Requirements 3.2, 3.3, 6.1, 6.2, 6.3**
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -11,12 +14,12 @@ import userEvent from '@testing-library/user-event'
 import { AIInsightsPanel } from '@/components/ai-insights-panel'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 import * as aiScanApi from '@/lib/ai-scan-api'
+import * as useAnalysisStatusModule from '@/lib/hooks/use-analysis-status'
 
 // Mock the AI scan API
 vi.mock('@/lib/ai-scan-api', () => ({
   triggerAIScan: vi.fn(),
   getAIScanResults: vi.fn(),
-  getAIScanStreamUrl: vi.fn((id: string) => `http://localhost:8000/v1/analyses/${id}/ai-scan/stream`),
   AIScanApiError: class AIScanApiError extends Error {
     status: number
     detail?: string
@@ -30,19 +33,65 @@ vi.mock('@/lib/ai-scan-api', () => ({
   },
 }))
 
-// Mock fetch for SSE streaming
-const mockFetch = vi.fn()
-global.fetch = mockFetch
+// Mock the useAnalysisStatusWithStore hook
+vi.mock('@/lib/hooks/use-analysis-status', () => ({
+  useAnalysisStatusWithStore: vi.fn(),
+}))
 
 describe('AIInsightsPanel', () => {
   const mockToken = 'test-token'
   const mockRepositoryId = 'repo-123'
   const mockAnalysisId = 'analysis-456'
 
+  // Default mock for useAnalysisStatusWithStore with all required fields
+  const mockRefetch = vi.fn()
+  const defaultStatusData: useAnalysisStatusModule.AnalysisFullStatus = {
+    analysis_id: mockAnalysisId,
+    repository_id: mockRepositoryId,
+    commit_sha: 'abc123',
+    analysis_status: 'completed',
+    vci_score: 85,
+    grade: 'B',
+    embeddings_status: 'completed',
+    embeddings_progress: 100,
+    embeddings_stage: null,
+    embeddings_message: null,
+    embeddings_error: null,
+    vectors_count: 100,
+    semantic_cache_status: 'completed',
+    has_semantic_cache: true,
+    ai_scan_status: 'none',
+    ai_scan_progress: 0,
+    ai_scan_stage: null,
+    ai_scan_message: null,
+    ai_scan_error: null,
+    has_ai_scan_cache: false,
+    ai_scan_started_at: null,
+    ai_scan_completed_at: null,
+    state_updated_at: '2025-12-04T10:00:00Z',
+    embeddings_started_at: null,
+    embeddings_completed_at: null,
+    overall_progress: 80,
+    overall_stage: 'Semantic cache completed',
+    is_complete: false,
+  }
+  
+  const defaultStatusMock: useAnalysisStatusModule.UseAnalysisStatusResult = {
+    data: defaultStatusData,
+    isLoading: false,
+    error: null,
+    isComplete: false,
+    overallProgress: 80,
+    overallStage: 'Semantic cache completed',
+    refetch: mockRefetch,
+    invalidate: vi.fn(),
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     useCommitSelectionStore.getState().clearSelection()
-    mockFetch.mockReset()
+    // Reset the mock to default behavior
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue(defaultStatusMock)
   })
 
   /**
@@ -65,16 +114,24 @@ describe('AIInsightsPanel', () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
 
-    // Mock API to return no cache - status should be 'completed' or similar
-    // but is_cached: false indicates no scan has been run yet
+    // Mock unified status hook to return ai_scan_status: 'none'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'none',
+      },
+    })
+
+    // Mock API to return no cache
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
       analysis_id: mockAnalysisId,
       commit_sha: 'abc123',
-      status: 'completed', // Not pending/running to avoid triggering SSE
+      status: 'completed',
       repo_overview: null,
       issues: [],
       computed_at: null,
-      is_cached: false, // This is the key - no cache exists
+      is_cached: false,
       total_tokens_used: null,
       total_cost_usd: null,
     })
@@ -95,6 +152,16 @@ describe('AIInsightsPanel', () => {
   it('should display issues grouped by severity when cache exists', async () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
+
+    // Mock unified status hook to return ai_scan_status: 'completed'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'completed',
+        has_ai_scan_cache: true,
+      },
+    })
 
     // Mock API to return cached results with issues
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
@@ -166,6 +233,16 @@ describe('AIInsightsPanel', () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
 
+    // Mock unified status hook to return ai_scan_status: 'completed'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'completed',
+        has_ai_scan_cache: true,
+      },
+    })
+
     // Mock API to return completed scan with no issues
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
       analysis_id: mockAnalysisId,
@@ -200,6 +277,17 @@ describe('AIInsightsPanel', () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
 
+    // Mock unified status hook to return ai_scan_status: 'failed'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'failed',
+        ai_scan_error: 'LLM API error',
+        has_ai_scan_cache: true,
+      },
+    })
+
     // Mock API to return failed scan
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
       analysis_id: mockAnalysisId,
@@ -231,6 +319,16 @@ describe('AIInsightsPanel', () => {
 
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
+
+    // Mock unified status hook to return ai_scan_status: 'completed'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'completed',
+        has_ai_scan_cache: true,
+      },
+    })
 
     // Mock API to return cached results with an issue
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
@@ -315,6 +413,16 @@ describe('AIInsightsPanel', () => {
     // Set up commit selection
     useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
 
+    // Mock unified status hook to return ai_scan_status: 'completed'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'completed',
+        has_ai_scan_cache: true,
+      },
+    })
+
     // Mock API to return issue found by multiple models
     vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
       analysis_id: mockAnalysisId,
@@ -346,6 +454,91 @@ describe('AIInsightsPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText('3 models')).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * Test: When AI scan is running, show simplified progress message pointing to popup
+   * Requirements: 3.2
+   * 
+   * **Feature: ai-scan-progress-fix**
+   */
+  it('should show simplified progress message when scan is running', async () => {
+    // Set up commit selection
+    useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
+
+    // Mock unified status hook to return ai_scan_status: 'running'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'running',
+        ai_scan_progress: 45,
+        ai_scan_stage: 'scanning',
+        ai_scan_message: 'Scanning with AI models...',
+      },
+    })
+
+    // Mock API to return no cache (scan in progress)
+    vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
+      analysis_id: mockAnalysisId,
+      commit_sha: 'abc123',
+      status: 'running',
+      repo_overview: null,
+      issues: [],
+      computed_at: null,
+      is_cached: false,
+      total_tokens_used: null,
+      total_cost_usd: null,
+    })
+
+    render(<AIInsightsPanel repositoryId={mockRepositoryId} token={mockToken} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('AI scan in progress...')).toBeInTheDocument()
+    })
+
+    // Should show message pointing to progress popup
+    expect(screen.getByText('Check the progress popup in the bottom-right corner for details')).toBeInTheDocument()
+  })
+
+  /**
+   * Test: When AI scan is pending, show simplified progress message
+   * Requirements: 3.2
+   * 
+   * **Feature: ai-scan-progress-fix**
+   */
+  it('should show simplified progress message when scan is pending', async () => {
+    // Set up commit selection
+    useCommitSelectionStore.getState().setSelectedCommit('abc123', mockAnalysisId)
+
+    // Mock unified status hook to return ai_scan_status: 'pending'
+    vi.mocked(useAnalysisStatusModule.useAnalysisStatusWithStore).mockReturnValue({
+      ...defaultStatusMock,
+      data: {
+        ...defaultStatusMock.data!,
+        ai_scan_status: 'pending',
+        ai_scan_progress: 0,
+      },
+    })
+
+    // Mock API to return no cache
+    vi.mocked(aiScanApi.getAIScanResults).mockResolvedValue({
+      analysis_id: mockAnalysisId,
+      commit_sha: 'abc123',
+      status: 'pending',
+      repo_overview: null,
+      issues: [],
+      computed_at: null,
+      is_cached: false,
+      total_tokens_used: null,
+      total_cost_usd: null,
+    })
+
+    render(<AIInsightsPanel repositoryId={mockRepositoryId} token={mockToken} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('AI scan in progress...')).toBeInTheDocument()
     })
   })
 })

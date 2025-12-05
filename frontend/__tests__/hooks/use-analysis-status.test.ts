@@ -47,6 +47,15 @@ function createMockStatus(overrides: Partial<AnalysisFullStatus> = {}): Analysis
     vectors_count: 100,
     semantic_cache_status: 'none',
     has_semantic_cache: false,
+    // AI Scan status (Requirements 3.3)
+    ai_scan_status: 'none',
+    ai_scan_progress: 0,
+    ai_scan_stage: null,
+    ai_scan_message: null,
+    ai_scan_error: null,
+    has_ai_scan_cache: false,
+    ai_scan_started_at: null,
+    ai_scan_completed_at: null,
     state_updated_at: new Date().toISOString(),
     embeddings_started_at: new Date().toISOString(),
     embeddings_completed_at: null,
@@ -139,6 +148,7 @@ describe('useAnalysisStatus', () => {
       analysis_status: 'completed',
       embeddings_status: 'completed',
       semantic_cache_status: 'completed',
+      ai_scan_status: 'completed',
       is_complete: true,
       overall_progress: 100,
     })
@@ -349,6 +359,7 @@ describe('Polling behavior', () => {
       analysis_status: 'completed',
       embeddings_status: 'completed',
       semantic_cache_status: 'completed',
+      ai_scan_status: 'completed',
       is_complete: true,
       overall_progress: 100,
     })

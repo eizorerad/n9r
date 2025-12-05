@@ -6,8 +6,8 @@ import { useEffect, useCallback } from "react";
 /**
  * Analysis status response from the full-status endpoint.
  * 
- * **Feature: progress-tracking-refactor**
- * **Validates: Requirements 4.1, 4.4**
+ * **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+ * **Validates: Requirements 4.1, 4.4, 3.3**
  */
 export interface AnalysisFullStatus {
   // Identity
@@ -31,6 +31,17 @@ export interface AnalysisFullStatus {
   // Semantic cache status
   semantic_cache_status: "none" | "pending" | "computing" | "completed" | "failed";
   has_semantic_cache: boolean;
+
+  // AI Scan status (Requirements 3.3)
+  // **Feature: ai-scan-progress-fix**
+  ai_scan_status: "none" | "pending" | "running" | "completed" | "failed" | "skipped";
+  ai_scan_progress: number;
+  ai_scan_stage: string | null;
+  ai_scan_message: string | null;
+  ai_scan_error: string | null;
+  has_ai_scan_cache: boolean;
+  ai_scan_started_at: string | null;
+  ai_scan_completed_at: string | null;
 
   // Timestamps
   state_updated_at: string;
@@ -78,7 +89,7 @@ async function fetchAnalysisFullStatus(
  * - Pending states: 3 seconds
  * - Completed/failed: stop polling (return false)
  * 
- * **Feature: progress-tracking-refactor**
+ * **Feature: progress-tracking-refactor, ai-scan-progress-fix**
  * **Validates: Requirements 4.4**
  */
 function getPollingInterval(data: AnalysisFullStatus | undefined): number | false {
@@ -96,25 +107,31 @@ function getPollingInterval(data: AnalysisFullStatus | undefined): number | fals
   if (
     data.analysis_status === "failed" &&
     data.embeddings_status !== "running" &&
-    data.embeddings_status !== "pending"
+    data.embeddings_status !== "pending" &&
+    data.ai_scan_status !== "running" &&
+    data.ai_scan_status !== "pending"
   ) {
     return false;
   }
 
-  // Fast polling during active processing
+  // Fast polling during active processing (2s)
+  // Includes AI scan running state (Requirements 4.4)
   if (
     data.analysis_status === "running" ||
     data.embeddings_status === "running" ||
-    data.semantic_cache_status === "computing"
+    data.semantic_cache_status === "computing" ||
+    data.ai_scan_status === "running"
   ) {
     return 2000;
   }
 
-  // Medium polling for pending states
+  // Medium polling for pending states (3s)
+  // Includes AI scan pending state (Requirements 4.4)
   if (
     data.analysis_status === "pending" ||
     data.embeddings_status === "pending" ||
-    data.semantic_cache_status === "pending"
+    data.semantic_cache_status === "pending" ||
+    data.ai_scan_status === "pending"
   ) {
     return 3000;
   }
@@ -239,10 +256,10 @@ export function getAnalysisStatusQueryKey(repositoryId: string, analysisId: stri
  * This hook wraps useAnalysisStatus and automatically:
  * - Adds/updates tasks in useAnalysisProgressStore based on status
  * - Removes completed tasks after a delay
- * - Handles both analysis and embeddings task tracking
+ * - Handles analysis, embeddings, and AI scan task tracking
  * 
- * **Feature: progress-tracking-refactor**
- * **Validates: Requirements 4.1**
+ * **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+ * **Validates: Requirements 4.1, 3.3, 3.4**
  */
 export function useAnalysisStatusWithStore(
   options: UseAnalysisStatusOptions
@@ -257,10 +274,11 @@ export function useAnalysisStatusWithStore(
 
     // Dynamic import to avoid SSR issues
     import("@/lib/stores/analysis-progress-store").then(
-      ({ useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId }) => {
+      ({ useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId, getAIScanTaskId }) => {
         const store = useAnalysisProgressStore.getState();
         const analysisTaskId = getAnalysisTaskId(repositoryId);
         const embeddingsTaskId = getEmbeddingsTaskId(repositoryId);
+        const aiScanTaskId = getAIScanTaskId(repositoryId);
 
         const data = result.data!;
 
@@ -338,6 +356,56 @@ export function useAnalysisStatusWithStore(
             }, 5000);
           }
         }
+
+        // Sync AI scan task (Requirements 3.3, 3.4)
+        // **Feature: ai-scan-progress-fix**
+        if (data.ai_scan_status === "running" || data.ai_scan_status === "pending") {
+          if (store.hasTask(aiScanTaskId)) {
+            store.updateTask(aiScanTaskId, {
+              status: data.ai_scan_status === "running" ? "running" : "pending",
+              progress: data.ai_scan_progress,
+              stage: data.ai_scan_stage || data.ai_scan_status,
+              message: data.ai_scan_message,
+            });
+          } else {
+            // Add AI scan task if it doesn't exist but AI scan is running/pending
+            store.addTask({
+              id: aiScanTaskId,
+              type: "ai_scan",
+              repositoryId,
+              status: data.ai_scan_status === "running" ? "running" : "pending",
+              progress: data.ai_scan_progress,
+              stage: data.ai_scan_stage || data.ai_scan_status,
+              message: data.ai_scan_message,
+            });
+          }
+        } else if (data.ai_scan_status === "completed") {
+          if (store.hasTask(aiScanTaskId)) {
+            store.updateTask(aiScanTaskId, {
+              status: "completed",
+              progress: 100,
+              stage: "completed",
+              message: "AI scan complete",
+            });
+            // Remove completed task after delay
+            setTimeout(() => {
+              store.removeTask(aiScanTaskId);
+            }, 3000);
+          }
+        } else if (data.ai_scan_status === "failed") {
+          if (store.hasTask(aiScanTaskId)) {
+            store.updateTask(aiScanTaskId, {
+              status: "failed",
+              message: data.ai_scan_error || "AI scan failed",
+            });
+            // Remove failed task after delay
+            setTimeout(() => {
+              store.removeTask(aiScanTaskId);
+            }, 5000);
+          }
+        }
+        // Note: "skipped" status doesn't need task tracking - it's a terminal state
+        // that means AI scan was intentionally not run (disabled in settings)
       }
     );
   }, [result.data, analysisId, repositoryId]);

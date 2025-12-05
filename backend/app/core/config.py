@@ -115,6 +115,7 @@ class Settings(BaseSettings):
     embedding_model: str = ""  # Auto-detected if empty
 
     # AI Scan Settings
+    ai_scan_enabled: bool = True  # Enable/disable automatic AI scan after semantic cache
     ai_scan_max_cost_per_scan: float = 5.0  # Maximum cost in USD per AI scan
 
     # Feature Flags

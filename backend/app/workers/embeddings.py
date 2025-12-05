@@ -520,6 +520,10 @@ def compute_semantic_cache(
     State is managed through AnalysisStateService with PostgreSQL as the
     single source of truth.
     
+    After completion, automatically queues AI scan if enabled.
+    This follows the same pattern as generate_embeddings which
+    queues compute_semantic_cache on completion.
+    
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis to update
@@ -527,14 +531,16 @@ def compute_semantic_cache(
     Returns:
         dict with semantic cache computation results
         
-    **Feature: progress-tracking-refactor**
-    **Validates: Requirements 3.1, 3.2, 3.3**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Validates: Requirements 1.1, 3.1, 3.2, 3.3**
     """
     from app.models.analysis import Analysis
     from app.services.analysis_state import AnalysisStateService
     from app.services.cluster_analyzer import get_cluster_analyzer
 
     logger.info(f"Computing semantic cache for analysis {analysis_id}")
+
+    ai_scan_queued = False
 
     try:
         # Transition semantic_cache_status: pending -> computing (Requirements 3.1)
@@ -550,9 +556,17 @@ def compute_semantic_cache(
         semantic_cache = health.to_cacheable_dict()
 
         # Transition semantic_cache_status: computing -> completed (Requirements 3.2)
+        # This also auto-triggers ai_scan_status -> pending if enabled (Requirements 1.1)
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
-            state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
+            analysis = state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
+            
+            # Queue AI scan if it was auto-triggered to pending (Requirements 1.1)
+            if analysis.ai_scan_status == "pending":
+                from app.workers.ai_scan import run_ai_scan
+                run_ai_scan.delay(analysis_id=analysis_id)
+                ai_scan_queued = True
+                logger.info(f"Queued AI scan for analysis {analysis_id}")
 
         logger.info(f"Semantic cache computed for analysis {analysis_id}")
 
@@ -561,6 +575,7 @@ def compute_semantic_cache(
             "analysis_id": analysis_id,
             "status": "completed",
             "clusters_count": len(semantic_cache.get("clusters", [])),
+            "ai_scan_queued": ai_scan_queued,
         }
 
     except Exception as e:

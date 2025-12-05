@@ -64,8 +64,10 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Create non-root user for API server
-# Note: Celery worker may need root for Docker socket access
-RUN useradd -m -s /bin/bash n9r
+# Add to 'docker' group for Docker socket access (group GID 999 is standard on many hosts)
+# Note: For Celery with Docker socket, we use group-based access instead of root when possible
+RUN groupadd -g 999 docker 2>/dev/null || true \
+    && useradd -m -s /bin/bash -G docker n9r
 
 # Create directories
 RUN mkdir -p /app/sandbox_data && chown -R n9r:n9r /app
@@ -74,7 +76,10 @@ RUN mkdir -p /app/sandbox_data && chown -R n9r:n9r /app
 COPY --chown=n9r:n9r . .
 
 # Switch to non-root user (API server)
-# For Celery with Docker, use `user: root` in docker-compose
+# For Celery with Docker socket access:
+#   - Preferred: Mount socket with correct group permissions, use 'user: n9r' + docker group
+#   - Fallback: Use 'user: root' in docker-compose (less secure)
+# See docs/fix_progress/05-dec-2025-fix.md for security analysis
 USER n9r
 
 # Health check endpoint

@@ -3,8 +3,8 @@
 Tests the GET /analyses/{id}/full-status endpoint which provides
 a single source of truth for all analysis state.
 
-**Feature: progress-tracking-refactor**
-**Validates: Requirements 4.1**
+**Feature: progress-tracking-refactor, ai-scan-progress-fix**
+**Validates: Requirements 4.1, 2.3**
 """
 
 import uuid
@@ -13,8 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from app.schemas.analysis import (
+    AIScanStatus,
     AnalysisFullStatusResponse,
     EmbeddingsStatus,
     SemanticCacheStatus,
@@ -34,8 +37,8 @@ class TestAnalysisFullStatusResponseSchema:
 
     def test_schema_includes_all_required_fields(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 2.3**
         
         Test that the schema includes all required fields for frontend polling.
         """
@@ -55,6 +58,15 @@ class TestAnalysisFullStatusResponseSchema:
             vectors_count=150,
             semantic_cache_status=SemanticCacheStatus.COMPLETED,
             has_semantic_cache=True,
+            # AI scan fields (Requirements 2.3)
+            ai_scan_status=AIScanStatus.COMPLETED,
+            ai_scan_progress=100,
+            ai_scan_stage="completed",
+            ai_scan_message="AI scan complete",
+            ai_scan_error=None,
+            has_ai_scan_cache=True,
+            ai_scan_started_at=datetime.now(timezone.utc),
+            ai_scan_completed_at=datetime.now(timezone.utc),
             state_updated_at=datetime.now(timezone.utc),
             embeddings_started_at=datetime.now(timezone.utc),
             embeddings_completed_at=datetime.now(timezone.utc),
@@ -71,14 +83,18 @@ class TestAnalysisFullStatusResponseSchema:
         assert response.embeddings_status is not None
         assert response.embeddings_progress is not None
         assert response.semantic_cache_status is not None
+        # AI scan fields
+        assert response.ai_scan_status is not None
+        assert response.ai_scan_progress is not None
+        assert response.has_ai_scan_cache is not None
         assert response.overall_progress is not None
         assert response.overall_stage is not None
         assert response.is_complete is not None
 
     def test_schema_with_minimal_fields(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 2.3**
         
         Test that the schema works with minimal required fields.
         """
@@ -97,6 +113,15 @@ class TestAnalysisFullStatusResponseSchema:
             vectors_count=0,
             semantic_cache_status=SemanticCacheStatus.NONE,
             has_semantic_cache=False,
+            # AI scan fields (minimal)
+            ai_scan_status=AIScanStatus.NONE,
+            ai_scan_progress=0,
+            ai_scan_stage=None,
+            ai_scan_message=None,
+            ai_scan_error=None,
+            has_ai_scan_cache=False,
+            ai_scan_started_at=None,
+            ai_scan_completed_at=None,
             state_updated_at=datetime.now(timezone.utc),
             embeddings_started_at=None,
             embeddings_completed_at=None,
@@ -108,6 +133,7 @@ class TestAnalysisFullStatusResponseSchema:
         assert response.vci_score is None
         assert response.grade is None
         assert response.embeddings_stage is None
+        assert response.ai_scan_stage is None
         assert response.is_complete is False
 
 
@@ -136,45 +162,45 @@ class TestAnalysisStates:
 
     def test_running_analysis_state(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 6.1**
         
         Test response for running analysis.
         """
-        progress = compute_overall_progress("running", "none", 0, "none")
-        stage = compute_overall_stage("running", "none", None, "none")
-        is_complete = compute_is_complete("running", "none", "none")
+        progress = compute_overall_progress("running", "none", 0, "none", "none", 0)
+        stage = compute_overall_stage("running", "none", None, "none", "none", None)
+        is_complete = compute_is_complete("running", "none", "none", "none")
 
-        assert progress == 20  # Mid-point of analysis phase
+        assert progress == 15  # Mid-point of analysis phase (0-30%)
         assert "Analyzing" in stage or "running" in stage.lower()
         assert is_complete is False
 
     def test_completed_analysis_embeddings_running(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 6.1**
         
         Test response when analysis is complete and embeddings are running.
         """
-        progress = compute_overall_progress("completed", "running", 50, "none")
-        stage = compute_overall_stage("completed", "running", "embedding", "none")
-        is_complete = compute_is_complete("completed", "running", "none")
+        progress = compute_overall_progress("completed", "running", 50, "none", "none", 0)
+        stage = compute_overall_stage("completed", "running", "embedding", "none", "none", None)
+        is_complete = compute_is_complete("completed", "running", "none", "none")
 
-        # 40 + 50 * 0.5 = 65
-        assert progress == 65
+        # 30 + 50 * 0.3 = 45 (embeddings phase is 30-60%)
+        assert progress == 45
         assert "embedding" in stage.lower() or "Generating" in stage
         assert is_complete is False
 
     def test_all_phases_completed(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 6.1**
         
-        Test response when all phases are completed.
+        Test response when all phases are completed (including AI scan).
         """
-        progress = compute_overall_progress("completed", "completed", 100, "completed")
-        stage = compute_overall_stage("completed", "completed", "completed", "completed")
-        is_complete = compute_is_complete("completed", "completed", "completed")
+        progress = compute_overall_progress("completed", "completed", 100, "completed", "completed", 100)
+        stage = compute_overall_stage("completed", "completed", "completed", "completed", "completed", "completed")
+        is_complete = compute_is_complete("completed", "completed", "completed", "completed")
 
         assert progress == 100
         assert "complete" in stage.lower()
@@ -197,31 +223,31 @@ class TestAnalysisStates:
 
     def test_embeddings_failed_state(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 6.1**
         
         Test response when embeddings failed.
         """
-        progress = compute_overall_progress("completed", "failed", 0, "none")
-        stage = compute_overall_stage("completed", "failed", None, "none")
-        is_complete = compute_is_complete("completed", "failed", "none")
+        progress = compute_overall_progress("completed", "failed", 0, "none", "none", 0)
+        stage = compute_overall_stage("completed", "failed", None, "none", "none", None)
+        is_complete = compute_is_complete("completed", "failed", "none", "none")
 
-        assert progress == 40  # Stuck at analysis complete
+        assert progress == 30  # Stuck at analysis complete (30% is end of analysis phase)
         assert "failed" in stage.lower()
         assert is_complete is False
 
     def test_semantic_cache_computing_state(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 6.1**
         
         Test response when semantic cache is computing.
         """
-        progress = compute_overall_progress("completed", "completed", 100, "computing")
-        stage = compute_overall_stage("completed", "completed", "completed", "computing")
-        is_complete = compute_is_complete("completed", "completed", "computing")
+        progress = compute_overall_progress("completed", "completed", 100, "computing", "none", 0)
+        stage = compute_overall_stage("completed", "completed", "completed", "computing", "none", None)
+        is_complete = compute_is_complete("completed", "completed", "computing", "none")
 
-        assert progress == 95  # Mid-point of semantic cache phase
+        assert progress == 70  # Mid-point of semantic cache phase (60-80%)
         assert "semantic" in stage.lower() or "Computing" in stage
         assert is_complete is False
 
@@ -306,8 +332,8 @@ class TestEndpointAuthorization:
     @pytest.mark.asyncio
     async def test_returns_data_for_authorized_user(self):
         """
-        **Feature: progress-tracking-refactor**
-        **Validates: Requirements 4.1**
+        **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 2.3**
         
         Test that data is returned for authorized user.
         """
@@ -337,6 +363,15 @@ class TestEndpointAuthorization:
         mock_analysis.vectors_count = 150
         mock_analysis.semantic_cache_status = "completed"
         mock_analysis.semantic_cache = {"architecture_health": {"overall_score": 80}}
+        # AI scan fields
+        mock_analysis.ai_scan_status = "completed"
+        mock_analysis.ai_scan_progress = 100
+        mock_analysis.ai_scan_stage = "completed"
+        mock_analysis.ai_scan_message = "AI scan complete"
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = {"issues": []}
+        mock_analysis.ai_scan_started_at = datetime.now(timezone.utc)
+        mock_analysis.ai_scan_completed_at = datetime.now(timezone.utc)
         mock_analysis.state_updated_at = datetime.now(timezone.utc)
         mock_analysis.embeddings_started_at = datetime.now(timezone.utc)
         mock_analysis.embeddings_completed_at = datetime.now(timezone.utc)
@@ -362,6 +397,7 @@ class TestEndpointAuthorization:
         assert response.analysis_status == "completed"
         assert response.embeddings_status == EmbeddingsStatus.COMPLETED
         assert response.semantic_cache_status == SemanticCacheStatus.COMPLETED
+        assert response.ai_scan_status == AIScanStatus.COMPLETED
         assert response.is_complete is True
         assert response.overall_progress == 100
 
@@ -419,3 +455,310 @@ class TestComputedFields:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# =============================================================================
+# Property-Based Tests for AI Scan Integration
+# =============================================================================
+
+
+class TestAIScanFullStatusProperties:
+    """Property-based tests for AI scan integration in Full Status API.
+    
+    **Feature: ai-scan-progress-fix**
+    """
+
+    @given(
+        ai_scan_status=st.sampled_from(["none", "pending", "running", "completed", "failed", "skipped"]),
+        ai_scan_progress=st.integers(min_value=0, max_value=100),
+        ai_scan_stage=st.one_of(
+            st.none(),
+            st.sampled_from(["initializing", "cloning", "generating_view", "scanning", "merging", "investigating", "completed"])
+        ),
+        ai_scan_message=st.one_of(st.none(), st.text(min_size=0, max_size=100)),
+        ai_scan_error=st.one_of(st.none(), st.text(min_size=0, max_size=100)),
+    )
+    @settings(max_examples=100)
+    def test_full_status_api_includes_all_ai_scan_fields(
+        self,
+        ai_scan_status: str,
+        ai_scan_progress: int,
+        ai_scan_stage: str | None,
+        ai_scan_message: str | None,
+        ai_scan_error: str | None,
+    ):
+        """
+        **Feature: ai-scan-progress-fix, Property 4: Full Status API Completeness**
+        **Validates: Requirements 2.3**
+        
+        For any analysis record, the Full Status API response SHALL include all AI scan fields:
+        ai_scan_status, ai_scan_progress, ai_scan_stage, ai_scan_message, ai_scan_error,
+        has_ai_scan_cache, ai_scan_started_at, ai_scan_completed_at.
+        """
+        # Create a response with all AI scan fields
+        response = AnalysisFullStatusResponse(
+            analysis_id="123e4567-e89b-12d3-a456-426614174000",
+            repository_id="123e4567-e89b-12d3-a456-426614174001",
+            commit_sha="abc123",
+            analysis_status="completed",
+            vci_score=85.5,
+            grade="B",
+            embeddings_status=EmbeddingsStatus.COMPLETED,
+            embeddings_progress=100,
+            embeddings_stage="completed",
+            embeddings_message=None,
+            embeddings_error=None,
+            vectors_count=150,
+            semantic_cache_status=SemanticCacheStatus.COMPLETED,
+            has_semantic_cache=True,
+            # AI scan fields with generated values
+            ai_scan_status=AIScanStatus(ai_scan_status),
+            ai_scan_progress=ai_scan_progress,
+            ai_scan_stage=ai_scan_stage,
+            ai_scan_message=ai_scan_message,
+            ai_scan_error=ai_scan_error,
+            has_ai_scan_cache=ai_scan_status == "completed",
+            ai_scan_started_at=datetime.now(timezone.utc) if ai_scan_status in ("running", "completed", "failed") else None,
+            ai_scan_completed_at=datetime.now(timezone.utc) if ai_scan_status == "completed" else None,
+            state_updated_at=datetime.now(timezone.utc),
+            embeddings_started_at=datetime.now(timezone.utc),
+            embeddings_completed_at=datetime.now(timezone.utc),
+            overall_progress=100,
+            overall_stage="All processing complete",
+            is_complete=ai_scan_status in ("completed", "skipped"),
+        )
+
+        # Property: All AI scan fields MUST be present in the response
+        assert hasattr(response, "ai_scan_status"), "ai_scan_status field missing"
+        assert hasattr(response, "ai_scan_progress"), "ai_scan_progress field missing"
+        assert hasattr(response, "ai_scan_stage"), "ai_scan_stage field missing"
+        assert hasattr(response, "ai_scan_message"), "ai_scan_message field missing"
+        assert hasattr(response, "ai_scan_error"), "ai_scan_error field missing"
+        assert hasattr(response, "has_ai_scan_cache"), "has_ai_scan_cache field missing"
+        assert hasattr(response, "ai_scan_started_at"), "ai_scan_started_at field missing"
+        assert hasattr(response, "ai_scan_completed_at"), "ai_scan_completed_at field missing"
+
+        # Property: Values should match what was provided
+        assert response.ai_scan_status == AIScanStatus(ai_scan_status)
+        assert response.ai_scan_progress == ai_scan_progress
+        assert response.ai_scan_stage == ai_scan_stage
+        assert response.ai_scan_message == ai_scan_message
+        assert response.ai_scan_error == ai_scan_error
+
+
+    @given(
+        analysis_status=st.sampled_from(["pending", "running", "completed", "failed"]),
+        embeddings_status=st.sampled_from(["none", "pending", "running", "completed", "failed"]),
+        embeddings_progress=st.integers(min_value=0, max_value=100),
+        semantic_cache_status=st.sampled_from(["none", "pending", "computing", "completed", "failed"]),
+        ai_scan_status=st.sampled_from(["none", "pending", "running", "completed", "failed", "skipped"]),
+        ai_scan_progress=st.integers(min_value=0, max_value=100),
+    )
+    @settings(max_examples=100)
+    def test_progress_calculation_bounds(
+        self,
+        analysis_status: str,
+        embeddings_status: str,
+        embeddings_progress: int,
+        semantic_cache_status: str,
+        ai_scan_status: str,
+        ai_scan_progress: int,
+    ):
+        """
+        **Feature: ai-scan-progress-fix, Property 5: Progress Calculation Bounds**
+        **Validates: Requirements 6.1**
+        
+        For any combination of analysis phase statuses, the computed overall_progress
+        SHALL be between 0 and 100, with the AI scan phase (80-100%) only contributing
+        when semantic_cache_status="completed".
+        """
+        progress = compute_overall_progress(
+            analysis_status=analysis_status,
+            embeddings_status=embeddings_status,
+            embeddings_progress=embeddings_progress,
+            semantic_cache_status=semantic_cache_status,
+            ai_scan_status=ai_scan_status,
+            ai_scan_progress=ai_scan_progress,
+        )
+
+        # Property 1: Progress MUST be between 0 and 100
+        assert 0 <= progress <= 100, f"Progress {progress} is out of bounds [0, 100]"
+
+        # Property 2: AI scan phase (80-100%) only contributes when semantic_cache_status="completed"
+        if semantic_cache_status != "completed":
+            # AI scan phase should not contribute - progress should be at most 80
+            # (unless we're in an earlier failed state)
+            if analysis_status == "completed" and embeddings_status == "completed":
+                # Semantic cache phase: 60-80%
+                assert progress <= 80, f"Progress {progress} exceeds 80% when semantic cache not completed"
+        
+        # Property 3: Progress should reach 100 only when all phases complete (including AI scan)
+        if progress == 100:
+            assert analysis_status == "completed", "Analysis must be completed for 100% progress"
+            assert embeddings_status == "completed", "Embeddings must be completed for 100% progress"
+            assert semantic_cache_status == "completed", "Semantic cache must be completed for 100% progress"
+            assert ai_scan_status in ("completed", "skipped"), "AI scan must be completed or skipped for 100% progress"
+
+    @given(
+        analysis_status=st.sampled_from(["pending", "running", "completed", "failed"]),
+        embeddings_status=st.sampled_from(["none", "pending", "running", "completed", "failed"]),
+        embeddings_progress=st.integers(min_value=0, max_value=100),
+        semantic_cache_status=st.sampled_from(["none", "pending", "computing", "completed", "failed"]),
+        ai_scan_status=st.sampled_from(["none", "pending", "running", "completed", "failed", "skipped"]),
+        ai_scan_progress=st.integers(min_value=0, max_value=100),
+    )
+    @settings(max_examples=100)
+    def test_progress_phase_boundaries(
+        self,
+        analysis_status: str,
+        embeddings_status: str,
+        embeddings_progress: int,
+        semantic_cache_status: str,
+        ai_scan_status: str,
+        ai_scan_progress: int,
+    ):
+        """
+        **Feature: ai-scan-progress-fix, Property 5: Progress Calculation Bounds**
+        **Validates: Requirements 6.1**
+        
+        Test that progress respects phase boundaries:
+        - Analysis: 0-30%
+        - Embeddings: 30-60%
+        - Semantic Cache: 60-80%
+        - AI Scan: 80-100%
+        """
+        progress = compute_overall_progress(
+            analysis_status=analysis_status,
+            embeddings_status=embeddings_status,
+            embeddings_progress=embeddings_progress,
+            semantic_cache_status=semantic_cache_status,
+            ai_scan_status=ai_scan_status,
+            ai_scan_progress=ai_scan_progress,
+        )
+
+        # Check phase boundaries based on current state
+        if analysis_status in ("pending", "running", "failed"):
+            # Still in analysis phase: 0-30%
+            assert progress <= 30, f"Progress {progress} exceeds analysis phase (0-30%)"
+        elif embeddings_status in ("none", "pending", "running", "failed"):
+            # In embeddings phase: 30-60%
+            assert 30 <= progress <= 60, f"Progress {progress} not in embeddings phase (30-60%)"
+        elif semantic_cache_status in ("none", "pending", "computing", "failed"):
+            # In semantic cache phase: 60-80%
+            assert 60 <= progress <= 80, f"Progress {progress} not in semantic cache phase (60-80%)"
+        elif ai_scan_status in ("none", "pending", "running", "failed"):
+            # In AI scan phase: 80-100%
+            assert 80 <= progress <= 100, f"Progress {progress} not in AI scan phase (80-100%)"
+        else:
+            # All complete
+            assert progress == 100, f"Progress {progress} should be 100% when all phases complete"
+
+
+
+class TestPostgreSQLAsSSoT:
+    """Property-based tests for PostgreSQL as Single Source of Truth.
+    
+    **Feature: ai-scan-progress-fix**
+    **Property 10: PostgreSQL as Single Source of Truth**
+    """
+
+    @given(
+        ai_scan_status=st.sampled_from(["none", "pending", "running", "completed", "failed", "skipped"]),
+        ai_scan_progress=st.integers(min_value=0, max_value=100),
+        ai_scan_stage=st.one_of(
+            st.none(),
+            st.sampled_from(["initializing", "cloning", "generating_view", "scanning", "merging", "investigating", "completed"])
+        ),
+        ai_scan_message=st.one_of(st.none(), st.text(min_size=0, max_size=50, alphabet=st.characters(whitelist_categories=('L', 'N', 'P', 'S')))),
+        ai_scan_error=st.one_of(st.none(), st.text(min_size=0, max_size=50, alphabet=st.characters(whitelist_categories=('L', 'N', 'P', 'S')))),
+        has_ai_scan_cache=st.booleans(),
+    )
+    @settings(max_examples=100, deadline=None)
+    @pytest.mark.asyncio
+    async def test_full_status_reflects_postgresql_state_directly(
+        self,
+        ai_scan_status: str,
+        ai_scan_progress: int,
+        ai_scan_stage: str | None,
+        ai_scan_message: str | None,
+        ai_scan_error: str | None,
+        has_ai_scan_cache: bool,
+    ):
+        """
+        **Feature: ai-scan-progress-fix, Property 10: PostgreSQL as Single Source of Truth**
+        **Validates: Requirements 2.2, 4.4**
+        
+        For any AI scan state query via Full Status API, the response SHALL reflect
+        the current PostgreSQL state directly, without any Redis fallback or caching layer.
+        """
+        from app.api.v1.analyses import get_analysis_full_status
+
+        # Create mock user
+        user_id = uuid.uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+
+        # Create mock analysis with specific PostgreSQL state
+        analysis_id = uuid.uuid4()
+        repository_id = uuid.uuid4()
+        
+        mock_analysis = MagicMock()
+        mock_analysis.id = analysis_id
+        mock_analysis.repository_id = repository_id
+        mock_analysis.commit_sha = "abc123"
+        mock_analysis.status = "completed"
+        mock_analysis.vci_score = 85.5
+        mock_analysis.grade = "B"
+        mock_analysis.embeddings_status = "completed"
+        mock_analysis.embeddings_progress = 100
+        mock_analysis.embeddings_stage = "completed"
+        mock_analysis.embeddings_message = None
+        mock_analysis.embeddings_error = None
+        mock_analysis.vectors_count = 150
+        mock_analysis.semantic_cache_status = "completed"
+        mock_analysis.semantic_cache = {"architecture_health": {"overall_score": 80}}
+        # AI scan fields - these are the PostgreSQL state we're testing
+        mock_analysis.ai_scan_status = ai_scan_status
+        mock_analysis.ai_scan_progress = ai_scan_progress
+        mock_analysis.ai_scan_stage = ai_scan_stage
+        mock_analysis.ai_scan_message = ai_scan_message
+        mock_analysis.ai_scan_error = ai_scan_error
+        mock_analysis.ai_scan_cache = {"issues": []} if has_ai_scan_cache else None
+        mock_analysis.ai_scan_started_at = datetime.now(timezone.utc) if ai_scan_status in ("running", "completed", "failed") else None
+        mock_analysis.ai_scan_completed_at = datetime.now(timezone.utc) if ai_scan_status == "completed" else None
+        mock_analysis.state_updated_at = datetime.now(timezone.utc)
+        mock_analysis.embeddings_started_at = datetime.now(timezone.utc)
+        mock_analysis.embeddings_completed_at = datetime.now(timezone.utc)
+        mock_analysis.repository = MagicMock()
+        mock_analysis.repository.owner_id = user_id
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_analysis
+        mock_db.execute.return_value = mock_result
+
+        # Call endpoint
+        response = await get_analysis_full_status(
+            analysis_id=analysis_id,
+            db=mock_db,
+            user=mock_user,
+        )
+
+        # Property: Response MUST reflect PostgreSQL state directly
+        # No Redis fallback, no caching - direct mapping from DB fields
+        assert response.ai_scan_status == AIScanStatus(ai_scan_status), \
+            f"ai_scan_status mismatch: expected {ai_scan_status}, got {response.ai_scan_status}"
+        assert response.ai_scan_progress == ai_scan_progress, \
+            f"ai_scan_progress mismatch: expected {ai_scan_progress}, got {response.ai_scan_progress}"
+        assert response.ai_scan_stage == ai_scan_stage, \
+            f"ai_scan_stage mismatch: expected {ai_scan_stage}, got {response.ai_scan_stage}"
+        assert response.ai_scan_message == ai_scan_message, \
+            f"ai_scan_message mismatch: expected {ai_scan_message}, got {response.ai_scan_message}"
+        assert response.ai_scan_error == ai_scan_error, \
+            f"ai_scan_error mismatch: expected {ai_scan_error}, got {response.ai_scan_error}"
+        
+        # has_ai_scan_cache should reflect whether ai_scan_cache has issues
+        expected_has_cache = has_ai_scan_cache  # We set ai_scan_cache = {"issues": []} if has_ai_scan_cache
+        assert response.has_ai_scan_cache == expected_has_cache, \
+            f"has_ai_scan_cache mismatch: expected {expected_has_cache}, got {response.has_ai_scan_cache}"

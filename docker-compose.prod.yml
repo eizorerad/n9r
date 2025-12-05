@@ -83,8 +83,12 @@ services:
       # This MUST be the same path as HOST_SANDBOX_PATH on the Docker host
       - ${HOST_SANDBOX_PATH:-./sandbox_data}:/app/sandbox_data
       # Docker socket for spawning sibling sandbox containers
-      # SECURITY: This gives the worker ability to create containers on host
-      # Sandbox containers are isolated with network_mode="none"
+      # SECURITY WARNING: This gives the worker ability to create containers on host
+      # MITIGATIONS in place:
+      #   1. Sandbox containers run with network_mode="none" (complete isolation)
+      #   2. Repository code is cloned on HOST before sandbox starts
+      #   3. Sandbox has cap_drop=["ALL"], no-new-privileges, resource limits
+      # See: docs/fix_progress/05-dec-2025-fix.md for full security analysis
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
@@ -97,7 +101,13 @@ services:
       -Q default,analysis,embeddings,healing,notifications
       -c 4
       --loglevel=info
-    # Add docker group for socket access (may need adjustment based on host)
+    # SECURITY: Docker socket access options (choose one):
+    # Option A (Preferred): Group-based access - requires host docker socket to be group-readable
+    #   - On host: sudo chmod g+rw /var/run/docker.sock
+    #   - Then use: user: "1000:999" (n9r user with docker group)
+    # Option B (Fallback): Root access - less secure but always works
+    #   - Use: user: root
+    # Currently using Option B for compatibility. Switch to Option A in production.
     user: root
 
   # Celery Beat Scheduler

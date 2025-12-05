@@ -16,6 +16,7 @@ from app.models.analysis import Analysis
 from app.models.issue import Issue
 from app.models.repository import Repository
 from app.schemas.analysis import (
+    AIScanStatus,
     AnalysisFullStatusResponse,
     EmbeddingsStatus,
     SemanticCacheStatus,
@@ -511,18 +512,21 @@ async def get_analysis_full_status(
     user: CurrentUser,
 ) -> AnalysisFullStatusResponse:
     """
-    Get full analysis status including embeddings and semantic cache state.
+    Get full analysis status including embeddings, semantic cache, and AI scan state.
     
     This endpoint provides a single source of truth for all analysis state,
     enabling simplified frontend polling with computed overall progress.
+    PostgreSQL is the single source of truth - no Redis fallback.
     
     Returns:
         AnalysisFullStatusResponse with all status fields and computed progress
         
-    **Feature: progress-tracking-refactor**
-    **Validates: Requirements 1.3, 4.1, 4.2, 4.3**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Property 10: PostgreSQL as Single Source of Truth**
+    **Validates: Requirements 1.3, 2.3, 4.1, 4.2, 4.3, 4.4**
     """
     # Single database query to fetch analysis with repository (Requirements 1.3)
+    # PostgreSQL is the single source of truth (Property 10)
     result = await db.execute(
         select(Analysis)
         .options(selectinload(Analysis.repository))
@@ -544,33 +548,44 @@ async def get_analysis_full_status(
             detail="Analysis not found",
         )
 
-    # Compute overall progress (Requirements 4.2)
+    # Compute overall progress (Requirements 4.2, 6.1)
     overall_progress = compute_overall_progress(
         analysis_status=analysis.status,
         embeddings_status=analysis.embeddings_status,
         embeddings_progress=analysis.embeddings_progress,
         semantic_cache_status=analysis.semantic_cache_status,
+        ai_scan_status=analysis.ai_scan_status,
+        ai_scan_progress=analysis.ai_scan_progress,
     )
 
-    # Compute overall stage (Requirements 4.3)
+    # Compute overall stage (Requirements 4.3, 6.2)
     overall_stage = compute_overall_stage(
         analysis_status=analysis.status,
         embeddings_status=analysis.embeddings_status,
         embeddings_stage=analysis.embeddings_stage,
         semantic_cache_status=analysis.semantic_cache_status,
+        ai_scan_status=analysis.ai_scan_status,
+        ai_scan_stage=analysis.ai_scan_stage,
     )
 
-    # Compute is_complete flag (Requirements 4.2)
+    # Compute is_complete flag (Requirements 4.2, 6.1)
     is_complete = compute_is_complete(
         analysis_status=analysis.status,
         embeddings_status=analysis.embeddings_status,
         semantic_cache_status=analysis.semantic_cache_status,
+        ai_scan_status=analysis.ai_scan_status,
     )
 
     # Determine if semantic cache exists
     has_semantic_cache = (
         analysis.semantic_cache is not None
         and analysis.semantic_cache.get("architecture_health") is not None
+    )
+
+    # Determine if AI scan cache exists (Requirements 2.3)
+    has_ai_scan_cache = (
+        analysis.ai_scan_cache is not None
+        and analysis.ai_scan_cache.get("issues") is not None
     )
 
     return AnalysisFullStatusResponse(
@@ -592,6 +607,15 @@ async def get_analysis_full_status(
         # Semantic cache status
         semantic_cache_status=SemanticCacheStatus(analysis.semantic_cache_status),
         has_semantic_cache=has_semantic_cache,
+        # AI scan status (Requirements 2.3)
+        ai_scan_status=AIScanStatus(analysis.ai_scan_status),
+        ai_scan_progress=analysis.ai_scan_progress,
+        ai_scan_stage=analysis.ai_scan_stage,
+        ai_scan_message=analysis.ai_scan_message,
+        ai_scan_error=analysis.ai_scan_error,
+        has_ai_scan_cache=has_ai_scan_cache,
+        ai_scan_started_at=analysis.ai_scan_started_at,
+        ai_scan_completed_at=analysis.ai_scan_completed_at,
         # Timestamps
         state_updated_at=analysis.state_updated_at,
         embeddings_started_at=analysis.embeddings_started_at,

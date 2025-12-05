@@ -6,16 +6,24 @@ Orchestrates the AI scan pipeline:
 3. Run multi-model broad scan
 4. Merge and deduplicate issues
 5. Cache results in Analysis.ai_scan_cache
+
+State is managed through AnalysisStateService with PostgreSQL as the single source of truth.
+
+**Feature: ai-scan-progress-fix**
+**Validates: Requirements 1.3, 1.4, 2.2, 4.1, 4.3**
 """
 
 import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
 from app.core.celery import celery_app
+from app.core.config import settings
 from app.core.database import get_sync_session
 from app.models.analysis import Analysis
 from app.models.repository import Repository
@@ -37,6 +45,73 @@ AI_SCAN_STATE_TTL = 3600  # 1 hour
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def _get_db_session() -> Session:
+    """Create a new database session for worker tasks.
+    
+    Returns:
+        SQLAlchemy Session instance
+    """
+    engine = create_engine(str(settings.database_url))
+    return Session(engine)
+
+
+def _update_ai_scan_state(
+    analysis_id: str,
+    status: str | None = None,
+    progress: int | None = None,
+    stage: str | None = None,
+    message: str | None = None,
+    error: str | None = None,
+    cache_data: dict[str, Any] | None = None,
+) -> None:
+    """Update AI scan state in PostgreSQL via AnalysisStateService.
+    
+    This is the primary state update mechanism. Redis pub/sub is used for
+    real-time updates but PostgreSQL is the single source of truth.
+    
+    Follows the same pattern as _update_embeddings_state in embeddings.py.
+    
+    Args:
+        analysis_id: UUID of the analysis (as string)
+        status: New ai_scan_status (if changing status)
+        progress: Progress percentage (0-100)
+        stage: Current stage name
+        message: Human-readable progress message
+        error: Error message (for failed status)
+        cache_data: AI scan results (for completed status)
+        
+    **Feature: ai-scan-progress-fix**
+    **Validates: Requirements 2.2**
+    """
+    from app.services.analysis_state import AnalysisStateService
+    
+    try:
+        with _get_db_session() as session:
+            state_service = AnalysisStateService(session, publish_events=True)
+            
+            if status == "running":
+                # Use start_ai_scan for pending -> running transition
+                state_service.start_ai_scan(UUID(analysis_id))
+            elif status == "completed" and cache_data is not None:
+                # Use complete_ai_scan for running -> completed transition
+                state_service.complete_ai_scan(UUID(analysis_id), cache_data)
+            elif status == "failed":
+                # Use fail_ai_scan for -> failed transition
+                state_service.fail_ai_scan(UUID(analysis_id), error or "Unknown error")
+            elif progress is not None and stage is not None:
+                # Progress update without status change
+                state_service.update_ai_scan_progress(
+                    UUID(analysis_id),
+                    progress=progress,
+                    stage=stage,
+                    message=message,
+                )
+            
+    except Exception as e:
+        logger.warning(f"Failed to update AI scan state in PostgreSQL: {e}")
+        # Don't raise - we still want to continue processing
 
 
 def run_async(coro):
@@ -298,6 +373,9 @@ def run_ai_scan(
     Uses the same commit_sha as the parent Analysis record.
     Results are cached in Analysis.ai_scan_cache.
     
+    State is managed through AnalysisStateService with PostgreSQL as the
+    single source of truth. Redis pub/sub is used for real-time updates.
+    
     Args:
         analysis_id: UUID of the analysis to scan
         models: List of LLM models to use (defaults to Gemini + Claude)
@@ -306,6 +384,9 @@ def run_ai_scan(
         
     Returns:
         Dict with scan results summary
+        
+    **Feature: ai-scan-progress-fix**
+    **Validates: Requirements 1.3, 1.4, 4.1, 4.3**
     """
     from app.services.broad_scan_agent import (
             DEFAULT_SCAN_MODELS,
@@ -322,7 +403,30 @@ def run_ai_scan(
         models = DEFAULT_SCAN_MODELS.copy()
 
     def publish_progress(stage: str, progress: int, message: str | None = None):
-        """Helper to publish progress updates."""
+        """Helper to publish progress updates.
+        
+        Updates state in PostgreSQL (primary) and Redis (for real-time updates).
+        
+        **Feature: ai-scan-progress-fix**
+        **Validates: Requirements 4.1, 4.3**
+        """
+        # Update PostgreSQL state via AnalysisStateService (primary source of truth)
+        if stage == "initializing" and progress <= 5:
+            # Transition from pending -> running (Requirements 1.3)
+            _update_ai_scan_state(
+                analysis_id=analysis_id,
+                status="running",
+            )
+        else:
+            # Progress update without status change (Requirements 4.3)
+            _update_ai_scan_state(
+                analysis_id=analysis_id,
+                progress=progress,
+                stage=stage,
+                message=message,
+            )
+        
+        # Also publish to Redis for real-time SSE updates (Requirements 4.1)
         publish_ai_scan_progress(
             analysis_id=analysis_id,
             stage=stage,
@@ -333,12 +437,8 @@ def run_ai_scan(
         self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
 
     try:
-        # Step 1: Mark scan as running in cache
+        # Step 1: Mark scan as running via state service
         publish_progress("initializing", 5, "Initializing AI scan...")
-        _update_ai_scan_cache(analysis_id, {
-            "status": "running",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        })
 
         # Step 2: Get analysis and repository info
         publish_progress("loading", 10, "Loading analysis data...")
@@ -441,10 +541,15 @@ def run_ai_scan(
             "commit_sha": commit_sha,
         }
 
-        # Step 8: Save to database
-        _update_ai_scan_cache(analysis_id, cache_data)
+        # Step 8: Save to database via state service (Requirements 1.4)
+        # Use AnalysisStateService for state transition: running -> completed
+        _update_ai_scan_state(
+            analysis_id=analysis_id,
+            status="completed",
+            cache_data=cache_data,
+        )
 
-        # Publish completion
+        # Publish completion to Redis for real-time SSE updates
         publish_ai_scan_progress(
             analysis_id=analysis_id,
             stage="completed",
@@ -474,6 +579,22 @@ def run_ai_scan(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"AI scan failed for analysis {analysis_id}: {error_msg}")
-        _mark_ai_scan_failed(analysis_id, error_msg)
+        
+        # Update PostgreSQL state via AnalysisStateService (primary source of truth)
+        _update_ai_scan_state(
+            analysis_id=analysis_id,
+            status="failed",
+            error=error_msg,
+        )
+        
+        # Also publish to Redis for real-time SSE updates
+        publish_ai_scan_progress(
+            analysis_id=analysis_id,
+            stage="failed",
+            progress=0,
+            message=error_msg[:200],
+            status="failed",
+        )
+        
         self.update_state(state="FAILURE", meta={"error": error_msg})
         raise

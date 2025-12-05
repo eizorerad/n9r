@@ -200,27 +200,13 @@ MODEL_CONFIGS: dict[str, dict[str, Any]] = {
         "max_tokens": 65536,
         "extra_headers": {},
     },
-    # Claude Sonnet 4.5 on Bedrock - Requires beta header for 1M context
-    "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0": {
-        "max_tokens": 8192,
+    # Claude Sonnet 4.5 on Bedrock - 1M context with beta header
+    # Uses cross-region inference profile format for on-demand access
+    "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0": {
+        "max_tokens": 16384,
         "extra_headers": {
             "anthropic-beta": "context-1m-2025-08-07"
         },
-    },
-    # Claude Sonnet 4 - Standard context
-    "anthropic/claude-sonnet-4-20250514": {
-        "max_tokens": 8192,
-        "extra_headers": {},
-    },
-    # GPT-4o - Standard context
-    "openai/gpt-4o": {
-        "max_tokens": 4096,
-        "extra_headers": {},
-    },
-    # Gemini 2.0 Flash - Fast model with good context
-    "gemini/gemini-2.0-flash-exp": {
-        "max_tokens": 8192,
-        "extra_headers": {},
     },
 }
 
@@ -230,10 +216,10 @@ DEFAULT_MODEL_CONFIG: dict[str, Any] = {
     "extra_headers": {},
 }
 
-# Default models to use for broad scan
+# Default models to use for broad scan (1M context models only)
 DEFAULT_SCAN_MODELS = [
-    "gemini/gemini-3-pro-preview",
-    "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "gemini/gemini-3-pro-preview",  # Gemini 3 Pro with 1M context
+    "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0",  # Claude Sonnet 4.5 with 1M context
 ]
 
 

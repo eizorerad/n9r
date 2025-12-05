@@ -4,7 +4,7 @@ export type TaskStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed'
 
 export interface ProgressTask {
   id: string
-  type: 'analysis' | 'embeddings'
+  type: 'analysis' | 'embeddings' | 'ai_scan'
   repositoryId: string
   repositoryName?: string
   status: TaskStatus
@@ -121,4 +121,8 @@ export function getAnalysisTaskId(repositoryId: string) {
 
 export function getEmbeddingsTaskId(repositoryId: string) {
   return `embeddings-${repositoryId}`
+}
+
+export function getAIScanTaskId(repositoryId: string) {
+  return `ai_scan-${repositoryId}`
 }

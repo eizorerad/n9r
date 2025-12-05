@@ -76,6 +76,45 @@ class Analysis(BaseModelNoUpdate):
         nullable=True,
     )
 
+    # AI Scan tracking columns (Requirements 2.1)
+    # Valid values: 'none', 'pending', 'running', 'completed', 'failed', 'skipped'
+    ai_scan_status: Mapped[str] = mapped_column(
+        String(20),
+        server_default="none",
+        nullable=False,
+    )
+    # Progress percentage (0-100)
+    ai_scan_progress: Mapped[int] = mapped_column(
+        Integer,
+        server_default="0",
+        nullable=False,
+    )
+    # Current stage: 'initializing', 'cloning', 'generating_view', 'scanning', 'merging', 'investigating', 'completed'
+    ai_scan_stage: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    # Human-readable progress message
+    ai_scan_message: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    # Error message if ai_scan_status is 'failed'
+    ai_scan_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    # Timestamp when AI scan started
+    ai_scan_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    # Timestamp when AI scan completed
+    ai_scan_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Embeddings tracking columns (Requirements 2.1, 2.2, 2.3, 2.4)
     # Valid values: 'none', 'pending', 'running', 'completed', 'failed'
     embeddings_status: Mapped[str] = mapped_column(

@@ -210,16 +210,30 @@ class SemanticCacheStatus(str, Enum):
     FAILED = "failed"
 
 
+class AIScanStatus(str, Enum):
+    """AI scan status enum for schemas.
+    
+    **Feature: ai-scan-progress-fix**
+    **Validates: Requirements 2.3**
+    """
+    NONE = "none"
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class AnalysisFullStatusResponse(BaseModel):
     """
     Full analysis status response combining all state information.
     
     This schema provides a single source of truth for frontend polling,
     including analysis status, embeddings status, semantic cache status,
-    and computed overall progress.
+    AI scan status, and computed overall progress.
     
-    **Feature: progress-tracking-refactor**
-    **Validates: Requirements 4.1, 4.2, 4.3**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Validates: Requirements 4.1, 4.2, 4.3, 2.3**
     """
 
     # Identity fields
@@ -244,6 +258,17 @@ class AnalysisFullStatusResponse(BaseModel):
     semantic_cache_status: SemanticCacheStatus
     has_semantic_cache: bool
 
+    # AI Scan status (Requirements 2.3)
+    # **Feature: ai-scan-progress-fix**
+    ai_scan_status: AIScanStatus
+    ai_scan_progress: int
+    ai_scan_stage: str | None = None
+    ai_scan_message: str | None = None
+    ai_scan_error: str | None = None
+    has_ai_scan_cache: bool
+    ai_scan_started_at: datetime | None = None
+    ai_scan_completed_at: datetime | None = None
+
     # Timestamps for polling optimization
     state_updated_at: datetime
     embeddings_started_at: datetime | None = None
@@ -260,59 +285,78 @@ def compute_overall_progress(
     embeddings_status: str,
     embeddings_progress: int,
     semantic_cache_status: str,
+    ai_scan_status: str = "none",
+    ai_scan_progress: int = 0,
 ) -> int:
     """
     Compute overall progress from individual phase statuses.
     
-    Progress breakdown (Requirements 3.4, 4.2):
-    - Analysis phase: 0-40%
-    - Embeddings phase: 40-90%
-    - Semantic cache phase: 90-100%
+    Progress breakdown (Requirements 6.1):
+    - Analysis phase: 0-30%
+    - Embeddings phase: 30-60%
+    - Semantic cache phase: 60-80%
+    - AI scan phase: 80-100%
     
     Args:
         analysis_status: Current analysis status
         embeddings_status: Current embeddings status
         embeddings_progress: Embeddings progress percentage (0-100)
         semantic_cache_status: Current semantic cache status
+        ai_scan_status: Current AI scan status (default: "none")
+        ai_scan_progress: AI scan progress percentage (0-100, default: 0)
         
     Returns:
         Overall progress percentage (0-100)
         
-    **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
-    **Validates: Requirements 3.4, 4.2, 4.3**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Property 5: Progress Calculation Bounds**
+    **Validates: Requirements 3.4, 4.2, 4.3, 6.1**
     """
-    # Phase 1: Analysis (0-40%)
+    # Phase 1: Analysis (0-30%)
     if analysis_status == "pending":
         return 0
     elif analysis_status == "running":
-        return 20  # Mid-point of analysis phase
+        return 15  # Mid-point of analysis phase
     elif analysis_status == "failed":
         return 0  # Failed analysis = 0 progress
     # analysis_status == "completed" -> continue to embeddings phase
 
-    # Phase 2: Embeddings (40-90%)
+    # Phase 2: Embeddings (30-60%)
     if embeddings_status == "none":
-        return 40  # Analysis complete, embeddings not started
+        return 30  # Analysis complete, embeddings not started
     elif embeddings_status == "pending":
-        return 40  # Waiting for embeddings to start
+        return 30  # Waiting for embeddings to start
     elif embeddings_status == "running":
-        # Scale embeddings_progress (0-100) to (40-90)
-        # embeddings_progress=0 -> 40, embeddings_progress=100 -> 90
-        return 40 + int(embeddings_progress * 0.5)
+        # Scale embeddings_progress (0-100) to (30-60)
+        # embeddings_progress=0 -> 30, embeddings_progress=100 -> 60
+        return 30 + int(embeddings_progress * 0.3)
     elif embeddings_status == "failed":
-        return 40  # Embeddings failed, stuck at analysis complete
+        return 30  # Embeddings failed, stuck at analysis complete
     # embeddings_status == "completed" -> continue to semantic cache phase
 
-    # Phase 3: Semantic Cache (90-100%)
+    # Phase 3: Semantic Cache (60-80%)
     if semantic_cache_status == "none":
-        return 90  # Embeddings complete, semantic cache not started
+        return 60  # Embeddings complete, semantic cache not started
     elif semantic_cache_status == "pending":
-        return 90  # Waiting for semantic cache to start
+        return 60  # Waiting for semantic cache to start
     elif semantic_cache_status == "computing":
-        return 95  # Mid-point of semantic cache phase
+        return 70  # Mid-point of semantic cache phase
     elif semantic_cache_status == "failed":
-        return 90  # Semantic cache failed, stuck at embeddings complete
-    elif semantic_cache_status == "completed":
+        return 60  # Semantic cache failed, stuck at embeddings complete
+    # semantic_cache_status == "completed" -> continue to AI scan phase
+
+    # Phase 4: AI Scan (80-100%)
+    if ai_scan_status == "none":
+        return 80  # Semantic cache complete, AI scan not started
+    elif ai_scan_status == "pending":
+        return 80  # Waiting for AI scan to start
+    elif ai_scan_status == "running":
+        # Scale ai_scan_progress (0-100) to (80-100)
+        # ai_scan_progress=0 -> 80, ai_scan_progress=100 -> 100
+        return 80 + int(ai_scan_progress * 0.2)
+    elif ai_scan_status == "failed":
+        return 80  # AI scan failed, stuck at semantic cache complete
+    elif ai_scan_status in ("completed", "skipped"):
         return 100  # All phases complete
 
     return 0  # Fallback
@@ -323,6 +367,8 @@ def compute_overall_stage(
     embeddings_status: str,
     embeddings_stage: str | None,
     semantic_cache_status: str,
+    ai_scan_status: str = "none",
+    ai_scan_stage: str | None = None,
 ) -> str:
     """
     Compute human-readable overall stage description.
@@ -332,12 +378,14 @@ def compute_overall_stage(
         embeddings_status: Current embeddings status
         embeddings_stage: Current embeddings stage (if running)
         semantic_cache_status: Current semantic cache status
+        ai_scan_status: Current AI scan status (default: "none")
+        ai_scan_stage: Current AI scan stage (if running)
         
     Returns:
         Human-readable stage description
         
-    **Feature: progress-tracking-refactor**
-    **Validates: Requirements 4.3**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Validates: Requirements 4.3, 6.2**
     """
     # Analysis phase
     if analysis_status == "pending":
@@ -375,7 +423,31 @@ def compute_overall_stage(
         return "Computing semantic analysis"
     elif semantic_cache_status == "failed":
         return "Semantic analysis failed"
-    elif semantic_cache_status == "completed":
+    # semantic_cache_status == "completed" -> continue to AI scan phase
+
+    # AI scan phase (semantic cache completed)
+    if ai_scan_status == "none":
+        return "Semantic analysis complete"
+    elif ai_scan_status == "pending":
+        return "Waiting for AI scan to start"
+    elif ai_scan_status == "running":
+        if ai_scan_stage:
+            stage_descriptions = {
+                "initializing": "Initializing AI scan",
+                "cloning": "Cloning repository for AI scan",
+                "generating_view": "Generating repository view",
+                "scanning": "Running AI code analysis",
+                "merging": "Merging AI scan results",
+                "investigating": "Investigating detected issues",
+                "completed": "AI scan complete",
+            }
+            return stage_descriptions.get(ai_scan_stage, f"Running AI scan ({ai_scan_stage})")
+        return "Running AI scan"
+    elif ai_scan_status == "failed":
+        return "AI scan failed"
+    elif ai_scan_status == "skipped":
+        return "All processing complete (AI scan skipped)"
+    elif ai_scan_status == "completed":
         return "All processing complete"
 
     return "Unknown state"
@@ -385,6 +457,7 @@ def compute_is_complete(
     analysis_status: str,
     embeddings_status: str,
     semantic_cache_status: str,
+    ai_scan_status: str = "none",
 ) -> bool:
     """
     Determine if all processing phases are complete.
@@ -393,15 +466,17 @@ def compute_is_complete(
         analysis_status: Current analysis status
         embeddings_status: Current embeddings status
         semantic_cache_status: Current semantic cache status
+        ai_scan_status: Current AI scan status (default: "none")
         
     Returns:
-        True if all phases are completed, False otherwise
+        True if all phases are completed (including AI scan completed or skipped), False otherwise
         
-    **Feature: progress-tracking-refactor**
-    **Validates: Requirements 4.2**
+    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
+    **Validates: Requirements 4.2, 6.1**
     """
     return (
         analysis_status == "completed"
         and embeddings_status == "completed"
         and semantic_cache_status == "completed"
+        and ai_scan_status in ("completed", "skipped")
     )

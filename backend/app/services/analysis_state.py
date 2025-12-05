@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 VALID_EMBEDDINGS_STATUS = frozenset(["none", "pending", "running", "completed", "failed"])
 VALID_SEMANTIC_CACHE_STATUS = frozenset(["none", "pending", "computing", "completed", "failed"])
+VALID_AI_SCAN_STATUS = frozenset(["none", "pending", "running", "completed", "failed", "skipped"])
 
 
 # =============================================================================
@@ -49,6 +50,17 @@ SEMANTIC_CACHE_TRANSITIONS: dict[str, set[str]] = {
     "computing": {"completed", "failed"},
     "completed": set(),  # Terminal state - no transitions allowed
     "failed": {"pending"},  # Can retry
+}
+
+# AI scan status transitions (Requirements 1.2, 1.3, 1.4)
+# Key: current status, Value: set of allowed next statuses
+AI_SCAN_TRANSITIONS: dict[str, set[str]] = {
+    "none": {"pending", "skipped"},
+    "pending": {"running", "failed", "skipped"},
+    "running": {"completed", "failed"},
+    "completed": set(),  # Terminal state - no transitions allowed
+    "failed": {"pending"},  # Can retry
+    "skipped": set(),  # Terminal state - no transitions allowed
 }
 
 
@@ -120,6 +132,24 @@ def is_valid_semantic_cache_transition(current_status: str, new_status: str) -> 
     if current_status not in SEMANTIC_CACHE_TRANSITIONS:
         return False
     return new_status in SEMANTIC_CACHE_TRANSITIONS[current_status]
+
+
+def is_valid_ai_scan_transition(current_status: str, new_status: str) -> bool:
+    """
+    Check if an AI scan status transition is valid.
+    
+    Args:
+        current_status: Current ai_scan_status value
+        new_status: Proposed new ai_scan_status value
+        
+    Returns:
+        True if transition is valid, False otherwise
+        
+    **Validates: Requirements 1.2, 1.3, 1.4**
+    """
+    if current_status not in AI_SCAN_TRANSITIONS:
+        return False
+    return new_status in AI_SCAN_TRANSITIONS[current_status]
 
 
 def validate_progress(progress: int) -> None:
@@ -571,6 +601,10 @@ class AnalysisStateService:
         Mark semantic cache as completed.
         
         Transition: computing -> completed
+        Automatically triggers ai_scan_status -> pending (if enabled).
+        
+        This follows the same pattern as complete_embeddings() which
+        auto-triggers semantic_cache_status -> pending.
         
         Args:
             analysis_id: UUID of the analysis
@@ -579,13 +613,63 @@ class AnalysisStateService:
         Returns:
             Updated Analysis model instance
             
-        **Validates: Requirements 3.2**
+        **Validates: Requirements 1.1, 3.2, 5.1**
         """
-        return self.update_semantic_cache_status(
-            analysis_id=analysis_id,
-            status="completed",
-            cache_data=cache_data,
+        analysis = self._get_analysis(analysis_id)
+        current_status = analysis.semantic_cache_status
+
+        # Validate transition
+        if not is_valid_semantic_cache_transition(current_status, "completed"):
+            logger.warning(
+                f"Invalid semantic_cache transition attempted: "
+                f"'{current_status}' -> 'completed' for analysis {analysis_id}"
+            )
+            raise InvalidStateTransitionError(
+                current_status, "completed", "semantic_cache_status"
+            )
+
+        # Update semantic cache status
+        analysis.semantic_cache_status = "completed"
+        analysis.semantic_cache = cache_data
+
+        # Auto-trigger AI scan pending (Requirements 1.1, 5.1)
+        # Only if ai_scan_status is 'none' (not already started/completed)
+        if analysis.ai_scan_status == "none":
+            # Check if AI scan is enabled via settings
+            from app.core.config import settings
+            if getattr(settings, 'ai_scan_enabled', True):
+                analysis.ai_scan_status = "pending"
+                analysis.ai_scan_stage = "pending"
+                analysis.ai_scan_message = "Waiting for AI scan to start..."
+                logger.info(
+                    f"Auto-triggered ai_scan_status -> pending for analysis {analysis_id}"
+                )
+            else:
+                analysis.ai_scan_status = "skipped"
+                analysis.ai_scan_stage = "skipped"
+                analysis.ai_scan_message = "AI scan skipped (disabled in settings)"
+                logger.info(
+                    f"AI scan skipped (disabled) for analysis {analysis_id}"
+                )
+
+        # Update timestamp for polling optimization
+        self._update_timestamp(analysis)
+
+        # Commit changes
+        self.session.commit()
+
+        # Publish event
+        self._publish_event(
+            analysis,
+            "semantic_cache_completed",
+            {
+                "semantic_cache_status": "completed",
+                "has_semantic_cache": True,
+                "ai_scan_status": analysis.ai_scan_status,
+            },
         )
+
+        return analysis
 
     def fail_semantic_cache(self, analysis_id: UUID, error: str) -> Analysis:
         """
@@ -666,6 +750,327 @@ class AnalysisStateService:
                 "embeddings_status": analysis.embeddings_status,
                 "embeddings_progress": progress,
                 "embeddings_stage": stage,
+            },
+        )
+
+        return analysis
+
+    # =========================================================================
+    # AI Scan State Management Methods
+    # =========================================================================
+
+    def update_ai_scan_status(
+        self,
+        analysis_id: UUID,
+        status: str,
+        progress: int | None = None,
+        stage: str | None = None,
+        message: str | None = None,
+        error: str | None = None,
+    ) -> Analysis:
+        """
+        Update AI scan status with transition validation.
+        
+        Args:
+            analysis_id: UUID of the analysis
+            status: New ai_scan_status value
+            progress: Progress percentage (0-100)
+            stage: Current stage name
+            message: Human-readable progress message
+            error: Error message (for failed status)
+            
+        Returns:
+            Updated Analysis model instance
+            
+        Raises:
+            AnalysisNotFoundError: If analysis not found
+            InvalidStateTransitionError: If transition is invalid
+            InvalidProgressValueError: If progress is out of bounds
+            
+        **Validates: Requirements 2.2, 2.4**
+        """
+        analysis = self._get_analysis(analysis_id)
+        current_status = analysis.ai_scan_status
+
+        # Validate transition (Requirements 1.2, 1.3, 1.4)
+        if not is_valid_ai_scan_transition(current_status, status):
+            logger.warning(
+                f"Invalid ai_scan transition attempted: "
+                f"'{current_status}' -> '{status}' for analysis {analysis_id}"
+            )
+            raise InvalidStateTransitionError(current_status, status, "ai_scan_status")
+
+        # Validate progress if provided
+        if progress is not None:
+            validate_progress(progress)
+            analysis.ai_scan_progress = progress
+
+        # Update status
+        analysis.ai_scan_status = status
+
+        # Update optional fields
+        if stage is not None:
+            analysis.ai_scan_stage = stage
+        if message is not None:
+            analysis.ai_scan_message = message
+        if error is not None:
+            analysis.ai_scan_error = error
+
+        # Update timestamp for polling optimization (Requirements 2.4)
+        self._update_timestamp(analysis)
+
+        # Commit changes
+        self.session.commit()
+
+        # Publish event
+        self._publish_event(
+            analysis,
+            "ai_scan_status_changed",
+            {
+                "ai_scan_status": status,
+                "ai_scan_progress": analysis.ai_scan_progress,
+                "ai_scan_stage": analysis.ai_scan_stage,
+            },
+        )
+
+        return analysis
+
+    def mark_ai_scan_pending(self, analysis_id: UUID) -> Analysis:
+        """
+        Mark AI scan as pending (ready to start).
+        
+        Transition: none -> pending
+        
+        Args:
+            analysis_id: UUID of the analysis
+            
+        Returns:
+            Updated Analysis model instance
+            
+        **Validates: Requirements 1.2**
+        """
+        return self.update_ai_scan_status(
+            analysis_id=analysis_id,
+            status="pending",
+            progress=0,
+            stage="pending",
+            message="Waiting for AI scan to start...",
+        )
+
+    def start_ai_scan(self, analysis_id: UUID) -> Analysis:
+        """
+        Start AI scan.
+        
+        Transition: pending -> running
+        Sets ai_scan_started_at timestamp.
+        
+        Args:
+            analysis_id: UUID of the analysis
+            
+        Returns:
+            Updated Analysis model instance
+            
+        **Validates: Requirements 1.3**
+        """
+        analysis = self._get_analysis(analysis_id)
+        current_status = analysis.ai_scan_status
+
+        # Validate transition
+        if not is_valid_ai_scan_transition(current_status, "running"):
+            logger.warning(
+                f"Invalid ai_scan transition attempted: "
+                f"'{current_status}' -> 'running' for analysis {analysis_id}"
+            )
+            raise InvalidStateTransitionError(current_status, "running", "ai_scan_status")
+
+        # Update status and timestamps
+        analysis.ai_scan_status = "running"
+        analysis.ai_scan_progress = 0
+        analysis.ai_scan_stage = "initializing"
+        analysis.ai_scan_message = "Starting AI scan..."
+        analysis.ai_scan_started_at = datetime.now(timezone.utc)
+        analysis.ai_scan_error = None  # Clear any previous error
+
+        # Update timestamp for polling optimization
+        self._update_timestamp(analysis)
+
+        # Commit changes
+        self.session.commit()
+
+        # Publish event
+        self._publish_event(
+            analysis,
+            "ai_scan_started",
+            {
+                "ai_scan_status": "running",
+                "ai_scan_progress": 0,
+                "ai_scan_stage": "initializing",
+            },
+        )
+
+        return analysis
+
+    def complete_ai_scan(self, analysis_id: UUID, cache_data: dict[str, Any]) -> Analysis:
+        """
+        Mark AI scan as completed.
+        
+        Transition: running -> completed
+        Sets ai_scan_completed_at timestamp.
+        Stores cache data in ai_scan_cache.
+        
+        Args:
+            analysis_id: UUID of the analysis
+            cache_data: AI scan results to store in ai_scan_cache
+            
+        Returns:
+            Updated Analysis model instance
+            
+        **Validates: Requirements 1.4**
+        """
+        analysis = self._get_analysis(analysis_id)
+        current_status = analysis.ai_scan_status
+
+        # Validate transition
+        if not is_valid_ai_scan_transition(current_status, "completed"):
+            logger.warning(
+                f"Invalid ai_scan transition attempted: "
+                f"'{current_status}' -> 'completed' for analysis {analysis_id}"
+            )
+            raise InvalidStateTransitionError(
+                current_status, "completed", "ai_scan_status"
+            )
+
+        # Update AI scan status
+        analysis.ai_scan_status = "completed"
+        analysis.ai_scan_progress = 100
+        analysis.ai_scan_stage = "completed"
+        analysis.ai_scan_message = "AI scan completed"
+        analysis.ai_scan_completed_at = datetime.now(timezone.utc)
+        analysis.ai_scan_cache = cache_data
+
+        # Update timestamp for polling optimization
+        self._update_timestamp(analysis)
+
+        # Commit changes
+        self.session.commit()
+
+        # Publish event
+        self._publish_event(
+            analysis,
+            "ai_scan_completed",
+            {
+                "ai_scan_status": "completed",
+                "ai_scan_progress": 100,
+                "has_ai_scan_cache": True,
+            },
+        )
+
+        return analysis
+
+    def fail_ai_scan(self, analysis_id: UUID, error: str) -> Analysis:
+        """
+        Mark AI scan as failed.
+        
+        Transition: pending|running -> failed
+        
+        Args:
+            analysis_id: UUID of the analysis
+            error: Error message describing the failure
+            
+        Returns:
+            Updated Analysis model instance
+            
+        **Validates: Requirements 5.2**
+        """
+        return self.update_ai_scan_status(
+            analysis_id=analysis_id,
+            status="failed",
+            stage="error",
+            message=f"AI scan failed: {error}",
+            error=error,
+        )
+
+    def skip_ai_scan(self, analysis_id: UUID) -> Analysis:
+        """
+        Skip AI scan (disabled in settings).
+        
+        Transition: none|pending -> skipped
+        
+        Args:
+            analysis_id: UUID of the analysis
+            
+        Returns:
+            Updated Analysis model instance
+            
+        **Validates: Requirements 5.1**
+        """
+        return self.update_ai_scan_status(
+            analysis_id=analysis_id,
+            status="skipped",
+            progress=0,
+            stage="skipped",
+            message="AI scan skipped (disabled in settings)",
+        )
+
+    def update_ai_scan_progress(
+        self,
+        analysis_id: UUID,
+        progress: int,
+        stage: str,
+        message: str | None = None,
+    ) -> Analysis:
+        """
+        Update AI scan progress without changing status.
+        
+        Use this for incremental progress updates during AI scan.
+        Only allows updates when status is 'running'.
+        
+        Args:
+            analysis_id: UUID of the analysis
+            progress: Progress percentage (0-100)
+            stage: Current stage name
+            message: Human-readable progress message
+            
+        Returns:
+            Updated Analysis model instance
+            
+        Raises:
+            InvalidProgressValueError: If progress is out of bounds
+            
+        **Validates: Requirements 4.3**
+        """
+        # Validate progress
+        validate_progress(progress)
+
+        analysis = self._get_analysis(analysis_id)
+
+        # Only allow progress updates when status is 'running'
+        if analysis.ai_scan_status != "running":
+            logger.warning(
+                f"Cannot update AI scan progress when status is '{analysis.ai_scan_status}'"
+            )
+            return analysis
+
+        # Update progress fields
+        analysis.ai_scan_progress = progress
+        analysis.ai_scan_stage = stage
+        if message is not None:
+            analysis.ai_scan_message = message
+
+        # Update timestamp for polling optimization
+        self._update_timestamp(analysis)
+
+        # Commit changes
+        self.session.commit()
+
+        # Publish event
+        self._publish_event(
+            analysis,
+            "ai_scan_progress_updated",
+            {
+                "ai_scan_status": analysis.ai_scan_status,
+                "ai_scan_progress": progress,
+                "ai_scan_stage": stage,
             },
         )
 

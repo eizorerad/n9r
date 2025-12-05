@@ -338,6 +338,15 @@ class TestStateIndependenceFromRedis:
         mock_analysis.state_updated_at = state_updated_at
         mock_analysis.embeddings_started_at = state_updated_at if embeddings_status in ["running", "completed"] else None
         mock_analysis.embeddings_completed_at = state_updated_at if embeddings_status == "completed" else None
+        # AI scan fields (added in Phase 5)
+        mock_analysis.ai_scan_status = "none"
+        mock_analysis.ai_scan_progress = 0
+        mock_analysis.ai_scan_stage = None
+        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = None
+        mock_analysis.ai_scan_started_at = None
+        mock_analysis.ai_scan_completed_at = None
         
         # Mock repository with owner
         mock_analysis.repository = MagicMock()
@@ -432,6 +441,15 @@ class TestStateIndependenceFromRedis:
         mock_analysis.state_updated_at = datetime.now(timezone.utc)
         mock_analysis.embeddings_started_at = None
         mock_analysis.embeddings_completed_at = None
+        # AI scan fields (added in Phase 5)
+        mock_analysis.ai_scan_status = "none"
+        mock_analysis.ai_scan_progress = 0
+        mock_analysis.ai_scan_stage = None
+        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = None
+        mock_analysis.ai_scan_started_at = None
+        mock_analysis.ai_scan_completed_at = None
         mock_analysis.repository = MagicMock()
         mock_analysis.repository.owner_id = user_id
         

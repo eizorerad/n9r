@@ -565,7 +565,7 @@ class TestModelConfiguration:
     def test_known_models_have_config(self):
         """Known models should have specific configurations."""
         assert "gemini/gemini-3-pro-preview" in MODEL_CONFIGS
-        assert "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0" in MODEL_CONFIGS
+        assert "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0" in MODEL_CONFIGS
 
     def test_gemini_config(self):
         """Gemini 3 Pro should have correct config."""
@@ -575,8 +575,8 @@ class TestModelConfiguration:
 
     def test_bedrock_claude_config(self):
         """Claude Sonnet 4.5 on Bedrock should have 1M context header."""
-        config = MODEL_CONFIGS["bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"]
-        assert config["max_tokens"] == 8192
+        config = MODEL_CONFIGS["bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"]
+        assert config["max_tokens"] == 16384
         assert "anthropic-beta" in config["extra_headers"]
         assert "context-1m" in config["extra_headers"]["anthropic-beta"]
 
