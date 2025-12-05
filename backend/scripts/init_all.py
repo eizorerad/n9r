@@ -86,7 +86,7 @@ def init_qdrant() -> None:
     """Initialize Qdrant vector database collection.
     
     Creates:
-    - Collection with 1536-dimensional vectors (OpenAI embeddings)
+    - Collection with 3072-dimensional vectors (text-embedding-3-large)
     - COSINE distance metric for similarity search
     - Payload indexes for repo_id, file_path, language
     """
@@ -120,10 +120,14 @@ def init_qdrant() -> None:
             return
 
         # Create collection
+        # Vector size depends on embedding model:
+        # - text-embedding-3-small: 1536
+        # - text-embedding-3-large: 3072
+        # - amazon.titan-embed-text-v2: 1024
         client.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(
-                size=1536,  # OpenAI text-embedding-3-small
+                size=3072,  # OpenAI/Azure text-embedding-3-large
                 distance=Distance.COSINE,
             ),
         )
@@ -137,7 +141,7 @@ def init_qdrant() -> None:
             )
 
         print_success(f"Collection '{collection_name}' created successfully")
-        print_info("Vector size: 1536 (OpenAI embeddings)")
+        print_info("Vector size: 3072 (text-embedding-3-large)")
         print_info("Distance metric: COSINE")
         print_info("Payload indexes: repo_id, file_path, language")
 
@@ -317,7 +321,7 @@ async def main() -> None:
         print("📊 Infrastructure Status:")
         print("  ✅ PostgreSQL — Database ready with latest schema")
         print("  ✅ Redis — Caching, OAuth, Pub/Sub, Rate limiting")
-        print("  ✅ Qdrant — Vector search with 1536-dim embeddings")
+        print("  ✅ Qdrant — Vector search with 3072-dim embeddings")
         print("  ✅ MinIO — Object storage for reports/logs/artifacts")
 
         print("\n🚀 Next Steps:")
