@@ -404,30 +404,46 @@ export default async function RepositoryPage({
 
         {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+          {/* Row 1: Commit Timeline + AI Scan */}
           {/* Commit Timeline - Left sidebar, 1 column */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 xl:row-span-2">
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-cyan-500/80" />
               <h2 className="text-sm sm:text-base font-semibold tracking-tight">Commit Timeline</h2>
             </div>
-            <div className="max-h-[500px] xl:max-h-[600px] overflow-y-auto">
+            <div className="max-h-[400px] xl:max-h-[500px] overflow-y-auto">
               <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
                 <CommitTimelineSectionWrapper id={id} />
               </Suspense>
             </div>
           </section>
 
-          {/* Semantic Analysis - Takes 3 columns on xl, next to commit timeline */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3 xl:row-span-2">
+          {/* AI Scan - Takes 3 columns on xl */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
+            <div className="flex items-center gap-2 mb-2 sm:mb-3">
+              <span className="w-2 h-2 rounded-full bg-pink-500/80" />
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                AI Scan
+              </h2>
+            </div>
+            <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
+              <AIInsightsSection id={id} />
+            </Suspense>
+          </section>
+
+          {/* Row 2: Semantic Analysis - Full width */}
+          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-purple-500/80" />
               <h2 className="text-sm sm:text-base font-semibold tracking-tight">Semantic Analysis</h2>
             </div>
-            <Suspense fallback={<div className="h-96 bg-muted/30 rounded-lg animate-pulse" />}>
+            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
               <SemanticAnalysisSectionWrapper id={id} />
             </Suspense>
           </section>
 
+          {/* Row 3: Issues + Static Analysis */}
           {/* Issues - Takes 1 column */}
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
@@ -441,25 +457,11 @@ export default async function RepositoryPage({
             </div>
           </section>
 
-          {/* AI Insights - Takes 2 columns */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-pink-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                AI Insights
-              </h2>
-            </div>
-            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
-              <AIInsightsSection id={id} />
-            </Suspense>
-          </section>
-
-          {/* Analysis Details - Takes 3 columns */}
+          {/* Static Analysis - Takes 3 columns */}
           <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
             <div className="flex items-center gap-2 mb-2 sm:mb-3">
               <span className="w-2 h-2 rounded-full bg-blue-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Analysis Details</h2>
+              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Static Analysis</h2>
             </div>
             <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
               <MetricsSection id={id} />

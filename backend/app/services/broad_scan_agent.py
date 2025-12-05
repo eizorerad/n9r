@@ -21,13 +21,22 @@ logger = logging.getLogger(__name__)
 
 
 class CostLimitExceededError(Exception):
-    """Raised when AI scan cost exceeds the configured limit."""
+    """Raised when AI scan cost exceeds the configured limit.
+    
+    Note: This exception is designed to be Celery-serializable by storing
+    all data in the message string and using standard Exception behavior.
+    """
 
     def __init__(self, current_cost: float, limit: float, message: str | None = None):
         self.current_cost = current_cost
         self.limit = limit
-        self.message = message or f"AI scan cost ${current_cost:.4f} exceeds limit ${limit:.2f}"
-        super().__init__(self.message)
+        msg = message or f"AI scan cost ${current_cost:.4f} exceeds limit ${limit:.2f}"
+        # Store structured data in args for Celery serialization
+        super().__init__(msg)
+    
+    def __reduce__(self):
+        """Make exception picklable for Celery serialization."""
+        return (self.__class__, (self.current_cost, self.limit, str(self)))
 
 
 # =============================================================================
@@ -274,6 +283,34 @@ class BroadScanAgent:
         """
         return MODEL_CONFIGS.get(model, DEFAULT_MODEL_CONFIG.copy())
     
+    def _extract_json_from_response(self, response_content: str) -> str:
+        """Extract JSON from response that may be wrapped in markdown code blocks.
+        
+        Some models (especially Claude) may wrap JSON in ```json ... ``` blocks
+        even when response_format is set to json_object.
+        
+        Args:
+            response_content: Raw response string from the model
+            
+        Returns:
+            Cleaned JSON string
+        """
+        content = response_content.strip()
+        
+        # Check for markdown code block wrapping
+        if content.startswith("```"):
+            # Find the end of the first line (```json or just ```)
+            first_newline = content.find("\n")
+            if first_newline != -1:
+                # Remove opening ``` line
+                content = content[first_newline + 1:]
+            
+            # Remove closing ```
+            if content.endswith("```"):
+                content = content[:-3].strip()
+        
+        return content
+    
     def _parse_response(
         self, 
         response_content: str, 
@@ -291,25 +328,56 @@ class BroadScanAgent:
         Raises:
             ValueError: If JSON parsing fails or structure is invalid
         """
+        # Debug: Log raw response preview
+        preview_len = 500
+        logger.debug(
+            f"[{model}] Raw response preview (first {preview_len} chars): "
+            f"{response_content[:preview_len]!r}"
+        )
+        logger.debug(
+            f"[{model}] Raw response length: {len(response_content)} chars"
+        )
+        
+        # Extract JSON from potential markdown wrapping
+        cleaned_content = self._extract_json_from_response(response_content)
+        if cleaned_content != response_content:
+            logger.info(f"[{model}] Extracted JSON from markdown code block")
+        
         try:
-            data = json.loads(response_content)
+            data = json.loads(cleaned_content)
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse JSON from {model}: {e}")
+            logger.error(
+                f"[{model}] Failed to parse JSON: {e}. "
+                f"Content preview: {cleaned_content[:500]!r}"
+            )
             raise ValueError(f"Invalid JSON response: {e}")
+        
+        # Debug: Log parsed structure
+        logger.debug(f"[{model}] Parsed JSON keys: {list(data.keys())}")
         
         # Extract repo_overview
         repo_overview = data.get("repo_overview", {})
         if not isinstance(repo_overview, dict):
+            logger.warning(f"[{model}] repo_overview is not a dict: {type(repo_overview)}")
             repo_overview = {}
         
         # Extract and parse issues
         issues_data = data.get("issues", [])
+        logger.info(
+            f"[{model}] Found 'issues' key with {len(issues_data) if isinstance(issues_data, list) else 'non-list'} items"
+        )
+        
         if not isinstance(issues_data, list):
+            logger.warning(
+                f"[{model}] 'issues' is not a list: {type(issues_data)}. "
+                f"Value preview: {str(issues_data)[:200]!r}"
+            )
             issues_data = []
         
         candidates: list[CandidateIssue] = []
-        for issue in issues_data:
+        for idx, issue in enumerate(issues_data):
             if not isinstance(issue, dict):
+                logger.warning(f"[{model}] Issue {idx} is not a dict: {type(issue)}")
                 continue
             
             try:
@@ -328,15 +396,18 @@ class BroadScanAgent:
                 )
                 candidates.append(candidate)
             except Exception as e:
-                logger.warning(f"Failed to parse issue from {model}: {e}")
+                logger.warning(f"[{model}] Failed to parse issue {idx}: {e}")
                 continue
+        
+        logger.info(f"[{model}] Successfully parsed {len(candidates)} candidates")
         
         return repo_overview, candidates
     
     async def _scan_with_model(
         self, 
         model: str, 
-        repo_view: str
+        repo_view: str,
+        timeout_seconds: int = 300,  # 5 minute timeout per model
     ) -> ModelScanResult:
         """Scan repository with a single model.
         
@@ -346,6 +417,7 @@ class BroadScanAgent:
         Args:
             model: Model identifier to use
             repo_view: Markdown representation of the repository
+            timeout_seconds: Timeout in seconds for the LLM call (default 5 minutes)
             
         Returns:
             ModelScanResult with scan results or error information
@@ -360,16 +432,32 @@ class BroadScanAgent:
             if config.get("extra_headers"):
                 kwargs["extra_headers"] = config["extra_headers"]
             
-            # Make the LLM call
-            response = await self.llm.complete(
-                prompt=repo_view,
-                model=model,
-                system_prompt=BROAD_SCAN_SYSTEM_PROMPT,
-                response_format={"type": "json_object"},
-                max_tokens=config["max_tokens"],
-                temperature=0.1,  # Low temperature for consistent analysis
-                fallback=False,  # Don't use fallback - we want specific model results
-                **kwargs,
+            # Add timeout to kwargs for LiteLLM
+            kwargs["timeout"] = timeout_seconds
+            
+            # IMPORTANT: Don't use response_format for Bedrock models!
+            # Bedrock Claude interprets response_format as tool_calls and returns empty {}
+            # Instead, we rely on the system prompt to request JSON output.
+            is_bedrock = model.startswith("bedrock/")
+            if not is_bedrock:
+                kwargs["response_format"] = {"type": "json_object"}
+            
+            # Make the LLM call with timeout wrapper
+            # Gemini 3 models need temperature=1.0 to avoid infinite loops and degraded reasoning
+            is_gemini3 = "gemini-3" in model.lower() or "gemini-2.5" in model.lower()
+            temperature = 1.0 if is_gemini3 else 0.1
+            
+            response = await asyncio.wait_for(
+                self.llm.complete(
+                    prompt=repo_view,
+                    model=model,
+                    system_prompt=BROAD_SCAN_SYSTEM_PROMPT,
+                    max_tokens=config["max_tokens"],
+                    temperature=temperature,
+                    fallback=False,  # Don't use fallback - we want specific model results
+                    **kwargs,
+                ),
+                timeout=timeout_seconds,
             )
             
             # Extract usage information
@@ -398,6 +486,13 @@ class BroadScanAgent:
                 error=None,
             )
             
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout scanning with {model} after {timeout_seconds}s")
+            return ModelScanResult(
+                model=model,
+                success=False,
+                error=f"Timeout after {timeout_seconds} seconds",
+            )
         except LLMError as e:
             logger.error(f"LLM error scanning with {model}: {e}")
             return ModelScanResult(
@@ -471,14 +566,11 @@ class BroadScanAgent:
             f"${total_cost:.4f} total cost"
         )
         
-        # Check cost limit
+        # Log warning if cost exceeds limit (but don't fail - work is already done)
         if self.max_cost_usd is not None and total_cost > self.max_cost_usd:
-            logger.error(
-                f"AI scan cost ${total_cost:.4f} exceeds limit ${self.max_cost_usd:.2f}"
-            )
-            raise CostLimitExceededError(
-                current_cost=total_cost,
-                limit=self.max_cost_usd,
+            logger.warning(
+                f"AI scan cost ${total_cost:.4f} exceeds limit ${self.max_cost_usd:.2f}. "
+                f"Consider increasing AI_SCAN_MAX_COST_PER_SCAN or reducing models."
             )
         
         return BroadScanResult(

@@ -116,7 +116,7 @@ class Settings(BaseSettings):
 
     # AI Scan Settings
     ai_scan_enabled: bool = True  # Enable/disable automatic AI scan after semantic cache
-    ai_scan_max_cost_per_scan: float = 5.0  # Maximum cost in USD per AI scan
+    ai_scan_max_cost_per_scan: float = 10.0  # Maximum cost in USD per AI scan (2 models ~$5-6)
 
     # Feature Flags
     # When True, use PostgreSQL as single source of truth for embeddings state

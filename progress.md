@@ -143,3 +143,57 @@ Implemented Commit Selector MVP allowing users to view commit history per branch
 
 ## What Was Done
 Major architecture shift from Redis-only to PostgreSQL-based state management for embeddings and semantic cache progress tracking. State is now persisted in PostgreSQL with proper constraints, enabling recovery after restarts and eliminating Redis dependency for critical state. Features include: validated state transitions (pending→processing→completed/failed), progress tracking with stage information, automatic semantic cache task queuing on embeddings completion, Redis event publishing for real-time updates, backward-compatible legacy endpoint, and feature flag for gradual rollout. Frontend uses React Query with smart polling intervals that stop when is_complete is true. All 7 phases completed with property-based tests validating state persistence, transitions, progress bounds, and event publishing.
+
+
+# 05-dec-2025 - AI Scan Integration
+
+## Files Created
+- `backend/alembic/versions/006_add_ai_scan_cache.py` - Migration adding ai_scan_cache JSONB column to analyses table
+- `backend/app/schemas/ai_scan.py` - AIScanRequest, AIScanIssue, AIScanCacheResponse, CandidateIssue schemas with validation
+- `backend/app/services/repo_view_generator.py` - RepoViewGenerator for LLM-friendly markdown with token budgeting and file prioritization
+- `backend/app/services/broad_scan_agent.py` - BroadScanAgent for multi-model parallel scanning (Gemini 3 Pro + Claude Sonnet 4.5)
+- `backend/app/services/issue_merger.py` - IssueMerger for deduplication, confidence boosting, and unique ID generation
+- `backend/app/services/issue_investigator.py` - IssueInvestigator tool-calling agent for deep-diving high-severity issues
+- `backend/app/workers/ai_scan.py` - Celery task for AI scan pipeline orchestration
+- `backend/app/api/v1/ai_scan.py` - POST trigger, GET results, SSE streaming endpoints
+- `backend/tests/test_ai_scan_cache.py` - Property tests for cache round-trip serialization
+- `backend/tests/test_ai_scan_schemas.py` - Property tests for schema validation
+- `backend/tests/test_repo_view_generator.py` - Property tests for token budget, file prioritization, large file truncation
+- `backend/tests/test_ai_scan_worker.py` - Property tests for commit SHA consistency, results persistence, cost tracking
+- `backend/tests/test_issue_investigator.py` - Property tests for investigation output completeness
+- `frontend/lib/ai-scan-api.ts` - triggerAIScan, getAIScanResults, streamAIScanProgress API client
+- `frontend/components/ai-insights-panel.tsx` - AI Insights panel with issue display, severity grouping, SSE progress
+
+## Files Modified
+- `backend/app/models/analysis.py` - Added ai_scan_cache JSONB field
+- `backend/app/api/v1/__init__.py` - Registered ai_scan router
+- `backend/app/core/config.py` - Added AI_SCAN_MAX_COST_PER_SCAN setting
+- `backend/app/services/llm_gateway.py` - Added extra_headers support for Claude 1M context beta
+- `frontend/app/dashboard/repository/[id]/page.tsx` - Integrated AIInsightsPanel in bento grid
+
+## What Was Done
+Implemented full AI-powered code analysis as the third analysis method in n9r. Pipeline includes: RepoViewGenerator creating LLM-friendly markdown within 800K token budget with smart file prioritization (entry points → configs → core logic → API routes), BroadScanAgent running parallel scans across Gemini 3 Pro and Claude Sonnet 4.5 with model-specific configs (1M context windows), IssueMerger deduplicating issues with 0.8 similarity threshold and boosting confidence when found by multiple models, optional IssueInvestigator for tool-calling validation of critical/high severity issues. Results cached in PostgreSQL JSONB with cost tracking. Frontend displays issues grouped by severity with expandable details and evidence snippets. Property-based tests cover 19 correctness properties including token budgets, deduplication, cost limits, and cache round-trips.
+
+
+# 05-dec-2025 - AI Scan Orchestration & Unified Progress
+
+## Files Created
+- `backend/alembic/versions/008_add_ai_scan_tracking.py` - Migration adding ai_scan_status, ai_scan_progress, ai_scan_stage, ai_scan_message, ai_scan_error, ai_scan_started_at, ai_scan_completed_at columns
+- `backend/tests/test_ai_scan_state_transitions.py` - Property tests for AI scan state transitions, automatic chaining, failure isolation
+- `frontend/__tests__/stores/analysis-progress-store.test.ts` - Tests for ai_scan task type in progress store
+- `frontend/__tests__/components/ai-insights-panel.test.tsx` - Tests for AI Insights panel rendering states
+
+## Files Modified
+- `backend/app/models/analysis.py` - Added AI scan tracking columns (status, progress, stage, message, error, timestamps)
+- `backend/app/services/analysis_state.py` - Extended with AI_SCAN_TRANSITIONS, mark_ai_scan_pending, start_ai_scan, complete_ai_scan, fail_ai_scan, skip_ai_scan, update_ai_scan_progress methods
+- `backend/app/workers/embeddings.py` - Modified compute_semantic_cache to auto-queue AI scan on completion
+- `backend/app/workers/ai_scan.py` - Refactored to use AnalysisStateService for PostgreSQL-backed state management
+- `backend/app/schemas/analysis.py` - Added AIScanStatus enum, extended AnalysisFullStatusResponse with AI scan fields, updated compute_overall_progress (80-100% for AI scan phase)
+- `backend/app/api/v1/analyses.py` - Extended full-status endpoint with AI scan state
+- `backend/app/core/config.py` - Added ai_scan_enabled setting for skip behavior
+- `frontend/lib/stores/analysis-progress-store.ts` - Added 'ai_scan' task type and getAIScanTaskId helper
+- `frontend/lib/hooks/use-analysis-status.ts` - Extended AnalysisFullStatus interface, added AI scan polling logic and progress store sync
+- `frontend/components/ai-insights-panel.tsx` - Simplified to use unified progress system, removed inline SSE streaming
+
+## What Was Done
+Integrated AI Scan into the unified analysis pipeline architecture with PostgreSQL as single source of truth. Features include: automatic chaining from semantic cache completion to AI scan (following same pattern as embeddings → semantic cache), validated state transitions via AnalysisStateService, extended Full Status API with AI scan fields, updated overall progress calculation (Static 0-30%, Embeddings 30-60%, Semantic Cache 60-80%, AI Scan 80-100%), frontend progress store extended with 'ai_scan' task type, smart polling intervals for AI scan states, and skip behavior when ai_scan_enabled=False. Property-based tests validate 10 correctness properties including state transitions, automatic chaining, failure isolation, retry capability, and PostgreSQL as SSOT.

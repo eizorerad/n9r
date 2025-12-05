@@ -391,7 +391,6 @@ def run_ai_scan(
     from app.services.broad_scan_agent import (
             DEFAULT_SCAN_MODELS,
             get_broad_scan_agent,
-            CostLimitExceededError,
         )
     from app.services.issue_merger import get_issue_merger
     from app.services.repo_view_generator import RepoViewGenerator

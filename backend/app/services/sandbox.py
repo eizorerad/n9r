@@ -2,6 +2,7 @@
 
 import logging
 import os
+import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -432,7 +433,15 @@ class Sandbox:
         workdir: str = "/workspace/repo",
         timeout: int | None = None,
     ) -> tuple[int, str]:
-        """Execute a command in the sandbox."""
+        """Execute a command in the sandbox.
+        
+        SECURITY: The command string is passed to sh -c, so it supports shell
+        features like pipes and redirects. However, any dynamic values
+        (especially file paths) MUST be escaped with shlex.quote() before
+        being interpolated into the command string to prevent injection.
+        
+        For commands with untrusted arguments, prefer exec_args() instead.
+        """
         if not self.container:
             raise RuntimeError("Sandbox not started")
 
@@ -440,9 +449,54 @@ class Sandbox:
 
         logger.debug(f"Executing in sandbox: {command}")
 
-        # Execute command
+        # Execute command via shell
+        # SECURITY: Command is passed as a list to avoid double-escaping issues.
+        # The caller is responsible for escaping any dynamic values in the command.
         exec_result = self.container.exec_run(
-            f"sh -c '{command}'",
+            ["sh", "-c", command],
+            workdir=workdir,
+            demux=True,
+        )
+
+        exit_code = exec_result.exit_code
+        stdout = exec_result.output[0] or b""
+        stderr = exec_result.output[1] or b""
+
+        output = (stdout + stderr).decode("utf-8", errors="replace")
+
+        return exit_code, output
+
+    async def exec_args(
+        self,
+        args: list[str],
+        workdir: str = "/workspace/repo",
+        timeout: int | None = None,
+    ) -> tuple[int, str]:
+        """Execute a command in the sandbox without shell interpretation.
+        
+        SECURITY: This method executes commands directly without a shell,
+        making it safe for untrusted arguments (e.g., file paths from repos).
+        No shell escaping is needed. This is the preferred method when
+        shell features (pipes, redirects, etc.) are not required.
+        
+        Args:
+            args: Command and arguments as a list, e.g., ["python", "-m", "pytest", "test.py"]
+            workdir: Working directory inside the container
+            timeout: Command timeout in seconds
+            
+        Returns:
+            Tuple of (exit_code, combined stdout+stderr output)
+        """
+        if not self.container:
+            raise RuntimeError("Sandbox not started")
+
+        timeout = timeout or self.timeout
+
+        logger.debug(f"Executing in sandbox (no shell): {args}")
+
+        # Execute command directly without shell - safe for untrusted arguments
+        exec_result = self.container.exec_run(
+            args,
             workdir=workdir,
             demux=True,
         )

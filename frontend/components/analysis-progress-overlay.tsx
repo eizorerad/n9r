@@ -24,6 +24,12 @@ const STAGE_LABELS: Record<string, string> = {
   embedding: 'Generating embeddings...',
   storing: 'Storing vectors...',
   indexing: 'Storing vectors in Qdrant...',
+  // AI Scan stages
+  pending: 'Waiting to start...',
+  generating_view: 'Generating repository view...',
+  scanning: 'Running AI models...',
+  merging: 'Merging results...',
+  investigating: 'Investigating issues...',
 }
 
 function TaskIcon({ task }: { task: ProgressTask }) {
@@ -40,6 +46,9 @@ function TaskIcon({ task }: { task: ProgressTask }) {
       "h-4 w-4",
       isWaiting ? "text-muted-foreground" : "text-purple-500 animate-pulse"
     )} />
+  }
+  if (task.type === 'ai_scan') {
+    return <Brain className="h-4 w-4 text-emerald-500 animate-pulse" />
   }
   return <Search className="h-4 w-4 text-blue-500 animate-pulse" />
 }
@@ -60,7 +69,11 @@ function TaskItem({ task }: { task: ProgressTask }) {
       <div className="flex items-center gap-2 mb-2">
         <TaskIcon task={task} />
         <span className="text-sm font-medium flex-1 truncate">
-          {task.type === 'analysis' ? 'Code Analysis' : 'Semantic Embeddings'}
+          {task.type === 'analysis' 
+            ? 'Code Analysis' 
+            : task.type === 'ai_scan' 
+              ? 'AI Scan' 
+              : 'Semantic Embeddings'}
         </span>
         {isActive && (
           <span className="text-xs text-muted-foreground">

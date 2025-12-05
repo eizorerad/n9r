@@ -1,6 +1,7 @@
 """Healing Orchestrator - Coordinates all agents for auto-healing with iterative retry loop."""
 
 import logging
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -437,16 +438,18 @@ class HealingOrchestrator:
         """
         try:
             # Determine lint command based on file extension
+            # SECURITY: Use shlex.quote() to escape file paths to prevent command injection
             full_path = f"/workspace/repo/{file_path}"
+            safe_path = shlex.quote(full_path)
 
             if file_path.endswith('.py'):
-                cmd = f"python -m py_compile {full_path}"
+                cmd = f"python -m py_compile {safe_path}"
                 timeout = 30
             elif file_path.endswith(('.ts', '.tsx')):
-                cmd = f"npx tsc --noEmit {full_path}"
+                cmd = f"npx tsc --noEmit {safe_path}"
                 timeout = 60
             elif file_path.endswith(('.js', '.jsx')):
-                cmd = f"node --check {full_path}"
+                cmd = f"node --check {safe_path}"
                 timeout = 30
             else:
                 # Skip lint for unknown file types
@@ -483,13 +486,17 @@ class HealingOrchestrator:
             Dict with passed, output, skipped, error keys
         """
         try:
+            # SECURITY: Use shlex.quote() to escape file paths to prevent command injection
             full_path = f"/workspace/repo/{test_file_path}"
+            safe_path = shlex.quote(full_path)
 
             if test_framework == "pytest":
-                cmd = f"python -m pytest {full_path} -v --tb=short"
+                cmd = f"python -m pytest {safe_path} -v --tb=short"
                 timeout = 120
             elif test_framework in ("jest", "vitest"):
-                cmd = f"npx {test_framework} {full_path} --passWithNoTests"
+                # Also escape framework name in case it's user-controlled
+                safe_framework = shlex.quote(test_framework)
+                cmd = f"npx {safe_framework} {safe_path} --passWithNoTests"
                 timeout = 120
             else:
                 # Unknown framework - skip tests
