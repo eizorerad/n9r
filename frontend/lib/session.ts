@@ -52,10 +52,14 @@ export async function createSession(data: Omit<SessionPayload, 'expiresAt'>) {
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
   const session = await encrypt({ ...data, expiresAt })
   
+  // Only use secure cookies if explicitly using HTTPS
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const useSecure = appUrl.startsWith('https://')
+  
   const cookieStore = await cookies()
   cookieStore.set('n9r_session', session, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: useSecure,
     expires: expiresAt,
     sameSite: 'lax',
     path: '/',
