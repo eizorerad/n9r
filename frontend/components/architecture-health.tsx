@@ -39,8 +39,17 @@ const riskColors: Record<string, string> = {
   low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
 }
 
+// Normalize cached data to ensure overall_score is always a number
+function normalizeCachedData(cached: CachedArchitectureHealth | undefined): ArchitectureHealthResponse | null {
+  if (!cached) return null
+  return {
+    ...cached,
+    overall_score: cached.overall_score ?? cached.score ?? 0,
+  }
+}
+
 function ArchitectureHealthComponent({ repositoryId, token, className, cachedData }: ArchitectureHealthProps) {
-  const [data, setData] = useState<ArchitectureHealthResponse | null>(cachedData || null)
+  const [data, setData] = useState<ArchitectureHealthResponse | null>(() => normalizeCachedData(cachedData))
   const [loading, setLoading] = useState(!cachedData)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
@@ -52,7 +61,7 @@ function ArchitectureHealthComponent({ repositoryId, token, className, cachedDat
   useEffect(() => {
     // If we have cached data, use it directly
     if (cachedData) {
-      setData(cachedData)
+      setData(normalizeCachedData(cachedData))
       setLoading(false)
       setError(null)
       return
