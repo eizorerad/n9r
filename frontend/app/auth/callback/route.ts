@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { handleGitHubCallback } from '@/app/actions/auth'
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const code = searchParams.get('code')
@@ -10,14 +12,14 @@ export async function GET(request: NextRequest) {
   if (error) {
     const errorDescription = searchParams.get('error_description') || 'Authentication was cancelled'
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(errorDescription)}`, request.url)
+      new URL(`/login?error=${encodeURIComponent(errorDescription)}`, APP_URL)
     )
   }
 
   // Validate code
   if (!code) {
     return NextResponse.redirect(
-      new URL('/login?error=No authorization code received', request.url)
+      new URL('/login?error=No authorization code received', APP_URL)
     )
   }
 
@@ -26,10 +28,10 @@ export async function GET(request: NextRequest) {
 
   if (result.error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(result.error)}`, request.url)
+      new URL(`/login?error=${encodeURIComponent(result.error)}`, APP_URL)
     )
   }
 
   // Redirect to dashboard on success
-  return NextResponse.redirect(new URL('/dashboard', request.url))
+  return NextResponse.redirect(new URL('/dashboard', APP_URL))
 }
