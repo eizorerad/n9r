@@ -3,11 +3,17 @@
 import { getSession } from '@/lib/session'
 import { revalidatePath } from 'next/cache'
 
+// Server-side API URL (for server-to-server requests)
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8000/v1'
 
+// Client-side API URL (for browser requests like SSE)
+// NEXT_PUBLIC_* variables are available at build time
+const CLIENT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/v1'
+
 // Export API URL for client-side SSE connection
+// This must return the PUBLIC URL that browsers can reach
 export async function getApiUrl(): Promise<string> {
-  return API_BASE_URL
+  return CLIENT_API_URL
 }
 
 // Export access token for client-side SSE connection  
