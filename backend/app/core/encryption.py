@@ -12,14 +12,14 @@ from app.core.config import settings
 
 def _get_key() -> bytes:
     """Derive encryption key from SECRET_KEY.
-    
+
     Uses a salt derived from SECRET_KEY itself, making it unique per installation
     while remaining deterministic for consistent encryption/decryption.
     """
     # Derive installation-unique salt from SECRET_KEY
     # This ensures each deployment has a unique salt without storing it separately
     salt = hashlib.sha256(f"{settings.secret_key}_n9r_salt_v2".encode()).digest()[:16]
-    
+
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -32,10 +32,10 @@ def _get_key() -> bytes:
 
 def encrypt_token(token: str) -> str:
     """Encrypt a token (e.g., GitHub access token).
-    
+
     Args:
         token: The plaintext token to encrypt.
-        
+
     Returns:
         Base64-encoded encrypted token.
     """
@@ -50,13 +50,13 @@ def encrypt_token(token: str) -> str:
 
 def decrypt_token(encrypted_token: str) -> str:
     """Decrypt an encrypted token.
-    
+
     Args:
         encrypted_token: Base64-encoded encrypted token.
-        
+
     Returns:
         The decrypted plaintext token.
-        
+
     Raises:
         InvalidToken: If the token cannot be decrypted.
     """
@@ -79,10 +79,14 @@ def encrypt_token_or_none(token: str | None) -> str | None:
 
 def decrypt_token_or_none(encrypted_token: str | None) -> str | None:
     """Decrypt a token if it exists, otherwise return None."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     if encrypted_token is None:
         return None
     try:
         return decrypt_token(encrypted_token)
-    except Exception:
-        # If decryption fails, return None instead of raising
+    except Exception as e:
+        # If decryption fails, log the error and return None
+        logger.warning(f"Token decryption failed: {type(e).__name__}: {e}")
         return None

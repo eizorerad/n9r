@@ -46,7 +46,7 @@ class ImportAnalysis:
 @dataclass
 class ArchContext:
     """Simple architectural context for a file.
-    
+
     Attributes:
         directory: Parent directory path
         filename: File name
@@ -163,14 +163,14 @@ TEST_FILE_PATTERNS = (
 
 def get_arch_context(file_path: str) -> ArchContext:
     """Get architectural context for a file.
-    
+
     Detects:
     - Architectural layer from path keywords (models, services, api, tests, utils, workers)
     - Test file status from patterns (test_, _test., .test., .spec., /tests/, /__tests__/)
-    
+
     Args:
         file_path: The file path to analyze
-    
+
     Returns:
         ArchContext with directory, filename, layer, and is_test fields
     """
@@ -221,15 +221,15 @@ def get_arch_context(file_path: str) -> ArchContext:
 
 def same_layer(file_a: str, file_b: str) -> bool:
     """Check if two files are in the same architectural layer.
-    
+
     Compares:
     - Directory paths for exact match
     - Detected layer types if both are known
-    
+
     Args:
         file_a: Path to the first file
         file_b: Path to the second file
-    
+
     Returns:
         True if files are in the same layer, False otherwise
     """
@@ -267,18 +267,18 @@ TEST_SUFFIXES = ("_test", ".test", "_spec", ".spec", "Test", "Spec")
 
 def get_test_base_name(file_path: str) -> str:
     """Extract base name from test file path by removing test markers.
-    
+
     Removes:
     - Test prefixes: test_, Test
     - Test suffixes: _test, .test, _spec, .spec, Test, Spec
     - File extensions before processing
-    
+
     Args:
         file_path: The test file path to process
-    
+
     Returns:
         The base name with all test markers removed
-    
+
     Examples:
         >>> get_test_base_name("tests/test_user.py")
         'user'
@@ -327,17 +327,17 @@ def evaluate_test_relationship(
     similarity: float,
 ) -> tuple[float, str]:
     """Evaluate test file relationships and return confidence adjustment.
-    
+
     Evaluates:
     - Colocated tests: base names match -> -0.4 adjustment
     - Tests similar to unrelated code: similarity > 0.7 -> +0.1 adjustment
     - Orphaned tests: similarity < 0.4 -> +0.2 adjustment
-    
+
     Args:
         outlier_path: Path to the outlier (test) file
         nearest_path: Path to the nearest neighbor file
         similarity: Similarity score between outlier and nearest neighbor
-    
+
     Returns:
         A tuple of (confidence_adjustment, reason)
     """
@@ -394,7 +394,7 @@ def calculate_balanced_confidence(
     import_analysis: ImportAnalysis,
 ) -> tuple[float, list[str]]:
     """Calculate confidence score with reasons for an outlier.
-    
+
     Starts with a neutral score of 0.5 and applies adjustments based on:
     - Boilerplate detection (-0.35)
     - Import relationship (-0.30)
@@ -404,15 +404,15 @@ def calculate_balanced_confidence(
     - High similarity same layer boost (+0.25)
     - Circular import boost (+0.20)
     - Shared imports boost (+0.10 for 3+ shared)
-    
+
     Final score is clamped to [0.1, 0.9].
-    
+
     Args:
         outlier_payload: Metadata for the outlier chunk
         nearest_payload: Metadata for the nearest neighbor chunk (may be None)
         similarity: Similarity score between outlier and nearest neighbor
         import_analysis: Import relationship analysis between the files
-    
+
     Returns:
         A tuple of (confidence score 0.1-0.9, list of reasons)
     """
@@ -499,18 +499,18 @@ def calculate_balanced_confidence(
 
 def is_likely_boilerplate(name: str, file_path: str) -> tuple[bool, str]:
     """Check if a function/method is likely boilerplate.
-    
+
     Detects:
     - Python dunder methods (__X__ pattern)
     - Framework conventions (constructor, render, componentDidMount, etc.)
     - Short names (<=3 chars) in utility directories
     - Common utility names (get, set, run, add, put, pop, map, log)
     - Architectural pattern suffixes (Factory, Adapter, Middleware, Provider, Interceptor)
-    
+
     Args:
         name: The function/method name to check
         file_path: The file path where the function is located
-    
+
     Returns:
         A tuple of (is_boilerplate, reason) where reason explains the classification
     """
@@ -547,11 +547,11 @@ def is_likely_boilerplate(name: str, file_path: str) -> tuple[bool, str]:
 
 def extract_imports(content: str, language: str) -> set[str]:
     """Extract import statements from code content.
-    
+
     Args:
         content: The source code content to analyze
         language: The programming language ('python', 'javascript', 'typescript')
-    
+
     Returns:
         A set of module paths extracted from import statements
     """
@@ -584,10 +584,10 @@ def extract_imports(content: str, language: str) -> set[str]:
 
 def to_module_path(file_path: str) -> str:
     """Convert a file path to a module path for import matching.
-    
+
     Args:
         file_path: The file path to convert (e.g., 'app/services/cluster_analyzer.py')
-    
+
     Returns:
         The module path (e.g., 'app.services.cluster_analyzer')
     """
@@ -620,12 +620,12 @@ def analyze_import_relationship(
     import_graph: dict[str, set[str]],
 ) -> ImportAnalysis:
     """Analyze import relationship between two files.
-    
+
     Args:
         file_a: Path to the first file
         file_b: Path to the second file
         import_graph: Mapping of file paths to their import statements
-    
+
     Returns:
         ImportAnalysis with relationship details
     """
@@ -697,7 +697,7 @@ class ClusterInfo:
 @dataclass
 class OutlierInfo:
     """Information about an outlier (potential dead/misplaced code).
-    
+
     Attributes:
         file_path: Path to the outlier file
         chunk_name: Name of the code chunk (function, class, etc.)
@@ -742,12 +742,12 @@ class ArchitectureHealth:
 
     def to_cacheable_dict(self) -> dict:
         """Convert to JSON-serializable dict for PostgreSQL storage.
-        
+
         Ensures all values are JSON-serializable:
         - Converts dataclasses to dicts
         - Converts numpy types to Python native types
         - Adds computed_at timestamp in ISO format
-        
+
         Returns:
             JSON-serializable dict suitable for JSONB storage
         """
@@ -851,7 +851,7 @@ class ClusterAnalyzer:
         hotspots = self._find_coupling_hotspots(labels, payloads, cluster_id_to_name)
 
         # Count unique files
-        unique_files = set(p.get("file_path") for p in payloads if p.get("file_path"))
+        unique_files = {p.get("file_path") for p in payloads if p.get("file_path")}
 
         # Calculate overall score with accurate counts
         overall_score = self._calculate_overall_score(
@@ -957,7 +957,7 @@ class ClusterAnalyzer:
         for cluster_id in sorted(unique_labels):
             mask = labels == cluster_id
             cluster_vectors = vectors[mask]
-            cluster_payloads = [p for p, m in zip(payloads, mask) if m]
+            cluster_payloads = [p for p, m in zip(payloads, mask, strict=False) if m]
 
             # Calculate cohesion (1 - avg pairwise distance)
             if len(cluster_vectors) > 1:
@@ -1013,7 +1013,7 @@ class ClusterAnalyzer:
 
         # Find common prefix
         common_parts = []
-        for parts in zip(*parts_list):
+        for parts in zip(*parts_list, strict=False):
             if len(set(parts)) == 1:
                 common_parts.append(parts[0])
             else:
@@ -1038,7 +1038,7 @@ class ClusterAnalyzer:
         payloads: list[dict]
     ) -> list[OutlierInfo]:
         """Find outliers with balanced confidence scoring and filtering.
-        
+
         Uses the balanced architecture filter to:
         - Build import graph from payloads
         - Analyze import relationships for each outlier
@@ -1060,9 +1060,9 @@ class ClusterAnalyzer:
         # For each outlier, find nearest non-outlier
         non_outlier_mask = labels != -1
         non_outlier_vectors = vectors[non_outlier_mask]
-        non_outlier_payloads = [p for p, m in zip(payloads, non_outlier_mask) if m]
+        non_outlier_payloads = [p for p, m in zip(payloads, non_outlier_mask, strict=False) if m]
 
-        for i, (is_outlier, vector, payload) in enumerate(zip(outlier_mask, vectors, payloads)):
+        for _i, (is_outlier, vector, payload) in enumerate(zip(outlier_mask, vectors, payloads, strict=False)):
             if not is_outlier:
                 continue
 
@@ -1126,13 +1126,13 @@ class ClusterAnalyzer:
 
     def _build_import_graph(self, payloads: list[dict]) -> dict[str, set[str]]:
         """Build import graph from payloads.
-        
+
         Extracts imports from each unique file's content and builds a mapping
         of file paths to their import statements.
-        
+
         Args:
             payloads: List of chunk payloads with file_path, content, and language
-        
+
         Returns:
             Dictionary mapping file paths to sets of imported module paths
         """
@@ -1171,10 +1171,10 @@ class ClusterAnalyzer:
 
     def _assign_tier(self, confidence: float) -> str:
         """Assign tier based on confidence score.
-        
+
         Args:
             confidence: Confidence score (0.1-0.9)
-        
+
         Returns:
             Tier classification: "critical", "recommended", or "informational"
         """
@@ -1192,12 +1192,12 @@ class ClusterAnalyzer:
         similarity: float,
     ) -> str:
         """Generate human-readable suggestion based on confidence factors.
-        
+
         Args:
             confidence_factors: List of reasons explaining the confidence score
             nearest_file: Path to the nearest neighbor file
             similarity: Similarity score to nearest neighbor
-        
+
         Returns:
             Human-readable suggestion string
         """
@@ -1246,7 +1246,7 @@ class ClusterAnalyzer:
         cluster_id_to_name: dict[int, str] | None = None,
     ) -> list[CouplingHotspot]:
         """Find files that bridge multiple clusters (god files).
-        
+
         Args:
             labels: Cluster labels for each chunk
             payloads: Metadata for each chunk
@@ -1255,7 +1255,7 @@ class ClusterAnalyzer:
         # Group chunks by file
         file_clusters: dict[str, set[int]] = defaultdict(set)
 
-        for label, payload in zip(labels, payloads):
+        for label, payload in zip(labels, payloads, strict=False):
             if label == -1:  # Skip outliers
                 continue
             file_path = payload.get("file_path", "")
@@ -1292,7 +1292,7 @@ class ClusterAnalyzer:
         total_files: int = 0,
     ) -> int:
         """Calculate overall architecture health score (0-100).
-        
+
         Components:
         - Cohesion (35%): Weighted average of cluster cohesion by size
         - Outliers (30%): Penalty for code not fitting any cluster

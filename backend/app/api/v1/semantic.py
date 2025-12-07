@@ -72,7 +72,7 @@ async def semantic_search(
 ) -> SemanticSearchResponse:
     """
     Search code using natural language.
-    
+
     Examples:
     - "user authentication"
     - "database connection handling"
@@ -100,7 +100,7 @@ async def semantic_search(
         query_embedding = await llm.embed([q])
 
         # Search in Qdrant using query_points (new API)
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         query_result = qdrant.query_points(
             collection_name=COLLECTION_NAME,
@@ -172,7 +172,7 @@ async def get_related_code(
 ) -> RelatedCodeResponse:
     """
     Find code semantically related to a given file.
-    
+
     Useful for:
     - Impact analysis: "What might break if I change this?"
     - Understanding dependencies beyond imports
@@ -216,7 +216,7 @@ async def get_related_code(
         avg_vector = np.mean(vectors, axis=0).tolist()
 
         # Search for similar code, excluding the query file
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         query_result = qdrant.query_points(
             collection_name=COLLECTION_NAME,
@@ -316,7 +316,7 @@ async def get_architecture_health(
 ) -> ArchitectureHealthResponse:
     """
     Get architecture health analysis for a repository.
-    
+
     Includes:
     - Detected clusters with cohesion scores
     - Outliers (potential dead/misplaced code)
@@ -403,7 +403,7 @@ async def get_outliers(
 ) -> OutliersResponse:
     """
     Get outliers (potential dead/misplaced code) for a repository.
-    
+
     Outliers are code chunks that don't belong to any cluster,
     indicating they may be:
     - Dead code
@@ -474,7 +474,7 @@ async def suggest_placement(
 ) -> PlacementSuggestionResponse:
     """
     Suggest better placement for a file based on semantic similarity.
-    
+
     Useful for:
     - Finding misplaced files
     - Reorganizing code structure
@@ -574,7 +574,7 @@ async def find_similar_code(
 ) -> SimilarCodeResponse:
     """
     Find groups of similar code (potential duplicates).
-    
+
     Uses vector similarity to find code that is semantically similar,
     even if the syntax differs.
     """
@@ -716,7 +716,7 @@ async def get_refactoring_suggestions(
 ) -> RefactoringSuggestionsResponse:
     """
     Get refactoring suggestions based on semantic analysis.
-    
+
     Combines cluster analysis, similarity detection, and complexity metrics
     to suggest actionable refactoring opportunities.
     """
@@ -847,7 +847,7 @@ async def get_tech_debt_heatmap(
 ) -> TechDebtHeatmapResponse:
     """
     Get technical debt heatmap combining complexity and architecture metrics.
-    
+
     Identifies files that are both complex and poorly integrated,
     making them high-priority refactoring targets.
     """
@@ -949,7 +949,7 @@ async def check_style_consistency(
 ) -> StyleConsistencyResponse:
     """
     Check code style consistency for a file.
-    
+
     Compares the file's patterns against the rest of the codebase
     to detect style drift and inconsistencies.
     """
@@ -1092,10 +1092,10 @@ async def get_embedding_status(
 ) -> EmbeddingStatusResponse:
     """
     Get current embedding generation status for a repository.
-    
+
     DEPRECATED: Use GET /analyses/{id}/full-status instead.
     This endpoint is maintained for backward compatibility.
-    
+
     Returns the progress of any ongoing embedding generation,
     or the last known status if completed.
     """
@@ -1104,7 +1104,7 @@ async def get_embedding_status(
         f"DEPRECATED: GET /repositories/{repository_id}/embedding-status called. "
         "Use GET /analyses/{{id}}/full-status instead."
     )
-    
+
     # Verify repository access
     result = await db.execute(
         select(Repository).where(
@@ -1118,7 +1118,7 @@ async def get_embedding_status(
 
     # Find the most recent analysis for this repository (Requirements 8.3)
     from app.models.analysis import Analysis
-    
+
     most_recent_analysis_result = await db.execute(
         select(Analysis)
         .where(Analysis.repository_id == repository_id)
@@ -1126,7 +1126,7 @@ async def get_embedding_status(
         .limit(1)
     )
     analysis = most_recent_analysis_result.scalar_one_or_none()
-    
+
     if not analysis:
         # No analysis exists for this repository
         return EmbeddingStatusResponse(
@@ -1139,10 +1139,10 @@ async def get_embedding_status(
             vectors_stored=0,
             analysis_id=None,
         )
-    
+
     # Read embeddings status from PostgreSQL (single source of truth)
     embeddings_status = analysis.embeddings_status
-    
+
     # Map 'none' status to check if we should report 'none' or look for existing vectors
     if embeddings_status == "none":
         # Check if vectors exist in Qdrant for backward compatibility
@@ -1171,7 +1171,7 @@ async def get_embedding_status(
                 )
         except Exception as e:
             logger.warning(f"Failed to check Qdrant for legacy vectors: {e}")
-        
+
         return EmbeddingStatusResponse(
             repository_id=str(repository_id),
             status="none",
@@ -1182,7 +1182,7 @@ async def get_embedding_status(
             vectors_stored=0,
             analysis_id=str(analysis.id),
         )
-    
+
     # Return status from PostgreSQL in the existing format
     # Map embeddings_status to the legacy status values
     status_mapping = {
@@ -1191,9 +1191,9 @@ async def get_embedding_status(
         "completed": "completed",
         "failed": "error",  # Legacy format used 'error' instead of 'failed'
     }
-    
+
     legacy_status = status_mapping.get(embeddings_status, embeddings_status)
-    
+
     # Build message based on status
     if embeddings_status == "completed":
         message = f"{analysis.vectors_count} vectors available"
@@ -1201,7 +1201,7 @@ async def get_embedding_status(
         message = analysis.embeddings_error or "Embedding generation failed"
     else:
         message = analysis.embeddings_message
-    
+
     return EmbeddingStatusResponse(
         repository_id=str(repository_id),
         status=legacy_status,

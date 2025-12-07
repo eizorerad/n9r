@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { GitCommit, Loader2, RefreshCw, AlertCircle, ShieldAlert, Clock } from 'lucide-react'
+import { GitCommit, Loader2, RefreshCw, AlertCircle, ShieldAlert, Clock, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { branchApi, commitApi, ApiError, type Commit } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -311,13 +311,36 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     let showRetry = true
     
     if (error instanceof ApiError) {
+      errorMessage = error.message || 'An error occurred.'
       if (error.isRateLimitError()) {
         errorIcon = <Clock className="h-8 w-8 text-amber-500 mb-3" />
         errorTitle = 'Rate limit'
         errorMessage = 'Try again later.'
       } else if (error.isPermissionError()) {
         errorIcon = <ShieldAlert className="h-8 w-8 text-destructive mb-3" />
-        errorTitle = 'Access denied'
+        // Check if it's a GitHub token issue
+        if (error.message?.toLowerCase().includes('github token')) {
+          errorTitle = 'GitHub reconnection needed'
+          errorMessage = 'Your GitHub access has expired.'
+          // Show logout button instead of retry
+          return (
+            <div className="flex flex-col items-center justify-center py-6 text-center">
+              {errorIcon}
+              <p className="text-sm font-medium mb-1">{errorTitle}</p>
+              <p className="text-xs text-muted-foreground mb-3">{errorMessage}</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => window.location.href = '/login?error=github_token_expired'}
+              >
+                <LogOut className="h-3.5 w-3.5 mr-1.5" />
+                Re-authenticate
+              </Button>
+            </div>
+          )
+        } else {
+          errorTitle = 'Access denied'
+        }
         showRetry = false
       } else if (error.isAuthenticationError()) {
         errorIcon = <ShieldAlert className="h-8 w-8 text-destructive mb-3" />

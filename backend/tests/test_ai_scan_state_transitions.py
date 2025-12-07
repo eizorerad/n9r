@@ -7,7 +7,9 @@ defined in the design document for the ai-scan-progress-fix feature.
 **Validates: Requirements 1.2, 1.3, 1.4**
 """
 
-from hypothesis import given, settings, assume
+from datetime import UTC
+
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 # =============================================================================
@@ -91,7 +93,7 @@ def invalid_transition_pair(draw: st.DrawFn) -> tuple[str, str]:
 def validate_ai_scan_status(status: str) -> bool:
     """
     Validate ai_scan_status against CHECK constraint.
-    
+
     Mirrors: CHECK (ai_scan_status IN ('none', 'pending', 'running', 'completed', 'failed', 'skipped'))
     """
     return status in VALID_AI_SCAN_STATUS
@@ -100,7 +102,7 @@ def validate_ai_scan_status(status: str) -> bool:
 def validate_ai_scan_progress(progress: int) -> bool:
     """
     Validate ai_scan_progress against CHECK constraint.
-    
+
     Mirrors: CHECK (ai_scan_progress >= 0 AND ai_scan_progress <= 100)
     """
     return 0 <= progress <= 100
@@ -109,11 +111,11 @@ def validate_ai_scan_progress(progress: int) -> bool:
 def is_valid_ai_scan_transition(current_status: str, new_status: str) -> bool:
     """
     Check if an AI scan status transition is valid.
-    
+
     Args:
         current_status: Current ai_scan_status value
         new_status: Proposed new ai_scan_status value
-        
+
     Returns:
         True if transition is valid, False otherwise
     """
@@ -130,7 +132,7 @@ def is_valid_ai_scan_transition(current_status: str, new_status: str) -> bool:
 class TestAIScanStatusConstraint:
     """
     Property tests for ai_scan_status CHECK constraint.
-    
+
     **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
     **Validates: Requirements 1.2, 1.3, 1.4**
     """
@@ -141,8 +143,8 @@ class TestAIScanStatusConstraint:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
-        Property: For any valid ai_scan_status value ('none', 'pending', 'running', 
+
+        Property: For any valid ai_scan_status value ('none', 'pending', 'running',
         'completed', 'failed', 'skipped'), the validation SHALL accept the value.
         """
         assert validate_ai_scan_status(status), (
@@ -156,13 +158,13 @@ class TestAIScanStatusConstraint:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any invalid ai_scan_status value (not in the valid set),
         the validation SHALL reject the value.
         """
         # Ensure we're testing truly invalid values
         assume(status not in VALID_AI_SCAN_STATUS)
-        
+
         assert not validate_ai_scan_status(status), (
             f"Invalid ai_scan_status '{status}' should be rejected\n"
             f"Valid values: {VALID_AI_SCAN_STATUS}"
@@ -172,7 +174,7 @@ class TestAIScanStatusConstraint:
 class TestAIScanProgressConstraint:
     """
     Property tests for ai_scan_progress CHECK constraint.
-    
+
     **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
     **Validates: Requirements 1.2, 1.3, 1.4**
     """
@@ -183,7 +185,7 @@ class TestAIScanProgressConstraint:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any progress value between 0 and 100 inclusive,
         the validation SHALL accept the value.
         """
@@ -198,7 +200,7 @@ class TestAIScanProgressConstraint:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any progress value below 0,
         the validation SHALL reject the value.
         """
@@ -213,7 +215,7 @@ class TestAIScanProgressConstraint:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any progress value above 100,
         the validation SHALL reject the value.
         """
@@ -226,7 +228,7 @@ class TestAIScanProgressConstraint:
 class TestAIScanStateTransitions:
     """
     Property tests for AI scan state transition validation.
-    
+
     **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
     **Validates: Requirements 1.2, 1.3, 1.4**
     """
@@ -237,7 +239,7 @@ class TestAIScanStateTransitions:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any valid state transition according to AI_SCAN_TRANSITIONS,
         the transition validation SHALL accept the transition.
         """
@@ -253,7 +255,7 @@ class TestAIScanStateTransitions:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any invalid state transition (not in AI_SCAN_TRANSITIONS),
         the transition validation SHALL reject the transition.
         """
@@ -269,7 +271,7 @@ class TestAIScanStateTransitions:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For terminal states ('completed', 'skipped'), no outgoing
         transitions SHALL be allowed.
         """
@@ -287,7 +289,7 @@ class TestAIScanStateTransitions:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: The 'failed' state SHALL allow transition to 'pending' for retry.
         """
         if status == "failed":
@@ -299,7 +301,7 @@ class TestAIScanStateTransitions:
 class TestAIScanTransitionCompleteness:
     """
     Property tests for AI scan transition map completeness.
-    
+
     **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
     **Validates: Requirements 1.2, 1.3, 1.4**
     """
@@ -310,7 +312,7 @@ class TestAIScanTransitionCompleteness:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any valid ai_scan_status, the status SHALL be a key
         in the AI_SCAN_TRANSITIONS map.
         """
@@ -327,13 +329,13 @@ class TestAIScanTransitionCompleteness:
         """
         **Feature: ai-scan-progress-fix, Property 1: AI Scan State Transitions**
         **Validates: Requirements 1.2, 1.3, 1.4**
-        
+
         Property: For any pair of valid statuses, the transition validation
         SHALL correctly identify whether the transition is valid or invalid.
         """
         expected_valid = new_status in AI_SCAN_TRANSITIONS.get(current_status, set())
         actual_valid = is_valid_ai_scan_transition(current_status, new_status)
-        
+
         assert actual_valid == expected_valid, (
             f"Transition validation mismatch for '{current_status}' -> '{new_status}'\n"
             f"Expected valid: {expected_valid}, Got: {actual_valid}\n"
@@ -349,7 +351,7 @@ class TestAIScanTransitionCompleteness:
 class TestAIScanTimestampUpdates:
     """
     Property tests for AI scan timestamp updates on state changes.
-    
+
     **Feature: ai-scan-progress-fix, Property 3: State Timestamp Updates**
     **Validates: Requirements 2.4**
     """
@@ -365,24 +367,24 @@ class TestAIScanTimestampUpdates:
         """
         **Feature: ai-scan-progress-fix, Property 3: State Timestamp Updates**
         **Validates: Requirements 2.4**
-        
-        Property: For any AI scan state change via AnalysisStateService, the 
-        state_updated_at timestamp SHALL be updated to a value greater than or 
+
+        Property: For any AI scan state change via AnalysisStateService, the
+        state_updated_at timestamp SHALL be updated to a value greater than or
         equal to the previous value.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
         from app.services.analysis_state import (
-            AnalysisStateService,
             AI_SCAN_TRANSITIONS,
+            AnalysisStateService,
         )
-        
+
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.ai_scan_status = initial_status
@@ -394,30 +396,30 @@ class TestAIScanTimestampUpdates:
         mock_analysis.ai_scan_completed_at = None
         mock_analysis.ai_scan_cache = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Determine valid next status
         allowed = AI_SCAN_TRANSITIONS.get(initial_status, set())
         if not allowed:
             return  # Skip if no valid transitions
-        
+
         new_status = list(allowed)[0]
-        
+
         # Perform update
         service.update_ai_scan_status(
             analysis_id=analysis_id,
             status=new_status,
             progress=progress,
         )
-        
+
         # Verify timestamp was updated
         assert mock_analysis.state_updated_at >= initial_timestamp, (
             f"state_updated_at should be >= initial timestamp\n"
@@ -429,7 +431,7 @@ class TestAIScanTimestampUpdates:
 class TestAIScanFailureIsolation:
     """
     Property tests for AI scan failure isolation.
-    
+
     **Feature: ai-scan-progress-fix, Property 6: Failure Isolation**
     **Validates: Requirements 5.2**
     """
@@ -446,21 +448,21 @@ class TestAIScanFailureIsolation:
         """
         **Feature: ai-scan-progress-fix, Property 6: Failure Isolation**
         **Validates: Requirements 5.2**
-        
-        Property: For any AI scan failure (ai_scan_status="failed"), the 
-        analysis_status, embeddings_status, semantic_cache_status, and their 
+
+        Property: For any AI scan failure (ai_scan_status="failed"), the
+        analysis_status, embeddings_status, semantic_cache_status, and their
         associated data SHALL remain unchanged.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis in 'running' state (can transition to 'failed')
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.status = "completed"  # Analysis status
@@ -477,29 +479,29 @@ class TestAIScanFailureIsolation:
         mock_analysis.ai_scan_completed_at = None
         mock_analysis.ai_scan_cache = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Fail AI scan
         service.fail_ai_scan(analysis_id, error_message)
-        
+
         # Verify AI scan status changed to failed
         assert mock_analysis.ai_scan_status == "failed", (
             f"ai_scan_status should be 'failed', got: '{mock_analysis.ai_scan_status}'"
         )
-        
+
         # Verify error message was stored
         assert mock_analysis.ai_scan_error == error_message, (
             f"ai_scan_error should be '{error_message}', got: '{mock_analysis.ai_scan_error}'"
         )
-        
+
         # Verify other statuses were NOT changed (isolation)
         assert mock_analysis.status == "completed", (
             f"analysis status should remain 'completed', got: '{mock_analysis.status}'"
@@ -518,7 +520,7 @@ class TestAIScanFailureIsolation:
 class TestAIScanRetryCapability:
     """
     Property tests for AI scan retry capability.
-    
+
     **Feature: ai-scan-progress-fix, Property 7: Retry Capability**
     **Validates: Requirements 5.3**
     """
@@ -531,28 +533,28 @@ class TestAIScanRetryCapability:
         """
         **Feature: ai-scan-progress-fix, Property 7: Retry Capability**
         **Validates: Requirements 5.3**
-        
-        Property: For any analysis with ai_scan_status="failed", the transition 
+
+        Property: For any analysis with ai_scan_status="failed", the transition
         to ai_scan_status="pending" SHALL be valid and SHALL clear ai_scan_error.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
         from app.services.analysis_state import (
             AnalysisStateService,
             is_valid_ai_scan_transition,
         )
-        
+
         # First verify the transition is valid
         assert is_valid_ai_scan_transition("failed", "pending"), (
             "Transition from 'failed' to 'pending' should be valid for retry"
         )
-        
+
         # Create mock analysis in 'failed' state
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.ai_scan_status = "failed"
@@ -564,29 +566,29 @@ class TestAIScanRetryCapability:
         mock_analysis.ai_scan_completed_at = None
         mock_analysis.ai_scan_cache = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Retry by marking as pending
         service.mark_ai_scan_pending(analysis_id)
-        
+
         # Verify status changed to pending
         assert mock_analysis.ai_scan_status == "pending", (
             f"ai_scan_status should be 'pending' after retry, got: '{mock_analysis.ai_scan_status}'"
         )
-        
+
         # Verify progress was reset
         assert mock_analysis.ai_scan_progress == 0, (
             f"ai_scan_progress should be reset to 0, got: {mock_analysis.ai_scan_progress}"
         )
-        
+
         # Verify stage was updated
         assert mock_analysis.ai_scan_stage == "pending", (
             f"ai_scan_stage should be 'pending', got: '{mock_analysis.ai_scan_stage}'"
@@ -596,19 +598,19 @@ class TestAIScanRetryCapability:
         """
         **Feature: ai-scan-progress-fix, Property 7: Retry Capability**
         **Validates: Requirements 5.3**
-        
+
         Property: The 'failed' -> 'pending' transition SHALL always be valid.
         """
         from app.services.analysis_state import (
             AI_SCAN_TRANSITIONS,
             is_valid_ai_scan_transition,
         )
-        
+
         # Verify in transition map
         assert "pending" in AI_SCAN_TRANSITIONS["failed"], (
             "'pending' should be in allowed transitions from 'failed'"
         )
-        
+
         # Verify via validation function
         assert is_valid_ai_scan_transition("failed", "pending"), (
             "Transition 'failed' -> 'pending' should be valid"
@@ -623,10 +625,10 @@ class TestAIScanRetryCapability:
 class TestAutomaticChainingFromSemanticCache:
     """
     Property tests for semantic cache completion behavior in parallel pipeline.
-    
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 6.3**
-    
+
     Note: In the parallel pipeline, AI Scan is dispatched directly from the API
     endpoint, NOT from semantic cache completion. These tests verify that
     semantic cache completion does NOT auto-trigger AI scan.
@@ -645,22 +647,22 @@ class TestAutomaticChainingFromSemanticCache:
         """
         **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
         **Validates: Requirements 6.3**
-        
-        Property: For any analysis where semantic_cache_status transitions to 
+
+        Property: For any analysis where semantic_cache_status transitions to
         "completed", the ai_scan_status SHALL remain unchanged (AI Scan is
         dispatched from API, not from semantic cache).
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock, patch
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock, patch
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis in 'computing' state (can transition to 'completed')
         # In parallel pipeline, ai_scan_status is already "pending" from API dispatch
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
@@ -669,34 +671,34 @@ class TestAutomaticChainingFromSemanticCache:
         mock_analysis.ai_scan_stage = "pending"
         mock_analysis.ai_scan_message = "Queued for AI scan"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock settings with ai_scan_enabled=True
         mock_settings = MagicMock()
         mock_settings.ai_scan_enabled = True
-        
+
         with patch('app.core.config.settings', mock_settings):
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
-        
+
         # Verify semantic cache status changed to completed
         assert mock_analysis.semantic_cache_status == "completed", (
             f"semantic_cache_status should be 'completed', got: '{mock_analysis.semantic_cache_status}'"
         )
-        
+
         # Verify cache data was stored
         assert mock_analysis.semantic_cache == cache_data, (
-            f"semantic_cache should contain the cache data"
+            "semantic_cache should contain the cache data"
         )
-        
+
         # Verify AI scan status was NOT changed (parallel pipeline)
         assert mock_analysis.ai_scan_status == "pending", (
             f"ai_scan_status should remain 'pending' (not changed by semantic cache), "
@@ -717,20 +719,20 @@ class TestAutomaticChainingFromSemanticCache:
         """
         **Feature: ai-scan-progress-fix, Property 2: Automatic Chaining from Semantic Cache**
         **Validates: Requirements 1.1**
-        
-        Property: For any analysis where ai_scan_status is NOT 'none' when 
+
+        Property: For any analysis where ai_scan_status is NOT 'none' when
         semantic_cache completes, the ai_scan_status SHALL remain unchanged.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock, patch
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock, patch
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis with existing AI scan status
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
@@ -739,29 +741,29 @@ class TestAutomaticChainingFromSemanticCache:
         mock_analysis.ai_scan_stage = "some_stage"
         mock_analysis.ai_scan_message = "some message"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock settings with ai_scan_enabled=True
         mock_settings = MagicMock()
         mock_settings.ai_scan_enabled = True
-        
+
         with patch('app.core.config.settings', mock_settings):
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
-        
+
         # Verify semantic cache status changed to completed
         assert mock_analysis.semantic_cache_status == "completed", (
             f"semantic_cache_status should be 'completed', got: '{mock_analysis.semantic_cache_status}'"
         )
-        
+
         # Verify AI scan status was NOT changed (already had a non-none status)
         assert mock_analysis.ai_scan_status == existing_ai_scan_status, (
             f"ai_scan_status should remain '{existing_ai_scan_status}' when not 'none', "
@@ -772,14 +774,14 @@ class TestAutomaticChainingFromSemanticCache:
         """
         **Feature: ai-scan-progress-fix, Property 2: Automatic Chaining from Semantic Cache**
         **Validates: Requirements 1.1**
-        
-        Property: Auto-chaining to AI scan SHALL only occur when ai_scan_status 
+
+        Property: Auto-chaining to AI scan SHALL only occur when ai_scan_status
         is 'none', not when it's any other status.
         """
         # This is a simple verification that the logic is correct
         # The property tests above verify this with generated data
         non_none_statuses = ["pending", "running", "completed", "failed", "skipped"]
-        
+
         for status in non_none_statuses:
             # If ai_scan_status is not 'none', it should not be changed
             # This is verified by the property test above
@@ -789,10 +791,10 @@ class TestAutomaticChainingFromSemanticCache:
 class TestAIScanSkipBehavior:
     """
     Property tests for AI scan skip behavior in parallel pipeline.
-    
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 6.3**
-    
+
     Note: In the parallel pipeline, AI Scan skip status is set by the API
     endpoint at analysis creation, NOT by semantic cache completion.
     """
@@ -810,22 +812,22 @@ class TestAIScanSkipBehavior:
         """
         **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
         **Validates: Requirements 6.3**
-        
+
         Property: For any analysis where ai_scan_status is already "skipped"
         (set by API when ai_scan_enabled=False), semantic cache completion
         SHALL NOT change the ai_scan_status.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock, patch
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock, patch
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis in 'computing' state (can transition to 'completed')
         # In parallel pipeline, ai_scan_status is already "skipped" from API dispatch
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
@@ -834,34 +836,34 @@ class TestAIScanSkipBehavior:
         mock_analysis.ai_scan_stage = "skipped"
         mock_analysis.ai_scan_message = "AI scan disabled"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock settings with ai_scan_enabled=False
         mock_settings = MagicMock()
         mock_settings.ai_scan_enabled = False
-        
+
         with patch('app.core.config.settings', mock_settings):
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
-        
+
         # Verify semantic cache status changed to completed
         assert mock_analysis.semantic_cache_status == "completed", (
             f"semantic_cache_status should be 'completed', got: '{mock_analysis.semantic_cache_status}'"
         )
-        
+
         # Verify cache data was stored
         assert mock_analysis.semantic_cache == cache_data, (
-            f"semantic_cache should contain the cache data"
+            "semantic_cache should contain the cache data"
         )
-        
+
         # Verify AI scan status was NOT changed (parallel pipeline)
         assert mock_analysis.ai_scan_status == "skipped", (
             f"ai_scan_status should remain 'skipped' (not changed by semantic cache), "
@@ -882,21 +884,21 @@ class TestAIScanSkipBehavior:
         """
         **Feature: ai-scan-progress-fix, Property 8: Skip Behavior**
         **Validates: Requirements 5.1**
-        
-        Property: For any analysis where ai_scan_status is NOT 'none' when 
-        semantic_cache completes (even with ai_scan_enabled=False), the 
+
+        Property: For any analysis where ai_scan_status is NOT 'none' when
+        semantic_cache completes (even with ai_scan_enabled=False), the
         ai_scan_status SHALL remain unchanged.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock, patch
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock, patch
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis with existing AI scan status
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
@@ -905,29 +907,29 @@ class TestAIScanSkipBehavior:
         mock_analysis.ai_scan_stage = "some_stage"
         mock_analysis.ai_scan_message = "some message"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock settings with ai_scan_enabled=False
         mock_settings = MagicMock()
         mock_settings.ai_scan_enabled = False
-        
+
         with patch('app.core.config.settings', mock_settings):
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
-        
+
         # Verify semantic cache status changed to completed
         assert mock_analysis.semantic_cache_status == "completed", (
             f"semantic_cache_status should be 'completed', got: '{mock_analysis.semantic_cache_status}'"
         )
-        
+
         # Verify AI scan status was NOT changed (already had a non-none status)
         assert mock_analysis.ai_scan_status == existing_ai_scan_status, (
             f"ai_scan_status should remain '{existing_ai_scan_status}' when not 'none', "
@@ -938,17 +940,17 @@ class TestAIScanSkipBehavior:
         """
         **Feature: ai-scan-progress-fix, Property 8: Skip Behavior**
         **Validates: Requirements 5.1**
-        
-        Property: The 'skipped' state SHALL be a terminal state with no 
+
+        Property: The 'skipped' state SHALL be a terminal state with no
         outgoing transitions.
         """
         from app.services.analysis_state import AI_SCAN_TRANSITIONS
-        
+
         # Verify skipped is in the transition map
         assert "skipped" in AI_SCAN_TRANSITIONS, (
             "'skipped' should be in AI_SCAN_TRANSITIONS map"
         )
-        
+
         # Verify skipped has no outgoing transitions
         assert len(AI_SCAN_TRANSITIONS["skipped"]) == 0, (
             f"'skipped' should have no outgoing transitions, "
@@ -969,25 +971,25 @@ class TestAIScanSkipBehavior:
         """
         **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
         **Validates: Requirements 6.3**
-        
+
         Property: For any analysis, semantic cache completion SHALL NOT change
         the ai_scan_status, regardless of ai_scan_enabled setting. In the parallel
         pipeline, AI scan status is set by the API endpoint at analysis creation.
         """
-        from datetime import datetime, timezone
-        from unittest.mock import MagicMock, patch
         import uuid
-        
+        from datetime import datetime
+        from unittest.mock import MagicMock, patch
+
         from app.services.analysis_state import AnalysisStateService
-        
+
         # Create mock analysis in 'computing' state
         # In parallel pipeline, ai_scan_status is already set by API dispatch
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         # Simulate what API would have set based on ai_scan_enabled
         initial_ai_scan_status = "pending" if ai_scan_enabled else "skipped"
-        
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
@@ -996,24 +998,24 @@ class TestAIScanSkipBehavior:
         mock_analysis.ai_scan_stage = initial_ai_scan_status
         mock_analysis.ai_scan_message = "Set by API"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock settings with the given ai_scan_enabled value
         mock_settings = MagicMock()
         mock_settings.ai_scan_enabled = ai_scan_enabled
-        
+
         with patch('app.core.config.settings', mock_settings):
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
-        
+
         # Verify ai_scan_status was NOT changed by semantic cache completion
         assert mock_analysis.ai_scan_status == initial_ai_scan_status, (
             f"ai_scan_status should remain '{initial_ai_scan_status}' (not changed by semantic cache), "

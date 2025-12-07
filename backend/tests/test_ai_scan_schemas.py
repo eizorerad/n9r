@@ -10,12 +10,11 @@ correctly validate AI scan data structures.
 from typing import Any
 
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from app.schemas.ai_scan import (
-    AIScanCacheResponse,
     AIScanConfidence,
     AIScanDimension,
     AIScanIssue,
@@ -26,7 +25,6 @@ from app.schemas.ai_scan import (
     InvestigationStatus,
     RepoOverview,
 )
-
 
 # =============================================================================
 # Custom Strategies for Valid Data Generation

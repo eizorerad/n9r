@@ -10,19 +10,16 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from app.services.broad_scan_agent import (
+    BROAD_SCAN_SYSTEM_PROMPT,
+    DEFAULT_MODEL_CONFIG,
+    MODEL_CONFIGS,
     BroadScanAgent,
     BroadScanResult,
-    CandidateIssue,
-    ModelScanResult,
-    MODEL_CONFIGS,
-    DEFAULT_MODEL_CONFIG,
-    BROAD_SCAN_SYSTEM_PROMPT,
 )
-
 
 # =============================================================================
 # Custom Strategies for Test Data Generation
@@ -125,7 +122,7 @@ def valid_llm_response(draw) -> dict[str, Any]:
     """Generate a valid LLM response with repo_overview and issues."""
     num_issues = draw(st.integers(min_value=0, max_value=5))
     issues = [draw(candidate_issue_dict()) for _ in range(num_issues)]
-    
+
     return {
         "repo_overview": draw(repo_overview_dict()),
         "issues": issues,
@@ -155,18 +152,18 @@ def create_mock_llm_gateway(
     failures: set[str] | None = None,
 ) -> MagicMock:
     """Create a mock LLMGateway for testing.
-    
+
     Args:
         responses: Dict mapping model names to their response data
         failures: Set of model names that should raise exceptions
-        
+
     Returns:
         Mock LLMGateway instance
     """
     mock_gateway = MagicMock()
     failures = failures or set()
     responses = responses or {}
-    
+
     async def mock_complete(
         prompt: str,
         model: str,
@@ -180,7 +177,7 @@ def create_mock_llm_gateway(
         if model in failures:
             from app.services.llm_gateway import LLMError
             raise LLMError(f"Mock failure for {model}")
-        
+
         # Get response data for this model, or generate default
         response_data = responses.get(model, {
             "repo_overview": {
@@ -192,7 +189,7 @@ def create_mock_llm_gateway(
             },
             "issues": [],
         })
-        
+
         return {
             "content": json.dumps(response_data),
             "model": model,
@@ -203,7 +200,7 @@ def create_mock_llm_gateway(
             },
             "cost": 0.01,
         }
-    
+
     mock_gateway.complete = AsyncMock(side_effect=mock_complete)
     return mock_gateway
 
@@ -231,10 +228,10 @@ class TestMultiModelExecution:
         (or all configured models if fewer than two).
         """
         assume(len(models) >= 2)
-        
+
         # Track which models were called
         called_models: list[str] = []
-        
+
         async def tracking_complete(
             prompt: str,
             model: str,
@@ -250,20 +247,20 @@ class TestMultiModelExecution:
                 "usage": {"total_tokens": 100},
                 "cost": 0.001,
             }
-        
+
         mock_gateway = MagicMock()
         mock_gateway.complete = AsyncMock(side_effect=tracking_complete)
-        
+
         agent = BroadScanAgent(mock_gateway, models=models)
-        
+
         # Run the scan
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: All configured models should be called
         assert set(called_models) == set(models), (
             f"Not all models were called. Expected {models}, got {called_models}"
         )
-        
+
         # Property: At least 2 models should be used
         assert len(result.models_used) >= 2, (
             f"Expected at least 2 models, got {len(result.models_used)}"
@@ -279,12 +276,12 @@ class TestMultiModelExecution:
         Property: The models_used field should contain all models that were configured.
         """
         assume(len(models) >= 2)
-        
+
         mock_gateway = create_mock_llm_gateway()
         agent = BroadScanAgent(mock_gateway, models=models)
-        
+
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: models_used should match configured models
         assert set(result.models_used) == set(models), (
             f"models_used mismatch. Expected {models}, got {result.models_used}"
@@ -315,22 +312,22 @@ class TestJSONResponseParsing:
         """
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["test/model"])
-        
+
         # Parse the response
         json_str = json.dumps(response_data)
         repo_overview, candidates = agent._parse_response(json_str, "test/model")
-        
+
         # Property: repo_overview should be extracted
         assert isinstance(repo_overview, dict), "repo_overview should be a dict"
         assert repo_overview == response_data["repo_overview"], (
             "repo_overview should match input"
         )
-        
+
         # Property: issues should be parsed into CandidateIssue objects
         assert len(candidates) == len(response_data["issues"]), (
             f"Expected {len(response_data['issues'])} candidates, got {len(candidates)}"
         )
-        
+
         # Property: Each candidate should have source_model set
         for candidate in candidates:
             assert candidate.source_model == "test/model", (
@@ -349,18 +346,18 @@ class TestJSONResponseParsing:
         """
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["test/model"])
-        
+
         response_data = {
             "repo_overview": {},
             "issues": [issue_data],
         }
-        
+
         json_str = json.dumps(response_data)
         _, candidates = agent._parse_response(json_str, "test/model")
-        
+
         assert len(candidates) == 1, "Should parse exactly one candidate"
         candidate = candidates[0]
-        
+
         # Property: All fields should be preserved
         assert candidate.id_hint == issue_data["id_hint"]
         assert candidate.dimension == issue_data["dimension"]
@@ -389,10 +386,10 @@ class TestJSONResponseParsing:
             assume(False)
         except json.JSONDecodeError:
             pass
-        
+
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["test/model"])
-        
+
         with pytest.raises(ValueError, match="Invalid JSON"):
             agent._parse_response(invalid_json, "test/model")
 
@@ -413,10 +410,10 @@ class TestJSONResponseParsing:
         """
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["test/model"])
-        
+
         json_str = json.dumps(partial_data)
         repo_overview, candidates = agent._parse_response(json_str, "test/model")
-        
+
         # Property: Should not raise, should return empty defaults
         assert isinstance(repo_overview, dict)
         assert isinstance(candidates, list)
@@ -437,8 +434,8 @@ class TestModelFailureResilience:
     @given(model_list(), st.integers(min_value=1))
     @settings(max_examples=100)
     def test_scan_continues_with_partial_failures(
-        self, 
-        models: list[str], 
+        self,
+        models: list[str],
         failure_seed: int
     ):
         """
@@ -449,11 +446,11 @@ class TestModelFailureResilience:
         complete successfully using results from remaining models.
         """
         assume(len(models) >= 2)
-        
+
         # Deterministically select one model to fail
         failing_model = models[failure_seed % len(models)]
         failures = {failing_model}
-        
+
         # Create responses for successful models
         responses = {}
         for model in models:
@@ -473,22 +470,22 @@ class TestModelFailureResilience:
                         "confidence": "high",
                     }],
                 }
-        
+
         mock_gateway = create_mock_llm_gateway(responses=responses, failures=failures)
         agent = BroadScanAgent(mock_gateway, models=models)
-        
+
         # Run the scan - should not raise
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: Scan should complete (not raise)
         assert isinstance(result, BroadScanResult)
-        
+
         # Property: Successful models should be tracked
         expected_succeeded = set(models) - failures
         assert set(result.models_succeeded) == expected_succeeded, (
             f"Expected succeeded: {expected_succeeded}, got: {result.models_succeeded}"
         )
-        
+
         # Property: Should have candidates from successful models
         assert len(result.candidates) == len(expected_succeeded), (
             f"Expected {len(expected_succeeded)} candidates, got {len(result.candidates)}"
@@ -505,16 +502,16 @@ class TestModelFailureResilience:
         with an empty result (not raise an exception).
         """
         assume(len(models) >= 2)
-        
+
         # All models fail
         failures = set(models)
-        
+
         mock_gateway = create_mock_llm_gateway(failures=failures)
         agent = BroadScanAgent(mock_gateway, models=models)
-        
+
         # Run the scan - should not raise
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: Should return empty result, not raise
         assert isinstance(result, BroadScanResult)
         assert len(result.models_succeeded) == 0
@@ -532,19 +529,19 @@ class TestModelFailureResilience:
         success=False and an error message.
         """
         assume(len(models) >= 2)
-        
+
         # First model fails
         failing_model = models[0]
         failures = {failing_model}
-        
+
         mock_gateway = create_mock_llm_gateway(failures=failures)
         agent = BroadScanAgent(mock_gateway, models=models)
-        
+
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: model_results should contain all models
         assert len(result.model_results) == len(models)
-        
+
         # Property: Failed model should have success=False and error message
         failed_results = [r for r in result.model_results if r.model == failing_model]
         assert len(failed_results) == 1
@@ -584,7 +581,7 @@ class TestModelConfiguration:
         """Unknown models should get default configuration."""
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["unknown/model"])
-        
+
         config = agent._get_model_config("unknown/model")
         assert config == DEFAULT_MODEL_CONFIG
 
@@ -631,17 +628,17 @@ def create_mock_llm_gateway_with_cost(
     failures: set[str] | None = None,
 ) -> MagicMock:
     """Create a mock LLMGateway that returns specific costs per model.
-    
+
     Args:
         model_costs: Dict mapping model names to (tokens, cost_usd) tuples
         failures: Set of model names that should raise exceptions
-        
+
     Returns:
         Mock LLMGateway instance
     """
     mock_gateway = MagicMock()
     failures = failures or set()
-    
+
     async def mock_complete(
         prompt: str,
         model: str,
@@ -655,9 +652,9 @@ def create_mock_llm_gateway_with_cost(
         if model in failures:
             from app.services.llm_gateway import LLMError
             raise LLMError(f"Mock failure for {model}")
-        
+
         tokens, cost = model_costs.get(model, (1000, 0.01))
-        
+
         return {
             "content": json.dumps({
                 "repo_overview": {"guessed_project_type": "Test project"},
@@ -671,7 +668,7 @@ def create_mock_llm_gateway_with_cost(
             },
             "cost": cost,
         }
-    
+
     mock_gateway.complete = AsyncMock(side_effect=mock_complete)
     return mock_gateway
 
@@ -697,7 +694,7 @@ class TestCostTracking:
     )
     @settings(max_examples=100, deadline=None)
     def test_total_cost_aggregated_correctly(
-        self, 
+        self,
         model_data: list[tuple[str, int, float]]
     ):
         """
@@ -709,28 +706,28 @@ class TestCostTracking:
         """
         models = [m[0] for m in model_data]
         model_costs = {m[0]: (m[1], m[2]) for m in model_data}
-        
+
         expected_total_tokens = sum(m[1] for m in model_data)
         expected_total_cost = sum(m[2] for m in model_data)
-        
+
         mock_gateway = create_mock_llm_gateway_with_cost(model_costs)
         agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=None)
-        
+
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: total_tokens should be sum of all model tokens
         assert result.total_tokens == expected_total_tokens, (
             f"Expected {expected_total_tokens} tokens, got {result.total_tokens}"
         )
-        
+
         # Property: total_cost should be sum of all model costs
         assert abs(result.total_cost - expected_total_cost) < 0.0001, (
             f"Expected ${expected_total_cost:.4f}, got ${result.total_cost:.4f}"
         )
-        
+
         # Property: total_tokens > 0 for completed scan
         assert result.total_tokens > 0, "total_tokens should be > 0"
-        
+
         # Property: total_cost >= 0 for completed scan
         assert result.total_cost >= 0, "total_cost should be >= 0"
 
@@ -745,15 +742,15 @@ class TestCostTracking:
         in model_results.
         """
         assume(len(models) >= 2)
-        
+
         # Assign different costs to each model
         model_costs = {model: (1000 * (i + 1), 0.01 * (i + 1)) for i, model in enumerate(models)}
-        
+
         mock_gateway = create_mock_llm_gateway_with_cost(model_costs)
         agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=None)
-        
+
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: Each model should have its cost tracked
         for model_result in result.model_results:
             if model_result.success:
@@ -773,7 +770,7 @@ class TestCostTracking:
     )
     @settings(max_examples=100)
     def test_failed_models_dont_contribute_to_cost(
-        self, 
+        self,
         models: list[str],
         failure_seed: int
     ):
@@ -784,24 +781,24 @@ class TestCostTracking:
         Property: Failed models should not contribute to total cost.
         """
         assume(len(models) >= 2)
-        
+
         # Select one model to fail
         failing_model = models[failure_seed % len(models)]
         failures = {failing_model}
-        
+
         # Assign costs
-        model_costs = {model: (1000, 0.01) for model in models}
-        
+        model_costs = dict.fromkeys(models, (1000, 0.01))
+
         mock_gateway = create_mock_llm_gateway_with_cost(model_costs, failures=failures)
         agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=None)
-        
+
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         # Property: Total cost should only include successful models
         successful_models = set(models) - failures
         expected_cost = sum(model_costs[m][1] for m in successful_models)
         expected_tokens = sum(model_costs[m][0] for m in successful_models)
-        
+
         assert abs(result.total_cost - expected_cost) < 0.0001, (
             f"Expected ${expected_cost:.4f} (excluding failed), got ${result.total_cost:.4f}"
         )
@@ -829,40 +826,40 @@ class TestCostLimit:
 
         Property: For any scan that would exceed the per-scan cost limit,
         the scan SHALL complete but log a warning (work is already done).
-        
+
         Note: Changed from raising exception to logging warning because
         the cost is only known AFTER the LLM calls complete, so failing
         at that point would waste the already-incurred cost.
         """
         import logging
-        
+
         # Test with a few representative cases
         test_cases = [
             (0.5, 2.0),   # limit=0.5, cost=1.0
             (1.0, 1.5),   # limit=1.0, cost=1.5
             (5.0, 1.2),   # limit=5.0, cost=6.0
         ]
-        
+
         for limit, cost_multiplier in test_cases:
             caplog.clear()
-            
+
             # Cost that exceeds the limit
             actual_cost = limit * cost_multiplier
-            
+
             models = ["gemini/gemini-3-pro-preview", "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"]
-            model_costs = {model: (10000, actual_cost / 2) for model in models}
-            
+            model_costs = dict.fromkeys(models, (10000, actual_cost / 2))
+
             mock_gateway = create_mock_llm_gateway_with_cost(model_costs)
             agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=limit)
-            
+
             # Property: Should complete successfully but log warning
             with caplog.at_level(logging.WARNING):
                 result = asyncio.run(agent.scan("# Test repo view"))
-            
+
             # Property: Result should be returned with cost info
             assert isinstance(result, BroadScanResult)
             assert result.total_cost > limit, f"Expected cost > {limit}, got {result.total_cost}"
-            
+
             # Property: Warning should be logged about cost exceeding limit
             assert any("exceeds limit" in record.message for record in caplog.records), \
                 f"Expected warning about cost exceeding limit for limit={limit}, cost={actual_cost}"
@@ -873,7 +870,7 @@ class TestCostLimit:
     )
     @settings(max_examples=100)
     def test_cost_under_limit_succeeds(
-        self, 
+        self,
         limit: float,
         cost_fraction: float
     ):
@@ -885,16 +882,16 @@ class TestCostLimit:
         """
         # Cost that is under the limit
         actual_cost = limit * cost_fraction
-        
+
         models = ["gemini/gemini-3-pro-preview", "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"]
-        model_costs = {model: (10000, actual_cost / 2) for model in models}
-        
+        model_costs = dict.fromkeys(models, (10000, actual_cost / 2))
+
         mock_gateway = create_mock_llm_gateway_with_cost(model_costs)
         agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=limit)
-        
+
         # Property: Should complete without raising
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         assert isinstance(result, BroadScanResult)
         assert result.total_cost < limit
 
@@ -908,18 +905,18 @@ class TestCostLimit:
         Property: When max_cost_usd is set very high, high costs should be allowed.
         """
         assume(len(models) >= 2)
-        
+
         # Very high cost
-        model_costs = {model: (100000, 100.0) for model in models}
+        model_costs = dict.fromkeys(models, (100000, 100.0))
         expected_total_cost = sum(model_costs[m][1] for m in models)
-        
+
         mock_gateway = create_mock_llm_gateway_with_cost(model_costs)
         # Set a very high limit that exceeds the expected cost
         agent = BroadScanAgent(mock_gateway, models=models, max_cost_usd=expected_total_cost + 1000.0)
-        
+
         # Property: Should complete without raising even with high cost
         result = asyncio.run(agent.scan("# Test repo view"))
-        
+
         assert isinstance(result, BroadScanResult)
         assert result.total_cost > 0
 
@@ -931,9 +928,9 @@ class TestCostLimit:
         Property: When max_cost_usd is not specified, it should use config default.
         """
         from app.core.config import settings
-        
+
         mock_gateway = MagicMock()
         agent = BroadScanAgent(mock_gateway, models=["test/model"])
-        
+
         # Property: Should use config default
         assert agent.max_cost_usd == settings.ai_scan_max_cost_per_scan

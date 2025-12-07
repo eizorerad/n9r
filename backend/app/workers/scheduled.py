@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 def cleanup_stuck_analyses() -> dict:
     """
     Clean up stuck analyses that have been pending/running too long.
-    
+
     This task runs every 10 minutes via Celery Beat and marks
     analyses older than 10 minutes as failed.
-    
+
     Returns:
         dict with cleanup statistics.
     """
@@ -68,10 +68,10 @@ def cleanup_stuck_analyses() -> dict:
 def analyze_all_repositories() -> dict:
     """
     Analyze all active repositories.
-    
+
     This task runs daily via Celery Beat and queues analysis
     for each active repository.
-    
+
     Returns:
         dict with statistics about queued analyses.
     """
@@ -89,7 +89,7 @@ def analyze_all_repositories() -> dict:
         with get_sync_session() as db:
             # Get all active repositories
             result = db.execute(
-                select(Repository).where(Repository.is_active == True)
+                select(Repository).where(Repository.is_active)
             )
             repositories = result.scalars().all()
 
@@ -153,12 +153,12 @@ def analyze_all_repositories() -> dict:
 def cleanup_old_data() -> dict:
     """
     Clean up old data to maintain storage efficiency.
-    
+
     This task runs weekly and removes:
     - Old analysis logs (> 30 days)
     - Orphaned embeddings
     - Expired cache entries
-    
+
     Returns:
         dict with cleanup statistics.
     """
@@ -197,13 +197,13 @@ def cleanup_old_data() -> dict:
 def health_check() -> dict:
     """
     Perform hourly health check of system components.
-    
+
     Checks:
     - Database connectivity
     - Redis connectivity
     - Qdrant connectivity
     - MinIO connectivity
-    
+
     Returns:
         dict with health status of each component.
     """
@@ -286,12 +286,12 @@ def health_check() -> dict:
 def send_weekly_digest() -> dict:
     """
     Send weekly digest emails to users.
-    
+
     Summarizes:
     - VCI changes across repositories
     - Auto-PRs created and merged
     - New issues detected
-    
+
     Returns:
         dict with digest send statistics.
     """

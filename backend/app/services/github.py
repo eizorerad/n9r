@@ -67,7 +67,7 @@ class GitHubService:
 
     def __init__(self, access_token: str):
         """Initialize GitHub service with access token.
-        
+
         Args:
             access_token: GitHub OAuth access token (plaintext or encrypted).
         """
@@ -87,10 +87,10 @@ class GitHubService:
 
     def _handle_response_error(self, response: httpx.Response) -> None:
         """Handle GitHub API error responses.
-        
+
         Args:
             response: The HTTP response from GitHub API.
-            
+
         Raises:
             GitHubRateLimitError: When rate limit is exceeded (403 with rate limit headers).
             GitHubAuthenticationError: When authentication fails (401).
@@ -156,13 +156,13 @@ class GitHubService:
         affiliation: str = "owner,collaborator,organization_member",
     ) -> list[dict[str, Any]]:
         """List repositories for the authenticated user.
-        
+
         Args:
             per_page: Number of results per page (max 100).
             page: Page number.
             sort: Sort field (created, updated, pushed, full_name).
             affiliation: Comma-separated list of affiliations.
-            
+
         Returns:
             List of repository data dicts.
         """
@@ -182,11 +182,11 @@ class GitHubService:
 
     async def get_repository(self, owner: str, repo: str) -> dict[str, Any]:
         """Get a specific repository.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
-            
+
         Returns:
             Repository data dict.
         """
@@ -206,13 +206,13 @@ class GitHubService:
         ref: str | None = None,
     ) -> list[dict[str, Any]] | dict[str, Any]:
         """Get contents of a repository path.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             path: Path within the repository.
             ref: Git reference (branch, tag, commit).
-            
+
         Returns:
             List of content items for directories, or single item for files.
         """
@@ -237,13 +237,13 @@ class GitHubService:
         ref: str | None = None,
     ) -> str:
         """Get the decoded content of a file.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             path: File path within the repository.
             ref: Git reference.
-            
+
         Returns:
             Decoded file content as string.
         """
@@ -272,13 +272,13 @@ class GitHubService:
         recursive: bool = True,
     ) -> list[dict[str, Any]]:
         """Get the full tree of a repository.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             tree_sha: Tree SHA or branch name.
             recursive: Whether to get tree recursively.
-            
+
         Returns:
             List of tree items.
         """
@@ -301,12 +301,12 @@ class GitHubService:
         branch: str,
     ) -> dict[str, Any]:
         """Get branch information.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             branch: Branch name.
-            
+
         Returns:
             Branch data dict.
         """
@@ -325,15 +325,15 @@ class GitHubService:
         per_page: int = 30,
     ) -> list[dict[str, Any]]:
         """List repository branches.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             per_page: Number of branches to return (max 100).
-            
+
         Returns:
             List of branch objects with name, commit SHA, and protection status.
-            
+
         Raises:
             GitHubRateLimitError: When rate limit is exceeded.
             GitHubPermissionError: When user lacks permission.
@@ -371,17 +371,17 @@ class GitHubService:
         page: int = 1,
     ) -> list[dict[str, Any]]:
         """List commits for a branch.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             sha: Branch name or commit SHA to list commits from.
             per_page: Number of commits per page (max 100).
             page: Page number for pagination.
-            
+
         Returns:
             List of commit objects with SHA, message, author, and timestamp.
-            
+
         Raises:
             GitHubRateLimitError: When rate limit is exceeded.
             GitHubPermissionError: When user lacks permission.
@@ -428,13 +428,13 @@ class GitHubService:
         from_sha: str,
     ) -> dict[str, Any]:
         """Create a new branch.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             branch_name: Name for the new branch.
             from_sha: SHA to create branch from.
-            
+
         Returns:
             Reference data dict.
         """
@@ -461,7 +461,7 @@ class GitHubService:
         sha: str | None = None,
     ) -> dict[str, Any]:
         """Create or update a file in a repository.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
@@ -470,7 +470,7 @@ class GitHubService:
             message: Commit message.
             branch: Branch name.
             sha: SHA of the file being replaced (required for updates).
-            
+
         Returns:
             Commit data dict.
         """
@@ -505,7 +505,7 @@ class GitHubService:
         draft: bool = False,
     ) -> dict[str, Any]:
         """Create a pull request.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
@@ -514,7 +514,7 @@ class GitHubService:
             head: Head branch.
             base: Base branch.
             draft: Whether to create as draft.
-            
+
         Returns:
             Pull request data dict.
         """
@@ -542,14 +542,14 @@ class GitHubService:
         merge_method: str = "squash",
     ) -> dict[str, Any]:
         """Merge a pull request.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             pull_number: PR number.
             commit_title: Optional commit title.
             merge_method: Merge method (merge, squash, rebase).
-            
+
         Returns:
             Merge result dict.
         """
@@ -573,12 +573,12 @@ class GitHubService:
         pull_number: int,
     ) -> dict[str, Any]:
         """Close a pull request without merging.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             pull_number: PR number.
-            
+
         Returns:
             Updated PR data dict.
         """
@@ -600,14 +600,14 @@ class GitHubService:
         secret: str | None = None,
     ) -> dict[str, Any]:
         """Create a webhook for a repository.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
             url: Webhook URL.
             events: List of events to subscribe to.
             secret: Webhook secret for signature verification.
-            
+
         Returns:
             Webhook data dict.
         """
@@ -639,7 +639,7 @@ class GitHubService:
         hook_id: int,
     ) -> None:
         """Delete a webhook from a repository.
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
@@ -667,14 +667,14 @@ class GitHubService:
         base_branch: str = "main",
     ) -> dict[str, Any]:
         """Create an auto-PR for a code fix.
-        
+
         This high-level method handles:
         1. Getting the base branch SHA
         2. Creating a new branch
         3. Committing the fix
         4. Committing tests if provided
         5. Creating the PR
-        
+
         Args:
             owner: Repository owner.
             repo: Repository name.
@@ -687,7 +687,7 @@ class GitHubService:
             test_content: Optional test file content.
             description: PR description/body.
             base_branch: Base branch to create PR against.
-            
+
         Returns:
             Created PR data dict.
         """

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Keep _get_repo_url as an alias for backward compatibility
 def _get_repo_url(repository_id: str) -> tuple[str, str | None]:
     """Get repository URL and access token from database.
-    
+
     DEPRECATED: Use get_repo_url from app.workers.helpers instead.
     This function is kept for backward compatibility.
     """
@@ -120,13 +120,13 @@ def _mark_analysis_failed(analysis_id: str, error_message: str):
 
 def _collect_files_for_embedding(repo_path) -> list[dict]:
     """Collect code files from repository for embedding generation.
-    
+
     DEPRECATED: Use collect_files_for_embedding from app.workers.helpers instead.
     This function is kept for backward compatibility.
-    
+
     Args:
         repo_path: Path to the cloned repository
-        
+
     Returns:
         List of {path: str, content: str} dicts
     """
@@ -143,10 +143,10 @@ def analyze_repository(
 ) -> dict:
     """
     Analyze a repository and calculate VCI score.
-    
+
     This task clones the repository, runs static analysis,
     calculates metrics, and generates a VCI score.
-    
+
     Progress is published to Redis Pub/Sub for real-time SSE updates.
     """
     logger.info(
@@ -238,10 +238,10 @@ def analyze_repository(
 def run_quick_scan(repo_url: str) -> dict:
     """
     Run a quick VCI scan for playground (public repos).
-    
+
     Args:
         repo_url: GitHub repository URL
-    
+
     Returns:
         dict with quick scan results
     """
@@ -273,15 +273,15 @@ def run_quick_scan(repo_url: str) -> dict:
 def run_cluster_analysis(repository_id: str) -> dict:
     """
     Run cluster analysis on repository embeddings.
-    
+
     This task analyzes the vector embeddings for a repository,
     performs HDBSCAN clustering, and updates cluster_id in Qdrant.
-    
+
     Should be run after embeddings are generated.
-    
+
     Args:
         repository_id: UUID of the repository
-    
+
     Returns:
         dict with cluster analysis results
     """
@@ -307,7 +307,7 @@ def run_cluster_analysis(repository_id: str) -> dict:
 
         # Update cluster_id in Qdrant for each chunk
         if health.clusters:
-            qdrant = get_qdrant_client()
+            get_qdrant_client()
 
             # Build cluster mapping from file paths
             file_to_cluster = {}

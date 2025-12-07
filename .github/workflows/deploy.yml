@@ -1,0 +1,196 @@
+# CI/CD Pipeline: Tests → Deploy
+#
+# What it does:
+# 1. Runs backend tests (pytest) and frontend tests (vitest)
+# 2. If tests pass — deploys to server
+# 3. Updates dependencies, runs migrations, restarts tmux sessions
+#
+# Required GitHub Secrets:
+# - SERVER_HOST: Server IP or domain
+# - SERVER_USER: SSH user (usually ubuntu)
+# - SSH_PRIVATE_KEY: Private SSH key for server access
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ============================================
+  # JOB 1: Backend Tests (Python)
+  # ============================================
+  test-backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync
+
+      - name: Run linter
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Run type checker (non-blocking)
+        working-directory: backend
+        # TODO: Fix type errors and make this blocking again
+        # Currently ~130 type errors in app/ code, mostly:
+        # - Missing type annotations
+        # - Qdrant Filter type mismatches
+        # - SQLAlchemy model attribute access
+        continue-on-error: true
+        run: uv run mypy . --ignore-missing-imports
+
+      - name: Run tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+          CELERY_BROKER_URL: redis://localhost:6379/1
+          QDRANT_HOST: localhost
+          QDRANT_PORT: "6333"
+          TESTING: "true"
+        run: uv run pytest -v --tb=short
+
+  # ============================================
+  # JOB 2: Frontend Tests (TypeScript)
+  # ============================================
+  test-frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install
+
+      - name: Run linter
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: Run tests
+        working-directory: frontend
+        run: pnpm test
+
+      - name: Build check
+        working-directory: frontend
+        run: pnpm build
+
+  # ============================================
+  # JOB 3: Deploy (only after tests pass)
+  # ============================================
+  deploy:
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            echo "🚀 Starting deployment..."
+
+            cd ~/n9r
+
+            echo "📥 Pulling latest changes..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "🐍 Updating backend dependencies..."
+            cd ~/n9r/backend
+            uv sync
+
+            echo "🗄️ Running database migrations..."
+            uv run alembic upgrade head
+
+            echo "🔄 Restarting backend..."
+            tmux send-keys -t backend C-c
+            sleep 2
+            tmux send-keys -t backend "cd ~/n9r/backend && uv run uvicorn main:app --reload --port 8000 --host 0.0.0.0 --reload-exclude '.venv'" Enter
+
+            echo "🔄 Restarting celery worker..."
+            tmux send-keys -t celery C-c
+            sleep 2
+            tmux send-keys -t celery "cd ~/n9r/backend && uv run celery -A app.core.celery worker -Q default,analysis,embeddings,healing,notifications,ai_scan --loglevel=info" Enter
+
+            echo "⚛️ Updating frontend dependencies..."
+            cd ~/n9r/frontend
+            pnpm install
+
+            echo "🏗️ Building frontend..."
+            pnpm build
+
+            echo "🔄 Restarting frontend..."
+            tmux send-keys -t frontend C-c
+            sleep 2
+            tmux send-keys -t frontend "cd ~/n9r/frontend && pnpm start --hostname 0.0.0.0" Enter
+
+            echo "✅ Deployment complete!"

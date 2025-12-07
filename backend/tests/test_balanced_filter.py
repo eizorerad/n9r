@@ -4,6 +4,10 @@ Uses Hypothesis for property-based testing to verify correctness properties
 defined in the design document.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -14,6 +18,9 @@ from app.services.cluster_analyzer import (
     extract_imports,
     is_likely_boilerplate,
 )
+
+if TYPE_CHECKING:
+    from app.services.cluster_analyzer import ImportAnalysis
 
 # =============================================================================
 # Custom Strategies for Python Import Generation
@@ -49,7 +56,7 @@ def python_import_statement(module: str) -> str:
 @st.composite
 def python_code_with_imports(draw) -> tuple[str, set[str]]:
     """Generate Python code with known import statements.
-    
+
     Returns:
         A tuple of (code_string, expected_imports_set)
     """
@@ -98,7 +105,7 @@ def python_code_with_imports(draw) -> tuple[str, set[str]]:
 
 class TestPythonImportExtractionProperties:
     """Property tests for Python import extraction.
-    
+
     **Feature: balanced-architecture-filter, Property 1: Python Import Extraction Completeness**
     **Validates: Requirements 1.1**
     """
@@ -109,9 +116,9 @@ class TestPythonImportExtractionProperties:
         """
         **Feature: balanced-architecture-filter, Property 1: Python Import Extraction Completeness**
         **Validates: Requirements 1.1**
-        
-        Property: For any Python code string containing `from X import Y` or `import X` 
-        statements, the `extract_imports` function SHALL return a set containing all 
+
+        Property: For any Python code string containing `from X import Y` or `import X`
+        statements, the `extract_imports` function SHALL return a set containing all
         module paths X.
         """
         code, expected_imports = code_and_imports
@@ -171,7 +178,7 @@ def js_require_statement(module: str) -> str:
 @st.composite
 def js_code_with_imports(draw) -> tuple[str, set[str]]:
     """Generate JavaScript/TypeScript code with known import statements.
-    
+
     Returns:
         A tuple of (code_string, expected_imports_set)
     """
@@ -218,7 +225,7 @@ def js_code_with_imports(draw) -> tuple[str, set[str]]:
 
 class TestJavaScriptImportExtractionProperties:
     """Property tests for JavaScript/TypeScript import extraction.
-    
+
     **Feature: balanced-architecture-filter, Property 2: JavaScript/TypeScript Import Extraction Completeness**
     **Validates: Requirements 1.2**
     """
@@ -229,9 +236,9 @@ class TestJavaScriptImportExtractionProperties:
         """
         **Feature: balanced-architecture-filter, Property 2: JavaScript/TypeScript Import Extraction Completeness**
         **Validates: Requirements 1.2**
-        
-        Property: For any JavaScript or TypeScript code string containing `import X from 'Y'` 
-        or `require('Y')` statements, the `extract_imports` function SHALL return a set 
+
+        Property: For any JavaScript or TypeScript code string containing `import X from 'Y'`
+        or `require('Y')` statements, the `extract_imports` function SHALL return a set
         containing all module paths Y.
         """
         code, expected_imports = code_and_imports
@@ -276,7 +283,7 @@ def valid_file_path() -> st.SearchStrategy[str]:
 @st.composite
 def import_graph_with_circular(draw) -> tuple[str, str, dict[str, set[str]]]:
     """Generate an import graph where two files import each other (circular).
-    
+
     Returns:
         A tuple of (file_a, file_b, import_graph) where file_a and file_b have circular imports
     """
@@ -300,7 +307,7 @@ def import_graph_with_circular(draw) -> tuple[str, str, dict[str, set[str]]]:
 
 class TestImportRelationshipProperties:
     """Property tests for import relationship analysis.
-    
+
     **Feature: balanced-architecture-filter, Property 3: Import Relationship Symmetry**
     **Validates: Requirements 1.4**
     """
@@ -311,9 +318,9 @@ class TestImportRelationshipProperties:
         """
         **Feature: balanced-architecture-filter, Property 3: Import Relationship Symmetry**
         **Validates: Requirements 1.4**
-        
-        Property: For any two files A and B with an import graph, if 
-        `analyze_import_relationship(A, B)` returns `is_circular=True`, 
+
+        Property: For any two files A and B with an import graph, if
+        `analyze_import_relationship(A, B)` returns `is_circular=True`,
         then both `a_imports_b` and `b_imports_a` SHALL be True.
         """
         from app.services.cluster_analyzer import analyze_import_relationship
@@ -414,7 +421,7 @@ def non_utility_directory_path() -> st.SearchStrategy[str]:
 
 class TestDunderMethodClassificationProperties:
     """Property tests for Python dunder method classification.
-    
+
     **Feature: balanced-architecture-filter, Property 4: Dunder Method Classification**
     **Validates: Requirements 2.1**
     """
@@ -425,9 +432,9 @@ class TestDunderMethodClassificationProperties:
         """
         **Feature: balanced-architecture-filter, Property 4: Dunder Method Classification**
         **Validates: Requirements 2.1**
-        
-        Property: For any function name matching the pattern `__X__` (starting and 
-        ending with double underscores), `is_likely_boilerplate` SHALL return 
+
+        Property: For any function name matching the pattern `__X__` (starting and
+        ending with double underscores), `is_likely_boilerplate` SHALL return
         `(True, reason)` where reason contains "dunder".
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
@@ -444,7 +451,7 @@ class TestDunderMethodClassificationProperties:
 
 class TestFrameworkConventionClassificationProperties:
     """Property tests for framework convention method classification.
-    
+
     **Feature: balanced-architecture-filter, Property 5: Framework Convention Classification**
     **Validates: Requirements 2.2**
     """
@@ -455,9 +462,9 @@ class TestFrameworkConventionClassificationProperties:
         """
         **Feature: balanced-architecture-filter, Property 5: Framework Convention Classification**
         **Validates: Requirements 2.2**
-        
-        Property: For any function name in the set {constructor, render, componentDidMount, 
-        componentDidUpdate, componentWillUnmount, equals, hashCode, initialize, toString, 
+
+        Property: For any function name in the set {constructor, render, componentDidMount,
+        componentDidUpdate, componentWillUnmount, equals, hashCode, initialize, toString,
         valueOf}, `is_likely_boilerplate` SHALL return `(True, reason)`.
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
@@ -470,7 +477,7 @@ class TestFrameworkConventionClassificationProperties:
 
 class TestShortNameInUtilityDirectoryProperties:
     """Property tests for short name in utility directory classification.
-    
+
     **Feature: balanced-architecture-filter, Property 6: Short Name in Utility Directory Classification**
     **Validates: Requirements 2.3**
     """
@@ -481,9 +488,9 @@ class TestShortNameInUtilityDirectoryProperties:
         """
         **Feature: balanced-architecture-filter, Property 6: Short Name in Utility Directory Classification**
         **Validates: Requirements 2.3**
-        
-        Property: For any function name of 3 characters or fewer AND file path containing 
-        `/utils/`, `/helpers/`, `/lib/`, or `/common/`, `is_likely_boilerplate` SHALL 
+
+        Property: For any function name of 3 characters or fewer AND file path containing
+        `/utils/`, `/helpers/`, `/lib/`, or `/common/`, `is_likely_boilerplate` SHALL
         return `(True, reason)`.
         """
         # Skip if name happens to be a common utility name (tested separately)
@@ -500,7 +507,7 @@ class TestShortNameInUtilityDirectoryProperties:
 
 class TestCommonUtilityNameClassificationProperties:
     """Property tests for common utility name classification.
-    
+
     **Feature: balanced-architecture-filter, Property 7: Common Utility Name Classification**
     **Validates: Requirements 2.4**
     """
@@ -511,8 +518,8 @@ class TestCommonUtilityNameClassificationProperties:
         """
         **Feature: balanced-architecture-filter, Property 7: Common Utility Name Classification**
         **Validates: Requirements 2.4**
-        
-        Property: For any function name in the set {get, set, run, add, put, pop, map, log}, 
+
+        Property: For any function name in the set {get, set, run, add, put, pop, map, log},
         `is_likely_boilerplate` SHALL return `(True, reason)` regardless of file path.
         """
         is_boilerplate, reason = is_likely_boilerplate(name, file_path)
@@ -563,7 +570,7 @@ def layer_keyword() -> st.SearchStrategy[tuple[str, str]]:
 @st.composite
 def file_path_with_layer_keyword(draw) -> tuple[str, str]:
     """Generate a file path containing a layer keyword.
-    
+
     Returns:
         A tuple of (file_path, expected_layer)
     """
@@ -602,7 +609,7 @@ TEST_PATTERNS_FOR_GENERATION = [
 @st.composite
 def generate_test_file_path(draw) -> str:
     """Generate a file path that matches test file patterns.
-    
+
     Returns:
         A file path that should be detected as a test file
     """
@@ -659,7 +666,7 @@ def generate_test_file_path(draw) -> str:
 
 class TestArchitecturalLayerDetectionProperties:
     """Property tests for architectural layer detection.
-    
+
     **Feature: balanced-architecture-filter, Property 8: Architectural Layer Detection Consistency**
     **Validates: Requirements 3.1**
     """
@@ -670,9 +677,9 @@ class TestArchitecturalLayerDetectionProperties:
         """
         **Feature: balanced-architecture-filter, Property 8: Architectural Layer Detection Consistency**
         **Validates: Requirements 3.1**
-        
-        Property: For any file path containing a layer keyword (models, services, api, 
-        tests, utils, workers), `get_arch_context` SHALL return an ArchContext with 
+
+        Property: For any file path containing a layer keyword (models, services, api,
+        tests, utils, workers), `get_arch_context` SHALL return an ArchContext with
         the corresponding layer value.
         """
         from app.services.cluster_analyzer import get_arch_context
@@ -692,7 +699,7 @@ class TestArchitecturalLayerDetectionProperties:
 
 class TestTestFileDetectionProperties:
     """Property tests for test file detection.
-    
+
     **Feature: balanced-architecture-filter, Property 9: Test File Detection**
     **Validates: Requirements 3.2**
     """
@@ -703,9 +710,9 @@ class TestTestFileDetectionProperties:
         """
         **Feature: balanced-architecture-filter, Property 9: Test File Detection**
         **Validates: Requirements 3.2**
-        
-        Property: For any file path matching test patterns (test_, _test., .test., 
-        .spec., /tests/, /__tests__/), `get_arch_context` SHALL return an ArchContext 
+
+        Property: For any file path matching test patterns (test_, _test., .test.,
+        .spec., /tests/, /__tests__/), `get_arch_context` SHALL return an ArchContext
         with `is_test=True`.
         """
         from app.services.cluster_analyzer import get_arch_context
@@ -722,7 +729,7 @@ class TestTestFileDetectionProperties:
 
 class TestSameLayerReflexivityProperties:
     """Property tests for same layer reflexivity.
-    
+
     **Feature: balanced-architecture-filter, Property 10: Same Layer Reflexivity**
     **Validates: Requirements 3.3**
     """
@@ -733,7 +740,7 @@ class TestSameLayerReflexivityProperties:
         """
         **Feature: balanced-architecture-filter, Property 10: Same Layer Reflexivity**
         **Validates: Requirements 3.3**
-        
+
         Property: For any file path P, `same_layer(P, P)` SHALL return True.
         """
         from app.services.cluster_analyzer import same_layer
@@ -761,7 +768,7 @@ def base_name_for_test() -> st.SearchStrategy[str]:
 @st.composite
 def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
     """Generate a test file path with known base name.
-    
+
     Returns:
         A tuple of (test_file_path, expected_base_name)
     """
@@ -821,7 +828,7 @@ def generate_test_file_path_with_base_name(draw) -> tuple[str, str]:
 
 class TestTestBaseNameExtractionProperties:
     """Property tests for test base name extraction.
-    
+
     **Feature: balanced-architecture-filter, Property 11: Test Base Name Extraction**
     **Validates: Requirements 4.1**
     """
@@ -832,9 +839,9 @@ class TestTestBaseNameExtractionProperties:
         """
         **Feature: balanced-architecture-filter, Property 11: Test Base Name Extraction**
         **Validates: Requirements 4.1**
-        
-        Property: For any test file path with prefixes (test_, Test) or suffixes 
-        (_test, .test, _spec, .spec), `get_test_base_name` SHALL return the base 
+
+        Property: For any test file path with prefixes (test_, Test) or suffixes
+        (_test, .test, _spec, .spec), `get_test_base_name` SHALL return the base
         name with all test markers removed.
         """
         from app.services.cluster_analyzer import get_test_base_name
@@ -897,7 +904,7 @@ def nearest_payload_or_none(draw) -> dict | None:
 
 
 @st.composite
-def import_analysis_data(draw) -> "ImportAnalysis":
+def import_analysis_data(draw) -> ImportAnalysis:
     """Generate an ImportAnalysis object for testing."""
     from app.services.cluster_analyzer import ImportAnalysis
 
@@ -916,9 +923,9 @@ def import_analysis_data(draw) -> "ImportAnalysis":
 
 
 @st.composite
-def confidence_test_scenario(draw) -> tuple[dict, dict | None, float, "ImportAnalysis"]:
+def confidence_test_scenario(draw) -> tuple[dict, dict | None, float, ImportAnalysis]:
     """Generate a complete scenario for confidence scoring testing.
-    
+
     Returns:
         A tuple of (outlier_payload, nearest_payload, similarity, import_analysis)
     """
@@ -936,7 +943,7 @@ def confidence_test_scenario(draw) -> tuple[dict, dict | None, float, "ImportAna
 
 class TestConfidenceScoreBoundsProperties:
     """Property tests for confidence score bounds.
-    
+
     **Feature: balanced-architecture-filter, Property 12: Confidence Score Bounds**
     **Validates: Requirements 5.6**
     """
@@ -945,14 +952,14 @@ class TestConfidenceScoreBoundsProperties:
     @settings(max_examples=100)
     def test_confidence_score_bounds(
         self,
-        scenario: tuple[dict, dict | None, float, "ImportAnalysis"]
+        scenario: tuple[dict, dict | None, float, ImportAnalysis]
     ):
         """
         **Feature: balanced-architecture-filter, Property 12: Confidence Score Bounds**
         **Validates: Requirements 5.6**
-        
-        Property: For any outlier with any combination of factors, 
-        `calculate_balanced_confidence` SHALL return a confidence value 
+
+        Property: For any outlier with any combination of factors,
+        `calculate_balanced_confidence` SHALL return a confidence value
         in the range [0.1, 0.9].
         """
         from app.services.cluster_analyzer import calculate_balanced_confidence
@@ -996,10 +1003,10 @@ class TestConfidenceScoreBoundsProperties:
 @st.composite
 def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]:
     """Generate a scenario for _find_outliers testing.
-    
+
     Creates vectors, labels, and payloads that simulate a clustering result
     with some outliers (label=-1) and some clustered points.
-    
+
     Returns:
         A tuple of (vectors, labels, payloads)
     """
@@ -1044,7 +1051,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
 
     # Generate payloads for each point
     payloads = []
-    for i in range(num_points):
+    for _i in range(num_points):
         file_path = file_paths[rng.integers(0, len(file_paths))]
         name = names[rng.integers(0, len(names))]
         chunk_type = chunk_types[rng.integers(0, len(chunk_types))]
@@ -1067,7 +1074,7 @@ def generate_outlier_scenario(draw) -> tuple[np.ndarray, np.ndarray, list[dict]]
 
 class TestLowConfidenceFilteringProperties:
     """Property tests for low confidence filtering.
-    
+
     **Feature: balanced-architecture-filter, Property 13: Low Confidence Filtering**
     **Validates: Requirements 5.7**
     """
@@ -1081,9 +1088,9 @@ class TestLowConfidenceFilteringProperties:
         """
         **Feature: balanced-architecture-filter, Property 13: Low Confidence Filtering**
         **Validates: Requirements 5.7**
-        
-        Property: For any outlier where `calculate_balanced_confidence` returns 
-        confidence < 0.4, the outlier SHALL NOT appear in the final `_find_outliers` 
+
+        Property: For any outlier where `calculate_balanced_confidence` returns
+        confidence < 0.4, the outlier SHALL NOT appear in the final `_find_outliers`
         result list.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
@@ -1106,7 +1113,7 @@ class TestLowConfidenceFilteringProperties:
 
 class TestTierAssignmentConsistencyProperties:
     """Property tests for tier assignment consistency.
-    
+
     **Feature: balanced-architecture-filter, Property 14: Tier Assignment Consistency**
     **Validates: Requirements 6.1, 6.2, 6.3**
     """
@@ -1120,7 +1127,7 @@ class TestTierAssignmentConsistencyProperties:
         """
         **Feature: balanced-architecture-filter, Property 14: Tier Assignment Consistency**
         **Validates: Requirements 6.1, 6.2, 6.3**
-        
+
         Property: For any outlier in the result list:
         - If confidence >= 0.7, tier SHALL be "critical"
         - If 0.5 <= confidence < 0.7, tier SHALL be "recommended"
@@ -1157,7 +1164,7 @@ class TestTierAssignmentConsistencyProperties:
 
 class TestResultOrderingProperties:
     """Property tests for result ordering.
-    
+
     **Feature: balanced-architecture-filter, Property 15: Result Ordering**
     **Validates: Requirements 6.4**
     """
@@ -1171,8 +1178,8 @@ class TestResultOrderingProperties:
         """
         **Feature: balanced-architecture-filter, Property 15: Result Ordering**
         **Validates: Requirements 6.4**
-        
-        Property: For any result list from `_find_outliers`, for all consecutive 
+
+        Property: For any result list from `_find_outliers`, for all consecutive
         pairs (outlier[i], outlier[i+1]), outlier[i].confidence >= outlier[i+1].confidence.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
@@ -1199,7 +1206,7 @@ class TestResultOrderingProperties:
 
 class TestResultSizeLimitProperties:
     """Property tests for result size limit.
-    
+
     **Feature: balanced-architecture-filter, Property 16: Result Size Limit**
     **Validates: Requirements 6.5**
     """
@@ -1213,7 +1220,7 @@ class TestResultSizeLimitProperties:
         """
         **Feature: balanced-architecture-filter, Property 16: Result Size Limit**
         **Validates: Requirements 6.5**
-        
+
         Property: For any result list from `_find_outliers`, len(result) <= 15.
         """
         from app.services.cluster_analyzer import ClusterAnalyzer
@@ -1236,7 +1243,7 @@ class TestResultSizeLimitProperties:
 
 class TestAPIResponseCompletenessProperties:
     """Property tests for API response completeness.
-    
+
     **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
     **Validates: Requirements 8.1, 8.2, 8.3**
     """
@@ -1245,7 +1252,7 @@ class TestAPIResponseCompletenessProperties:
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
         **Validates: Requirements 8.1**
-        
+
         Property: OutlierInfoResponse SHALL have a `confidence` field of type float.
         """
         from app.api.v1.semantic import OutlierInfoResponse
@@ -1279,7 +1286,7 @@ class TestAPIResponseCompletenessProperties:
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
         **Validates: Requirements 8.2**
-        
+
         Property: OutlierInfoResponse SHALL have a `confidence_factors` field of type list[str].
         """
         from app.api.v1.semantic import OutlierInfoResponse
@@ -1314,7 +1321,7 @@ class TestAPIResponseCompletenessProperties:
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
         **Validates: Requirements 8.3**
-        
+
         Property: OutlierInfoResponse SHALL have a `tier` field of type str.
         """
         from app.api.v1.semantic import OutlierInfoResponse
@@ -1349,7 +1356,7 @@ class TestAPIResponseCompletenessProperties:
         """
         **Feature: balanced-architecture-filter, Property 17: API Response Completeness**
         **Validates: Requirements 8.1, 8.2, 8.3**
-        
+
         Property: OutlierInfoResponse SHALL have sensible default values for new fields.
         """
         from app.api.v1.semantic import OutlierInfoResponse

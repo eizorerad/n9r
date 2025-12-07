@@ -7,7 +7,7 @@ defined in the design document for the progress-tracking-refactor feature.
 **Validates: Requirements 6.1, 6.2, 6.3**
 """
 
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 # =============================================================================
@@ -71,7 +71,7 @@ def invalid_progress_above() -> st.SearchStrategy[int]:
 def validate_embeddings_status(status: str) -> bool:
     """
     Validate embeddings_status against CHECK constraint.
-    
+
     Mirrors: CHECK (embeddings_status IN ('none', 'pending', 'running', 'completed', 'failed'))
     """
     return status in VALID_EMBEDDINGS_STATUS
@@ -80,7 +80,7 @@ def validate_embeddings_status(status: str) -> bool:
 def validate_semantic_cache_status(status: str) -> bool:
     """
     Validate semantic_cache_status against CHECK constraint.
-    
+
     Mirrors: CHECK (semantic_cache_status IN ('none', 'pending', 'computing', 'completed', 'failed'))
     """
     return status in VALID_SEMANTIC_CACHE_STATUS
@@ -89,7 +89,7 @@ def validate_semantic_cache_status(status: str) -> bool:
 def validate_embeddings_progress(progress: int) -> bool:
     """
     Validate embeddings_progress against CHECK constraint.
-    
+
     Mirrors: CHECK (embeddings_progress >= 0 AND embeddings_progress <= 100)
     """
     return 0 <= progress <= 100
@@ -103,7 +103,7 @@ def validate_embeddings_progress(progress: int) -> bool:
 class TestEmbeddingsStatusConstraint:
     """
     Property tests for embeddings_status CHECK constraint.
-    
+
     **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
     **Validates: Requirements 6.1**
     """
@@ -114,8 +114,8 @@ class TestEmbeddingsStatusConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.1**
-        
-        Property: For any valid embeddings_status value ('none', 'pending', 'running', 
+
+        Property: For any valid embeddings_status value ('none', 'pending', 'running',
         'completed', 'failed'), the validation SHALL accept the value.
         """
         assert validate_embeddings_status(status), (
@@ -129,13 +129,13 @@ class TestEmbeddingsStatusConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.1**
-        
+
         Property: For any invalid embeddings_status value (not in the valid set),
         the validation SHALL reject the value.
         """
         # Ensure we're testing truly invalid values
         assume(status not in VALID_EMBEDDINGS_STATUS)
-        
+
         assert not validate_embeddings_status(status), (
             f"Invalid embeddings_status '{status}' should be rejected\n"
             f"Valid values: {VALID_EMBEDDINGS_STATUS}"
@@ -145,7 +145,7 @@ class TestEmbeddingsStatusConstraint:
 class TestSemanticCacheStatusConstraint:
     """
     Property tests for semantic_cache_status CHECK constraint.
-    
+
     **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
     **Validates: Requirements 6.2**
     """
@@ -156,7 +156,7 @@ class TestSemanticCacheStatusConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.2**
-        
+
         Property: For any valid semantic_cache_status value ('none', 'pending', 'computing',
         'completed', 'failed'), the validation SHALL accept the value.
         """
@@ -171,13 +171,13 @@ class TestSemanticCacheStatusConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.2**
-        
+
         Property: For any invalid semantic_cache_status value (not in the valid set),
         the validation SHALL reject the value.
         """
         # Ensure we're testing truly invalid values
         assume(status not in VALID_SEMANTIC_CACHE_STATUS)
-        
+
         assert not validate_semantic_cache_status(status), (
             f"Invalid semantic_cache_status '{status}' should be rejected\n"
             f"Valid values: {VALID_SEMANTIC_CACHE_STATUS}"
@@ -187,7 +187,7 @@ class TestSemanticCacheStatusConstraint:
 class TestEmbeddingsProgressConstraint:
     """
     Property tests for embeddings_progress CHECK constraint.
-    
+
     **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
     **Validates: Requirements 6.3**
     """
@@ -198,7 +198,7 @@ class TestEmbeddingsProgressConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.3**
-        
+
         Property: For any progress value between 0 and 100 inclusive,
         the validation SHALL accept the value.
         """
@@ -213,7 +213,7 @@ class TestEmbeddingsProgressConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.3**
-        
+
         Property: For any progress value below 0,
         the validation SHALL reject the value.
         """
@@ -228,7 +228,7 @@ class TestEmbeddingsProgressConstraint:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.3**
-        
+
         Property: For any progress value above 100,
         the validation SHALL reject the value.
         """
@@ -241,7 +241,7 @@ class TestEmbeddingsProgressConstraint:
 class TestCombinedConstraints:
     """
     Property tests for combined constraint validation.
-    
+
     **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
     **Validates: Requirements 6.1, 6.2, 6.3**
     """
@@ -261,7 +261,7 @@ class TestCombinedConstraints:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.1, 6.2, 6.3**
-        
+
         Property: For any combination of valid embeddings_status, semantic_cache_status,
         and progress values, all validations SHALL pass.
         """
@@ -290,7 +290,7 @@ class TestCombinedConstraints:
         """
         **Feature: progress-tracking-refactor, Property 8: Database Constraint Enforcement**
         **Validates: Requirements 6.1, 6.2, 6.3**
-        
+
         Property: For any combination of values (valid or invalid), the validation
         functions SHALL correctly identify valid vs invalid values.
         """

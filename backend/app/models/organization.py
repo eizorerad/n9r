@@ -35,7 +35,7 @@ class MemberRole(str, enum.Enum):
 
 class Organization(BaseModel):
     """Organization model for team workspaces.
-    
+
     Supports both SaaS multi-tenancy (owner_id, slug, plan) and
     GitHub organization integration (github_id, installation_id).
     """

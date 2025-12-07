@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shlex
 import shutil
 import tempfile
 from pathlib import Path
@@ -19,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 def get_sandbox_base_dir() -> str:
     """Get base directory for sandbox workdirs.
-    
+
     Uses SANDBOX_ROOT_DIR from settings, defaulting to /tmp.
     Creates the directory if it doesn't exist.
-    
+
     Returns:
         Path to base directory for sandbox workdirs.
     """
@@ -33,20 +32,20 @@ def get_sandbox_base_dir() -> str:
 
 def get_host_mount_path(container_path: str) -> str:
     """Translate container path to host path for Docker volume mounting.
-    
+
     When Celery runs inside a Docker container, the sandbox workdir path
     (e.g., /app/sandbox_data/n9r-sandbox-xxx) must be translated to the
     corresponding path on the Docker host for sibling container mounting.
-    
+
     For local development (host_sandbox_path is empty), returns the path unchanged.
-    
+
     Example:
         Container path: /app/sandbox_data/n9r-sandbox-abc123
         Host path:      /home/user/n9r/sandbox_data/n9r-sandbox-abc123
-        
+
     Args:
         container_path: Path inside the Celery container.
-        
+
     Returns:
         Corresponding path on Docker host (or unchanged for local dev).
     """
@@ -161,18 +160,18 @@ class SandboxManager:
 
 class Sandbox:
     """An isolated sandbox container for code analysis.
-    
+
     SECURITY NOTE:
     This sandbox runs with network_mode="none" which provides complete
     network isolation. The container cannot:
     - Access the internet
     - Access internal services (PostgreSQL, Redis, etc.)
     - Communicate with other containers
-    
+
     Repository code is cloned on the HOST before the sandbox starts,
     then mounted into the sandbox via volume. This ensures malicious
     code in the repository cannot make network requests.
-    
+
     See docs/sandbox_security_research.md for full security analysis.
     """
 
@@ -194,11 +193,11 @@ class Sandbox:
 
     def _supports_storage_opt(self) -> bool:
         """Check if Docker storage driver supports storage_opt.
-        
+
         storage_opt with size limit is only supported by:
         - devicemapper
         - overlay2 with xfs backing filesystem
-        
+
         Returns False for other drivers to prevent container start failures.
         """
         try:
@@ -278,21 +277,21 @@ class Sandbox:
         access_token: str | None = None,
     ) -> bool:
         """Clone a repository on the HOST into the sandbox's workdir.
-        
+
         SECURITY: This method clones on the host machine, NOT inside the sandbox.
         This is required because the sandbox has network_mode="none" and cannot
         access the internet.
-        
+
         The cloned repository is placed in self.workdir which is mounted into
         the sandbox at /workspace. After cloning, the sandbox can analyze the
         code without any network access.
-        
+
         Args:
             clone_url: Git repository URL
             branch: Branch to clone
             depth: Clone depth (1 for shallow clone)
             access_token: GitHub access token for private repos
-            
+
         Returns:
             True if clone succeeded, False otherwise
         """
@@ -350,15 +349,15 @@ class Sandbox:
 
     def fix_workspace_permissions(self) -> bool:
         """Fix permissions on workspace directory for sandbox user.
-        
+
         Called after cloning or writing files to ensure sandbox user
         (uid=1000 inside container) can read/write all files.
-        
+
         This is necessary because:
         - Files cloned on host have host process uid (may be root or different uid)
         - Sandbox container runs as 'sandbox' user (uid=1000)
         - Without chown, sandbox user gets Permission denied on write operations
-        
+
         Returns:
             True if permissions fixed successfully, False otherwise
         """
@@ -393,10 +392,10 @@ class Sandbox:
         access_token: str | None = None,
     ) -> bool:
         """Clone a repository into the sandbox.
-        
+
         DEPRECATED: This method will NOT work with network_mode="none".
         Use clone_repository_on_host() instead.
-        
+
         This method is kept for backwards compatibility but will fail
         because the sandbox container has no network access.
         """
@@ -434,12 +433,12 @@ class Sandbox:
         timeout: int | None = None,
     ) -> tuple[int, str]:
         """Execute a command in the sandbox.
-        
+
         SECURITY: The command string is passed to sh -c, so it supports shell
         features like pipes and redirects. However, any dynamic values
         (especially file paths) MUST be escaped with shlex.quote() before
         being interpolated into the command string to prevent injection.
-        
+
         For commands with untrusted arguments, prefer exec_args() instead.
         """
         if not self.container:
@@ -473,17 +472,17 @@ class Sandbox:
         timeout: int | None = None,
     ) -> tuple[int, str]:
         """Execute a command in the sandbox without shell interpretation.
-        
+
         SECURITY: This method executes commands directly without a shell,
         making it safe for untrusted arguments (e.g., file paths from repos).
         No shell escaping is needed. This is the preferred method when
         shell features (pipes, redirects, etc.) are not required.
-        
+
         Args:
             args: Command and arguments as a list, e.g., ["python", "-m", "pytest", "test.py"]
             workdir: Working directory inside the container
             timeout: Command timeout in seconds
-            
+
         Returns:
             Tuple of (exit_code, combined stdout+stderr output)
         """

@@ -4,7 +4,7 @@ Script to manually generate embeddings for a repository.
 
 Usage:
     uv run python scripts/generate_repo_embeddings.py <repository_id>
-    
+
 This will:
 1. Fetch the repository from the database
 2. Clone it
@@ -195,7 +195,7 @@ def main():
         llm = get_llm_gateway()
         qdrant = QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port, timeout=settings.qdrant_timeout)
 
-        COLLECTION_NAME = "code_embeddings"
+        collection_name = "code_embeddings"
 
         # Chunk all files
         all_chunks = []
@@ -243,7 +243,7 @@ def main():
                 logger.error(f"Failed to generate embeddings: {e}")
                 continue
 
-            for chunk, embedding in zip(batch, embeddings):
+            for chunk, embedding in zip(batch, embeddings, strict=False):
                 point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
 
                 points.append(PointStruct(
@@ -279,7 +279,7 @@ def main():
             # Delete old embeddings first
             try:
                 qdrant.delete(
-                    collection_name=COLLECTION_NAME,
+                    collection_name=collection_name,
                     points_selector={
                         "filter": {
                             "must": [
@@ -295,7 +295,7 @@ def main():
             upsert_batch_size = 100
             for i in range(0, len(points), upsert_batch_size):
                 batch = points[i:i + upsert_batch_size]
-                qdrant.upsert(collection_name=COLLECTION_NAME, points=batch)
+                qdrant.upsert(collection_name=collection_name, points=batch)
 
             logger.info(f"✅ Successfully stored {len(points)} vectors in Qdrant!")
         else:

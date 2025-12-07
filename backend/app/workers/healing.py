@@ -42,14 +42,14 @@ def publish_healing_progress(
     status: str = "running",
 ) -> None:
     """Publish healing progress to Redis for SSE streaming.
-    
+
     Args:
         issue_id: Issue UUID string
         stage: Current healing stage
         progress: Progress percentage (0-100)
         message: Optional status message
         status: Overall status (running, completed, failed)
-        
+
     Uses connection pool to prevent connection leaks.
     """
     import json
@@ -71,13 +71,13 @@ def publish_healing_progress(
 
 def _get_issue_with_context(issue_id: str) -> tuple[Issue, Repository, str | None]:
     """Load issue with repository and user access token.
-    
+
     Args:
         issue_id: UUID string of the issue
-        
+
     Returns:
         Tuple of (Issue, Repository, access_token or None)
-        
+
     Raises:
         ValueError: If issue or repository not found
     """
@@ -125,14 +125,14 @@ def _get_file_content(
     ref: str | None = None,
 ) -> str:
     """Fetch file content from GitHub.
-    
+
     Args:
         owner: Repository owner
         repo: Repository name
         file_path: Path to file in repository
         access_token: GitHub access token
         ref: Optional git reference (branch/tag/commit)
-        
+
     Returns:
         File content as string
     """
@@ -147,13 +147,13 @@ def _create_auto_pr_record(
     status: str = "pending",
 ) -> AutoPR:
     """Create AutoPR database record.
-    
+
     Args:
         db: Database session
         issue: Issue being fixed
         repository: Target repository
         status: Initial PR status
-        
+
     Returns:
         Created AutoPR instance
     """
@@ -182,7 +182,7 @@ def _update_auto_pr(
     agent_logs: list | None = None,
 ) -> None:
     """Update AutoPR record with healing results.
-    
+
     Args:
         auto_pr_id: UUID of the AutoPR
         status: New status
@@ -230,7 +230,7 @@ def _update_auto_pr(
 
 def _update_issue_status(issue_id: str, status: str) -> None:
     """Update issue status in database.
-    
+
     Args:
         issue_id: UUID of the issue
         status: New status (fixing, fixed, fix_failed)
@@ -256,7 +256,7 @@ async def _create_github_pr(
     issue_title: str,
 ) -> dict:
     """Create a GitHub PR with the fix.
-    
+
     Args:
         access_token: GitHub access token
         owner: Repository owner
@@ -265,7 +265,7 @@ async def _create_github_pr(
         fix_result: FixResult from healing orchestrator
         test_result: TestResult from healing orchestrator
         issue_title: Title of the issue being fixed
-        
+
     Returns:
         Dict with pr_number, pr_url, branch_name
     """
@@ -351,19 +351,19 @@ def heal_issue(
 ) -> dict:
     """
     Heal an issue by generating and validating a fix.
-    
+
     This task:
     1. Loads issue and repository context
     2. Fetches file content from GitHub
     3. Runs HealingOrchestrator (diagnosis → fix → test → validate)
     4. Creates GitHub PR if successful
     5. Updates AutoPR record with results
-    
+
     Args:
         issue_id: UUID of the issue to heal
         auto_pr_id: Optional existing AutoPR ID to update
         max_iterations: Maximum healing retry attempts
-        
+
     Returns:
         Dict with healing results
     """
@@ -609,11 +609,11 @@ def retry_healing(
 ) -> dict:
     """
     Retry healing for a failed or rejected AutoPR.
-    
+
     Args:
         auto_pr_id: UUID of the AutoPR to retry
         feedback: Optional user feedback to incorporate
-        
+
     Returns:
         Dict with new healing task info
     """

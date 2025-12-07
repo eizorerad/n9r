@@ -52,7 +52,7 @@ class FixAgent:
     ) -> FixResult:
         """
         Generate a code fix based on the diagnosis.
-        
+
         Args:
             diagnosis: DiagnosisResult from DiagnosisAgent
             issue: Original issue dict
@@ -60,7 +60,7 @@ class FixAgent:
             repository_id: Repository UUID for RAG context
             previous_error: Error from previous fix attempt (for retry)
             iteration: Current iteration number (1-based)
-        
+
         Returns:
             FixResult with the generated fix
         """

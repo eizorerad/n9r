@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import BaseSchema
 
-
 # =============================================================================
 # Enums for AI Scan
 # =============================================================================

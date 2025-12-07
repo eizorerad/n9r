@@ -17,9 +17,9 @@ from app.core.config import settings
 
 def recreate_collection(vector_size: int = 1536):
     """Recreate Qdrant collection with specified vector size.
-    
+
     Args:
-        vector_size: Embedding dimension (1536 for text-embedding-3-small, 
+        vector_size: Embedding dimension (1536 for text-embedding-3-small,
                      3072 for text-embedding-3-large)
     """
     client = QdrantClient(
@@ -27,18 +27,18 @@ def recreate_collection(vector_size: int = 1536):
         port=settings.qdrant_port,
         timeout=settings.qdrant_timeout,
     )
-    
+
     collection_name = settings.qdrant_collection_name
-    
+
     # Check if collection exists
     collections = client.get_collections().collections
     collection_names = [c.name for c in collections]
-    
+
     if collection_name in collection_names:
         print(f"⚠️  Deleting existing collection '{collection_name}'...")
         client.delete_collection(collection_name)
-        print(f"✅ Collection deleted")
-    
+        print("✅ Collection deleted")
+
     # Create collection with new vector size
     print(f"📦 Creating collection '{collection_name}' with vector size {vector_size}...")
     client.create_collection(
@@ -48,7 +48,7 @@ def recreate_collection(vector_size: int = 1536):
             distance=Distance.COSINE,
         ),
     )
-    
+
     # Create payload indexes
     for field in ["repo_id", "file_path", "language"]:
         client.create_payload_index(
@@ -56,11 +56,11 @@ def recreate_collection(vector_size: int = 1536):
             field_name=field,
             field_schema=PayloadSchemaType.KEYWORD,
         )
-    
+
     print(f"✅ Collection '{collection_name}' created successfully")
     print(f"   Vector size: {vector_size}")
-    print(f"   Distance metric: COSINE")
-    print(f"   Payload indexes: repo_id, file_path, language")
+    print("   Distance metric: COSINE")
+    print("   Payload indexes: repo_id, file_path, language")
 
 
 if __name__ == "__main__":

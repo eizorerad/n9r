@@ -88,10 +88,13 @@ async function request<T>(
     }
 
     const error = await response.json().catch(() => ({}));
+    // FastAPI returns { detail: "message" } for HTTPException
+    // or { error: { code, message, details } } for custom errors
+    const message = error.detail || error.error?.message || response.statusText;
     throw new ApiError(
       response.status,
       error.error?.code || "UNKNOWN_ERROR",
-      error.error?.message || response.statusText,
+      message,
       error.error?.details
     );
   }

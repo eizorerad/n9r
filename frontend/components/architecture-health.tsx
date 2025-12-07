@@ -54,9 +54,21 @@ function ArchitectureHealthComponent({ repositoryId, token, className, cachedDat
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
 
-  // Memoize cachedData check to prevent re-running effect on every parent render
-  const hasCachedData = useMemo(() => !!cachedData, [cachedData])
+  // Memoize cachedData string to prevent re-running effect on every parent render
   const cachedDataString = useMemo(() => JSON.stringify(cachedData), [cachedData])
+  
+  // Memoize derived values to prevent recalculation on every render
+  // Must be before early returns to follow rules of hooks
+  const computedValues = useMemo(() => {
+    if (!data) return null
+    // Handle both 'overall_score' and legacy 'score' field for backward compatibility
+    const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
+    const issueCount = data.outliers.length + data.coupling_hotspots.length
+    const hasScore = typeof scoreValue === 'number'
+    const displayScore = hasScore ? scoreValue : 0
+    
+    return { scoreValue, issueCount, hasScore, displayScore }
+  }, [data])
 
   useEffect(() => {
     // If we have cached data, use it directly
@@ -124,20 +136,9 @@ function ArchitectureHealthComponent({ repositoryId, token, className, cachedDat
     )
   }
 
-  if (!data) return null
-
-  // Memoize derived values to prevent recalculation on every render
-  const computedValues = useMemo(() => {
-    // Handle both 'overall_score' and legacy 'score' field for backward compatibility
-    const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
-    const issueCount = data.outliers.length + data.coupling_hotspots.length
-    const hasScore = typeof scoreValue === 'number'
-    const displayScore = hasScore ? scoreValue : 0
-    
-    return { scoreValue, issueCount, hasScore, displayScore }
-  }, [data.overall_score, data.outliers.length, data.coupling_hotspots.length])
+  if (!data || !computedValues) return null
   
-  const { scoreValue, issueCount, hasScore, displayScore } = computedValues
+  const { issueCount, hasScore, displayScore } = computedValues
 
   return (
     <div className={cn('space-y-6', className)}>

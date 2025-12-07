@@ -144,7 +144,7 @@ async def github_callback(callback: AuthCallback, db: DbSession) -> AuthResponse
 @router.post("/github/exchange", response_model=AuthResponse)
 async def github_exchange(callback: AuthCallbackSimple, db: DbSession) -> AuthResponse:
     """Exchange GitHub OAuth code for tokens (frontend-initiated flow).
-    
+
     This endpoint is used when OAuth is initiated from the frontend.
     State verification is handled on the frontend side.
     """

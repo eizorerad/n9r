@@ -45,12 +45,12 @@ class TestAgent:
     ) -> TestResult:
         """
         Generate a regression test for the fix.
-        
+
         Args:
             fix_result: FixResult from FixAgent
             issue: Original issue dict
             existing_tests: Content of existing test file if any
-        
+
         Returns:
             TestResult with generated test
         """

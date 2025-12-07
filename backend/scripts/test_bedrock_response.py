@@ -18,6 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -55,7 +56,7 @@ class GodClass:
         self.logger = None
         self.config = None
         self.metrics = None
-    
+
     def do_everything(self, input):
         # This class does too much
         data = self.db.query(input)
@@ -113,25 +114,25 @@ async def test_bedrock_raw():
     print("=" * 80)
     print("TESTING BEDROCK CLAUDE RAW RESPONSE")
     print("=" * 80)
-    
+
     # Check credentials
     if not os.environ.get("AWS_ACCESS_KEY_ID"):
         print("ERROR: AWS_ACCESS_KEY_ID not set")
         return
-    
+
     print("\n1. Initializing LiteLLM...")
     import litellm
     litellm.drop_params = True
-    
+
     model = "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     print(f"   Model: {model}")
-    
+
     print("\n2. Sending request WITHOUT response_format (fix for tool_calls issue)...")
     print(f"   Prompt length: {len(TEST_CODE)} chars")
-    
+
     # Add explicit JSON instruction to system prompt
     system_with_json = SYSTEM_PROMPT + "\n\nIMPORTANT: Return ONLY valid JSON, no markdown, no explanation."
-    
+
     try:
         response = await litellm.acompletion(
             model=model,
@@ -144,27 +145,27 @@ async def test_bedrock_raw():
             # NO response_format for Bedrock - causes tool_calls issue!
             extra_headers={"anthropic-beta": "context-1m-2025-08-07"},
         )
-        
+
         print("\n3. RAW RESPONSE OBJECT:")
         print("-" * 40)
         print(f"   Model used: {response.model}")
         print(f"   Finish reason: {response.choices[0].finish_reason}")
         print(f"   Usage: {response.usage}")
-        
+
         content = response.choices[0].message.content
         print(f"\n4. RAW CONTENT (type={type(content).__name__}, len={len(content) if content else 0}):")
         print("-" * 40)
         print(content)
         print("-" * 40)
-        
+
         # Try to parse
         print("\n5. PARSING ATTEMPT:")
         print("-" * 40)
-        
+
         if not content:
             print("   ERROR: Content is empty!")
             return
-        
+
         # Check for markdown wrapping
         cleaned = content.strip()
         if cleaned.startswith("```"):
@@ -175,16 +176,16 @@ async def test_bedrock_raw():
             if cleaned.endswith("```"):
                 cleaned = cleaned[:-3].strip()
             print(f"   Cleaned content preview: {cleaned[:200]}...")
-        
+
         try:
             data = json.loads(cleaned)
-            print(f"   JSON parsed successfully!")
+            print("   JSON parsed successfully!")
             print(f"   Keys: {list(data.keys())}")
-            
+
             issues = data.get("issues", [])
             print(f"\n6. ISSUES FOUND: {len(issues)}")
             print("-" * 40)
-            
+
             if isinstance(issues, list):
                 for i, issue in enumerate(issues[:10]):  # First 10
                     print(f"\n   Issue {i+1}:")
@@ -195,12 +196,12 @@ async def test_bedrock_raw():
             else:
                 print(f"   ERROR: 'issues' is not a list: {type(issues)}")
                 print(f"   Value: {issues}")
-                
+
         except json.JSONDecodeError as e:
             print(f"   JSON PARSE ERROR: {e}")
-            print(f"   Content that failed to parse:")
+            print("   Content that failed to parse:")
             print(f"   {cleaned[:500]}")
-            
+
     except Exception as e:
         print(f"\nERROR: {type(e).__name__}: {e}")
         import traceback
@@ -212,19 +213,19 @@ async def test_bedrock_with_large_context():
     print("\n" + "=" * 80)
     print("TESTING WITH LARGER CONTEXT (simulating repo view)")
     print("=" * 80)
-    
+
     # Create a larger test payload
     large_code = TEST_CODE * 50  # ~50x larger
     print(f"\n1. Large prompt size: {len(large_code)} chars (~{len(large_code)//4} tokens)")
-    
+
     import litellm
     model = "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    
+
     # Add explicit JSON instruction
     system_with_json = SYSTEM_PROMPT + "\n\nIMPORTANT: Return ONLY valid JSON, no markdown, no explanation."
-    
+
     print("\n2. Sending large request WITHOUT response_format...")
-    
+
     try:
         response = await litellm.acompletion(
             model=model,
@@ -237,12 +238,12 @@ async def test_bedrock_with_large_context():
             # NO response_format for Bedrock!
             extra_headers={"anthropic-beta": "context-1m-2025-08-07"},
         )
-        
+
         content = response.choices[0].message.content
-        print(f"\n3. Response received!")
+        print("\n3. Response received!")
         print(f"   Content length: {len(content) if content else 0}")
         print(f"   Finish reason: {response.choices[0].finish_reason}")
-        
+
         # Parse and count issues
         if content:
             cleaned = content.strip()
@@ -252,19 +253,19 @@ async def test_bedrock_with_large_context():
                     cleaned = cleaned[first_newline + 1:]
                 if cleaned.endswith("```"):
                     cleaned = cleaned[:-3].strip()
-            
+
             try:
                 data = json.loads(cleaned)
                 issues = data.get("issues", [])
                 print(f"\n4. ISSUES FOUND: {len(issues)}")
-                
+
                 if len(issues) == 0:
                     print("\n   WARNING: 0 issues found!")
                     print("   Full response:")
                     print(content[:2000])
             except json.JSONDecodeError as e:
                 print(f"\n   JSON PARSE ERROR: {e}")
-                
+
     except Exception as e:
         print(f"\nERROR: {type(e).__name__}: {e}")
 
@@ -273,7 +274,7 @@ async def main():
     """Run all tests."""
     await test_bedrock_raw()
     await test_bedrock_with_large_context()
-    
+
     print("\n" + "=" * 80)
     print("DONE")
     print("=" * 80)

@@ -66,6 +66,7 @@ export function AgentLogsPanel({
   useEffect(() => {
     if (!analysisId || status !== 'running') return
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsStreaming(true)
     const eventSource = new EventSource(`/api/analyses/${analysisId}/logs`)
 

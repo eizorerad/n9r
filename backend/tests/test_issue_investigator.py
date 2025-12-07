@@ -4,18 +4,16 @@ Uses Hypothesis for property-based testing to verify correctness properties
 defined in the design document.
 """
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from app.services.issue_investigator import (
+    MAX_INVESTIGATION_ITERATIONS,
+    TOOL_DEFINITIONS,
     InvestigationResult,
     ToolCall,
     ToolResult,
-    TOOL_DEFINITIONS,
-    MAX_INVESTIGATION_ITERATIONS,
 )
-
 
 # =============================================================================
 # Custom Strategies for Test Data Generation
@@ -96,7 +94,7 @@ def investigation_result(draw) -> InvestigationResult:
 def tool_call(draw) -> ToolCall:
     """Generate a valid ToolCall."""
     tool_name = draw(st.sampled_from(["read_file", "search", "cli_run", "finish_investigation"]))
-    
+
     if tool_name == "read_file":
         arguments = {
             "path": draw(file_path()),
@@ -118,7 +116,7 @@ def tool_call(draw) -> ToolCall:
             "technical_notes": draw(technical_notes_list(min_size=1, max_size=3)),
             "suggested_fix": draw(suggested_fix()),
         }
-    
+
     return ToolCall(name=tool_name, arguments=arguments)
 
 
@@ -157,7 +155,7 @@ class TestInvestigationOutputCompleteness:
         status (confirmed|likely_real|uncertain|invalid).
         """
         valid_statuses = {"confirmed", "likely_real", "uncertain", "invalid"}
-        
+
         # Property: Status must be one of the valid values
         assert result.status in valid_statuses, (
             f"Invalid status '{result.status}', expected one of {valid_statuses}"
@@ -177,7 +175,7 @@ class TestInvestigationOutputCompleteness:
         assert isinstance(result.technical_notes, list), (
             f"technical_notes should be a list, got {type(result.technical_notes)}"
         )
-        
+
         # Property: All items in technical_notes should be strings
         for note in result.technical_notes:
             assert isinstance(note, str), (
@@ -213,7 +211,7 @@ class TestInvestigationOutputCompleteness:
         assert isinstance(result.commands_executed, list), (
             f"commands_executed should be a list, got {type(result.commands_executed)}"
         )
-        
+
         # Property: All items should be strings
         for cmd in result.commands_executed:
             assert isinstance(cmd, str), (
@@ -234,7 +232,7 @@ class TestInvestigationOutputCompleteness:
         assert isinstance(result.files_examined, list), (
             f"files_examined should be a list, got {type(result.files_examined)}"
         )
-        
+
         # Property: All items should be strings
         for file in result.files_examined:
             assert isinstance(file, str), (
@@ -283,12 +281,12 @@ class TestInvestigationOutputCompleteness:
             technical_notes=notes,
             suggested_fix=fix,
         )
-        
+
         # Property: All fields should be set correctly
         assert result.status == status
         assert result.technical_notes == notes
         assert result.suggested_fix == fix
-        
+
         # Property: Default values should be set
         assert result.commands_executed == []
         assert result.files_examined == []
@@ -307,7 +305,7 @@ class TestToolDefinitions:
         """All required tools should be defined."""
         required_tools = {"read_file", "search", "cli_run", "finish_investigation"}
         defined_tools = {tool["name"] for tool in TOOL_DEFINITIONS}
-        
+
         assert required_tools == defined_tools, (
             f"Missing tools: {required_tools - defined_tools}, "
             f"Extra tools: {defined_tools - required_tools}"
@@ -316,10 +314,10 @@ class TestToolDefinitions:
     def test_tool_definitions_have_required_fields(self):
         """Each tool definition should have required fields."""
         for tool in TOOL_DEFINITIONS:
-            assert "name" in tool, f"Tool missing 'name' field"
+            assert "name" in tool, "Tool missing 'name' field"
             assert "description" in tool, f"Tool {tool.get('name')} missing 'description'"
             assert "parameters" in tool, f"Tool {tool.get('name')} missing 'parameters'"
-            
+
             params = tool["parameters"]
             assert params.get("type") == "object", (
                 f"Tool {tool['name']} parameters should be type 'object'"
@@ -378,7 +376,7 @@ class TestToolCallAndResult:
             success=True,
             output="test output",
         )
-        
+
         valid_tools = {"read_file", "search", "cli_run", "finish_investigation"}
         assert result.tool_name in valid_tools, (
             f"Invalid tool name: {result.tool_name}"
@@ -396,7 +394,7 @@ class TestInvestigationResultUnit:
     def test_default_values(self):
         """Test default values for InvestigationResult."""
         result = InvestigationResult(status="confirmed")
-        
+
         assert result.status == "confirmed"
         assert result.technical_notes == []
         assert result.suggested_fix is None
@@ -414,7 +412,7 @@ class TestInvestigationResultUnit:
             files_examined=["src/main.py", "src/utils.py"],
             iterations_used=3,
         )
-        
+
         assert result.status == "likely_real"
         assert result.technical_notes == ["Note 1", "Note 2"]
         assert result.suggested_fix == "Fix the bug"
@@ -438,7 +436,7 @@ class TestToolCallUnit:
             name="read_file",
             arguments={"path": "src/main.py", "start_line": 10, "end_line": 20}
         )
-        
+
         assert call.name == "read_file"
         assert call.arguments["path"] == "src/main.py"
         assert call.arguments["start_line"] == 10
@@ -450,7 +448,7 @@ class TestToolCallUnit:
             name="search",
             arguments={"query": "TODO", "file_pattern": "*.py"}
         )
-        
+
         assert call.name == "search"
         assert call.arguments["query"] == "TODO"
         assert call.arguments["file_pattern"] == "*.py"
@@ -461,7 +459,7 @@ class TestToolCallUnit:
             name="cli_run",
             arguments={"command": "ls -la"}
         )
-        
+
         assert call.name == "cli_run"
         assert call.arguments["command"] == "ls -la"
 
@@ -476,7 +474,7 @@ class TestToolResultUnit:
             success=True,
             output="file content here",
         )
-        
+
         assert result.tool_name == "read_file"
         assert result.success is True
         assert result.output == "file content here"
@@ -490,7 +488,7 @@ class TestToolResultUnit:
             output="",
             error="File not found",
         )
-        
+
         assert result.tool_name == "read_file"
         assert result.success is False
         assert result.output == ""

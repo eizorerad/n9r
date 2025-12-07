@@ -158,7 +158,7 @@ class VCICalculator:
 
 class HardHeuristicsAnalyzer:
     """Analyzes code using deterministic hard heuristics from PRD.
-    
+
     Now uses AST-based analysis via Tree-sitter for Python/JS/TS
     to reduce false positives in generic name detection.
     """
@@ -447,14 +447,6 @@ def calculate_architecture_score(
     score = 80  # Start with good score
 
     # Check for common good patterns
-    good_patterns = [
-        "src/",
-        "lib/",
-        "tests/",
-        "test/",
-        "__tests__/",
-        "docs/",
-    ]
 
     has_tests = any(
         "test" in f.lower() or "__tests__" in f

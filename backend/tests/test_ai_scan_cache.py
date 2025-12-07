@@ -5,12 +5,11 @@ defined in the design document.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
 
 # =============================================================================
 # Custom Strategies for AI Scan Cache Generation
@@ -155,7 +154,7 @@ def ai_scan_cache(draw) -> dict[str, Any]:
             max_value=datetime(2030, 12, 31),
         )
     )
-    computed_at = dt.replace(tzinfo=timezone.utc).isoformat()
+    computed_at = dt.replace(tzinfo=UTC).isoformat()
 
     return {
         "status": status,

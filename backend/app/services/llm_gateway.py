@@ -62,7 +62,7 @@ class LLMError(Exception):
 class LLMGateway:
     """
     Unified LLM Gateway using LiteLLM.
-    
+
     Supports 100+ LLM providers through a single interface:
     - OpenAI (gpt-4o, gpt-4o-mini, o1)
     - Anthropic (claude-3-5-sonnet, claude-sonnet-4)
@@ -71,7 +71,7 @@ class LLMGateway:
     - AWS Bedrock
     - OpenRouter
     - And many more...
-    
+
     Model naming convention:
     - openai/gpt-4o
     - anthropic/claude-3-5-sonnet-20241022
@@ -157,13 +157,13 @@ class LLMGateway:
 
     def _get_available_fallbacks(self, exclude_model: str) -> list[str]:
         """Get fallback models that have API keys configured.
-        
+
         Only includes models whose API keys are set in environment variables.
         This prevents wasted API calls and clearer error messages.
-        
+
         Args:
             exclude_model: The primary model to exclude from fallbacks
-            
+
         Returns:
             List of fallback model names with valid API keys
         """
@@ -213,7 +213,7 @@ class LLMGateway:
     ) -> dict[str, Any]:
         """
         Generate a completion with automatic fallback.
-        
+
         Args:
             prompt: User prompt
             model: Model name with provider prefix (e.g., "openai/gpt-4o")
@@ -222,7 +222,7 @@ class LLMGateway:
             system_prompt: Optional system prompt
             response_format: Optional response format (e.g., {"type": "json_object"})
             **kwargs: Additional parameters passed to LiteLLM
-        
+
         Returns:
             dict with:
                 - content: Response text
@@ -258,7 +258,7 @@ class LLMGateway:
     ) -> dict[str, Any]:
         """
         Send chat messages with automatic fallback.
-        
+
         Args:
             messages: List of message dicts with role and content
             model: Model name with provider prefix
@@ -267,7 +267,7 @@ class LLMGateway:
             response_format: Optional response format (e.g., {"type": "json_object"})
             fallback: Enable automatic fallback to other models
             **kwargs: Additional parameters passed to LiteLLM
-        
+
         Returns:
             Dict with content, model, usage stats, and cost
         """
@@ -322,7 +322,7 @@ class LLMGateway:
     ) -> AsyncIterator[str]:
         """
         Generate a streaming completion.
-        
+
         Yields:
             Text chunks as they are generated
         """
@@ -352,7 +352,7 @@ class LLMGateway:
     ) -> AsyncIterator[str]:
         """
         Send chat messages with streaming response.
-        
+
         Yields:
             Text chunks as they are generated
         """
@@ -382,7 +382,7 @@ class LLMGateway:
 
     def _get_embedding_model(self) -> str:
         """Determine the best embedding model based on configured providers.
-        
+
         Priority:
         1. Explicit EMBEDDING_MODEL override
         2. Azure (if configured with embedding deployment)
@@ -421,7 +421,7 @@ class LLMGateway:
     ) -> list[list[float]]:
         """
         Generate embeddings for texts.
-        
+
         Args:
             texts: Single text or list of texts
             model: Embedding model. If None, auto-detected based on configured provider.
@@ -431,7 +431,7 @@ class LLMGateway:
                    - bedrock/amazon.titan-embed-text-v2:0
                    - vertex_ai/text-embedding-004
                    - gemini/text-embedding-004
-        
+
         Returns:
             List of embedding vectors
         """
@@ -476,19 +476,19 @@ class LLMGateway:
     ) -> dict[str, Any]:
         """
         Analyze code with specialized prompts.
-        
+
         Args:
             code: Source code to analyze
             language: Programming language
             analysis_type: Type of analysis (vibe_code, security, dead_code, architecture)
             model: Optional model override
-        
+
         Returns:
             Analysis results with content, model, usage, and cost
         """
         system_prompts = {
             "vibe_code": """You are an expert code reviewer detecting "vibe-code" patterns.
-            
+
 Vibe-code indicators:
 1. Excessive comments explaining obvious code
 2. AI-generated boilerplate without customization

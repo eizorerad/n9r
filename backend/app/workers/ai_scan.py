@@ -15,7 +15,7 @@ State is managed through AnalysisStateService with PostgreSQL as the single sour
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -49,7 +49,7 @@ AI_SCAN_STATE_TTL = 3600  # 1 hour
 
 def _get_db_session() -> Session:
     """Create a new database session for worker tasks.
-    
+
     Returns:
         SQLAlchemy Session instance
     """
@@ -67,12 +67,12 @@ def _update_ai_scan_state(
     cache_data: dict[str, Any] | None = None,
 ) -> None:
     """Update AI scan state in PostgreSQL via AnalysisStateService.
-    
+
     This is the primary state update mechanism. Redis pub/sub is used for
     real-time updates but PostgreSQL is the single source of truth.
-    
+
     Follows the same pattern as _update_embeddings_state in embeddings.py.
-    
+
     Args:
         analysis_id: UUID of the analysis (as string)
         status: New ai_scan_status (if changing status)
@@ -81,16 +81,16 @@ def _update_ai_scan_state(
         message: Human-readable progress message
         error: Error message (for failed status)
         cache_data: AI scan results (for completed status)
-        
+
     **Feature: ai-scan-progress-fix**
     **Validates: Requirements 2.2**
     """
     from app.services.analysis_state import AnalysisStateService
-    
+
     try:
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
-            
+
             if status == "running":
                 # Use start_ai_scan for pending -> running transition
                 state_service.start_ai_scan(UUID(analysis_id))
@@ -108,7 +108,7 @@ def _update_ai_scan_state(
                     stage=stage,
                     message=message,
                 )
-            
+
     except Exception as e:
         logger.warning(f"Failed to update AI scan state in PostgreSQL: {e}")
         # Don't raise - we still want to continue processing
@@ -142,7 +142,7 @@ def publish_ai_scan_progress(
     status: str = "running",
 ) -> None:
     """Publish AI scan progress to Redis channel and store state.
-    
+
     Args:
         analysis_id: The analysis ID
         stage: Current stage of the scan
@@ -178,13 +178,13 @@ def publish_ai_scan_progress(
 
 def _get_analysis_with_repo(analysis_id: str) -> tuple[Analysis, Repository, str | None, str, str]:
     """Get analysis record with repository and access token.
-    
+
     Args:
         analysis_id: UUID of the analysis
-        
+
     Returns:
         Tuple of (Analysis, Repository, access_token, commit_sha, repo_url)
-        
+
     Raises:
         ValueError: If analysis or repository not found
     """
@@ -237,7 +237,7 @@ def _get_analysis_with_repo(analysis_id: str) -> tuple[Analysis, Repository, str
 
 def _update_ai_scan_cache(analysis_id: str, cache_data: dict[str, Any]) -> None:
     """Update Analysis.ai_scan_cache in database.
-    
+
     Args:
         analysis_id: UUID of the analysis
         cache_data: AI scan cache data to store
@@ -258,7 +258,7 @@ def _update_ai_scan_cache(analysis_id: str, cache_data: dict[str, Any]) -> None:
 
 def _mark_ai_scan_failed(analysis_id: str, error_message: str) -> None:
     """Mark AI scan as failed in the cache.
-    
+
     Args:
         analysis_id: UUID of the analysis
         error_message: Error message to store
@@ -266,7 +266,7 @@ def _mark_ai_scan_failed(analysis_id: str, error_message: str) -> None:
     cache_data = {
         "status": "failed",
         "error_message": error_message[:500],
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
     }
     _update_ai_scan_cache(analysis_id, cache_data)
 
@@ -289,7 +289,7 @@ async def _investigate_issues(
     publish_progress: Any,
 ) -> list:
     """Investigate high-severity issues using the IssueInvestigator.
-    
+
     Args:
         merged_issues: List of MergedIssue objects
         investigate_severity: List of severity levels to investigate
@@ -297,34 +297,34 @@ async def _investigate_issues(
         repo_path: Path to the cloned repository
         llm_gateway: LLMGateway instance
         publish_progress: Function to publish progress updates
-        
+
     Returns:
         Updated list of MergedIssue objects with investigation results
     """
     from app.services.issue_investigator import get_issue_investigator
-    
+
     # Filter issues by severity
     issues_to_investigate = [
         issue for issue in merged_issues
         if issue.severity in investigate_severity
     ][:max_issues]
-    
+
     if not issues_to_investigate:
         logger.info("No issues match investigation criteria")
         return merged_issues
-    
+
     logger.info(
         f"Investigating {len(issues_to_investigate)} issues "
         f"(severity: {investigate_severity})"
     )
-    
+
     # Create investigator
     investigator = get_issue_investigator(
         llm_gateway=llm_gateway,
         repo_path=repo_path,
         sandbox=None,  # CLI commands disabled for now
     )
-    
+
     # Investigate each issue
     for i, issue in enumerate(issues_to_investigate):
         progress_pct = 80 + int((i / len(issues_to_investigate)) * 10)
@@ -333,24 +333,24 @@ async def _investigate_issues(
             progress_pct,
             f"Investigating issue {i + 1}/{len(issues_to_investigate)}: {issue.id}"
         )
-        
+
         try:
             result = await investigator.investigate(issue)
-            
+
             # Update issue with investigation results
             issue.investigation_status = result.status
             if result.suggested_fix:
                 issue.suggested_fix = result.suggested_fix
-            
+
             logger.info(
                 f"Issue {issue.id} investigation: {result.status} "
                 f"({result.iterations_used} iterations)"
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to investigate issue {issue.id}: {e}")
             issue.investigation_status = "uncertain"
-    
+
     return merged_issues
 
 
@@ -369,22 +369,22 @@ def run_ai_scan(
     max_issues: int = 10,
 ) -> dict:
     """Run AI-powered scan on repository.
-    
+
     Uses the same commit_sha as the parent Analysis record.
     Results are cached in Analysis.ai_scan_cache.
-    
+
     State is managed through AnalysisStateService with PostgreSQL as the
     single source of truth. Redis pub/sub is used for real-time updates.
-    
+
     Args:
         analysis_id: UUID of the analysis to scan
         models: List of LLM models to use (defaults to Gemini + Claude)
         investigate_severity: Severity levels to investigate (not implemented yet)
         max_issues: Maximum issues to investigate (not implemented yet)
-        
+
     Returns:
         Dict with scan results summary
-        
+
     **Feature: ai-scan-progress-fix**
     **Validates: Requirements 1.3, 1.4, 4.1, 4.3**
     """
@@ -403,9 +403,9 @@ def run_ai_scan(
 
     def publish_progress(stage: str, progress: int, message: str | None = None):
         """Helper to publish progress updates.
-        
+
         Updates state in PostgreSQL (primary) and Redis (for real-time updates).
-        
+
         **Feature: ai-scan-progress-fix**
         **Validates: Requirements 4.1, 4.3**
         """
@@ -424,7 +424,7 @@ def run_ai_scan(
                 stage=stage,
                 message=message,
             )
-        
+
         # Also publish to Redis for real-time SSE updates (Requirements 4.1)
         publish_ai_scan_progress(
             analysis_id=analysis_id,
@@ -498,7 +498,7 @@ def run_ai_scan(
             # Step 6.5: Investigate high-severity issues (optional)
             if investigate_severity:
                 publish_progress("investigating", 80, "Investigating high-severity issues...")
-                
+
                 merged_issues = run_async(_investigate_issues(
                     merged_issues=merged_issues,
                     investigate_severity=investigate_severity,
@@ -534,7 +534,7 @@ def run_ai_scan(
             "models_succeeded": broad_scan_result.models_succeeded,
             "repo_overview": broad_scan_result.repo_overview,
             "issues": issues_data,
-            "computed_at": datetime.now(timezone.utc).isoformat(),
+            "computed_at": datetime.now(UTC).isoformat(),
             "total_tokens_used": broad_scan_result.total_tokens,
             "total_cost_usd": broad_scan_result.total_cost,
             "commit_sha": commit_sha,
@@ -578,14 +578,14 @@ def run_ai_scan(
     except Exception as e:
         error_msg = str(e)
         logger.error(f"AI scan failed for analysis {analysis_id}: {error_msg}")
-        
+
         # Update PostgreSQL state via AnalysisStateService (primary source of truth)
         _update_ai_scan_state(
             analysis_id=analysis_id,
             status="failed",
             error=error_msg,
         )
-        
+
         # Also publish to Redis for real-time SSE updates
         publish_ai_scan_progress(
             analysis_id=analysis_id,
@@ -594,6 +594,6 @@ def run_ai_scan(
             message=error_msg[:200],
             status="failed",
         )
-        
+
         self.update_state(state="FAILURE", meta={"error": error_msg})
         raise

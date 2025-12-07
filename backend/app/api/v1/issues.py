@@ -153,14 +153,14 @@ async def fix_issue(
 ) -> dict:
     """
     Request automatic fix for an issue.
-    
+
     Triggers the healing pipeline which will:
     1. Diagnose the issue
     2. Generate a fix
     3. Generate regression tests
     4. Validate in sandbox
     5. Create a PR if successful
-    
+
     Returns immediately with task info. Use SSE endpoint to track progress.
     """
     # Load issue and verify access
@@ -237,7 +237,7 @@ async def stream_fix_progress(
 ):
     """
     Stream fix progress via Server-Sent Events.
-    
+
     Connect to this endpoint to receive real-time updates during the healing process.
     """
     import asyncio

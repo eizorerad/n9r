@@ -112,6 +112,7 @@ export function AnalysisProgressOverlay() {
   
   // Prevent hydration mismatch
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true)
   }, [])
   

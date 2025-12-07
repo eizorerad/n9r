@@ -6,19 +6,16 @@ defined in the design document.
 
 from typing import Any
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from app.services.broad_scan_agent import CandidateIssue
 from app.services.issue_merger import (
-    IssueMerger,
-    MergedIssue,
-    SIMILARITY_THRESHOLD,
     DIMENSION_PREFIXES,
+    SIMILARITY_THRESHOLD,
+    IssueMerger,
     get_issue_merger,
 )
-
 
 # =============================================================================
 # Custom Strategies for Test Data Generation
@@ -80,12 +77,12 @@ def model_name(draw) -> str:
 
 
 @st.composite
-def candidate_issue(draw, 
+def candidate_issue(draw,
                     file_path: str | None = None,
                     summary: str | None = None,
                     source_model: str | None = None) -> CandidateIssue:
     """Generate a valid CandidateIssue.
-    
+
     Args:
         file_path: Optional fixed file path for the issue
         summary: Optional fixed summary for the issue
@@ -100,15 +97,15 @@ def candidate_issue(draw,
         }]
     else:
         files = draw(st.lists(file_location(), min_size=1, max_size=3))
-    
+
     # Generate summary
     if summary is None:
         summary = draw(st.text(min_size=10, max_size=100).filter(lambda s: s.strip()))
-    
+
     # Generate source model
     if source_model is None:
         source_model = draw(model_name())
-    
+
     return CandidateIssue(
         id_hint=draw(st.text(min_size=1, max_size=20).filter(lambda s: s.strip())),
         dimension=draw(valid_dimension()),
@@ -137,7 +134,7 @@ def candidate_issue_list(draw, min_size: int = 1, max_size: int = 10) -> list[Ca
 @st.composite
 def duplicate_issue_pair(draw) -> tuple[CandidateIssue, CandidateIssue]:
     """Generate a pair of duplicate issues (same file, similar summary).
-    
+
     Generates two issues that will be detected as duplicates:
     - Same file path
     - Identical summary (>0.8 similarity guaranteed)
@@ -156,14 +153,14 @@ def duplicate_issue_pair(draw) -> tuple[CandidateIssue, CandidateIssue]:
     ).filter(lambda s: s.strip()))
     ext = draw(st.sampled_from([".py", ".js", ".ts"]))
     file_path = f"{dirname}/{filename}{ext}"
-    
+
     # Base summary - must be non-empty
     base_summary = draw(st.text(min_size=20, max_size=80).filter(lambda s: s.strip()))
-    
+
     # Common fields
     dimension = draw(valid_dimension())
     severity = draw(valid_severity())
-    
+
     # Generate distinct evidence for each issue
     evidence1 = draw(st.lists(
         st.text(min_size=5, max_size=100).filter(lambda s: s.strip()),
@@ -175,7 +172,7 @@ def duplicate_issue_pair(draw) -> tuple[CandidateIssue, CandidateIssue]:
         min_size=1,
         max_size=2
     ))
-    
+
     # Create first issue
     issue1 = CandidateIssue(
         id_hint=draw(st.text(min_size=1, max_size=10).filter(lambda s: s.strip())),
@@ -190,7 +187,7 @@ def duplicate_issue_pair(draw) -> tuple[CandidateIssue, CandidateIssue]:
         confidence=draw(valid_confidence()),
         source_model="gemini/gemini-3-pro-preview",
     )
-    
+
     # Create second issue with same file and summary but different model
     issue2 = CandidateIssue(
         id_hint=draw(st.text(min_size=1, max_size=10).filter(lambda s: s.strip())),
@@ -205,7 +202,7 @@ def duplicate_issue_pair(draw) -> tuple[CandidateIssue, CandidateIssue]:
         confidence=draw(valid_confidence()),
         source_model="bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
     )
-    
+
     return issue1, issue2
 
 
@@ -224,7 +221,7 @@ class TestConfidenceBoosting:
     @given(duplicate_issue_pair())
     @settings(max_examples=100)
     def test_multi_model_issues_get_high_confidence(
-        self, 
+        self,
         issue_pair: tuple[CandidateIssue, CandidateIssue]
     ):
         """
@@ -235,23 +232,23 @@ class TestConfidenceBoosting:
         issue's confidence SHALL be "high".
         """
         issue1, issue2 = issue_pair
-        
+
         # duplicate_issue_pair guarantees different models
         assert issue1.source_model != issue2.source_model
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue1, issue2])
-        
+
         # Should merge into one issue
         assert len(merged) == 1, (
             f"Expected 1 merged issue, got {len(merged)}"
         )
-        
+
         # Property: Confidence should be "high" when found by 2+ models
         assert merged[0].confidence == "high", (
             f"Expected confidence 'high', got '{merged[0].confidence}'"
         )
-        
+
         # Property: Both models should be tracked
         assert len(merged[0].found_by_models) == 2, (
             f"Expected 2 models, got {len(merged[0].found_by_models)}"
@@ -268,12 +265,12 @@ class TestConfidenceBoosting:
         should keep the original confidence level.
         """
         original_confidence = issue.confidence
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue])
-        
+
         assert len(merged) == 1
-        
+
         # Property: Single-model issues keep original confidence
         assert merged[0].confidence == original_confidence, (
             f"Expected confidence '{original_confidence}', got '{merged[0].confidence}'"
@@ -295,11 +292,11 @@ class TestConfidenceBoosting:
             "openai/gpt-4o",
             "gemini/gemini-2.0-flash-exp",
         ][:num_models]
-        
+
         # Create duplicate issues from different models
         file_path = "src/main.py"
         summary = "Security vulnerability in authentication"
-        
+
         issues = []
         for model in models:
             issues.append(CandidateIssue(
@@ -315,12 +312,12 @@ class TestConfidenceBoosting:
                 confidence="low",  # Start with low confidence
                 source_model=model,
             ))
-        
+
         merger = IssueMerger()
         merged = merger.merge(issues)
-        
+
         assert len(merged) == 1
-        
+
         # Property: 2+ models = high confidence
         assert merged[0].confidence == "high", (
             f"Expected 'high' confidence with {num_models} models, got '{merged[0].confidence}'"
@@ -343,7 +340,7 @@ class TestIssueDeduplication:
     @given(duplicate_issue_pair())
     @settings(max_examples=100)
     def test_duplicates_merged_into_single_issue(
-        self, 
+        self,
         issue_pair: tuple[CandidateIssue, CandidateIssue]
     ):
         """
@@ -357,10 +354,10 @@ class TestIssueDeduplication:
         issue1, issue2 = issue_pair
         # duplicate_issue_pair guarantees different models
         assert issue1.source_model != issue2.source_model
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue1, issue2])
-        
+
         # Property: Duplicates should be merged into one
         assert len(merged) == 1, (
             f"Expected 1 merged issue for duplicates, got {len(merged)}"
@@ -369,8 +366,8 @@ class TestIssueDeduplication:
     @given(candidate_issue(), candidate_issue())
     @settings(max_examples=100)
     def test_different_files_not_merged(
-        self, 
-        issue1: CandidateIssue, 
+        self,
+        issue1: CandidateIssue,
         issue2: CandidateIssue
     ):
         """
@@ -384,10 +381,10 @@ class TestIssueDeduplication:
         paths1 = {f.get("path") for f in issue1.files if isinstance(f, dict)}
         paths2 = {f.get("path") for f in issue2.files if isinstance(f, dict)}
         assume(not (paths1 & paths2))  # No overlap
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue1, issue2])
-        
+
         # Property: Different files = separate issues
         assert len(merged) == 2, (
             f"Expected 2 separate issues for different files, got {len(merged)}"
@@ -403,7 +400,7 @@ class TestIssueDeduplication:
         Property: Issues with similarity <= threshold should NOT be merged.
         """
         file_path = "src/test.py"
-        
+
         # Create two issues with same file but very different summaries
         issue1 = CandidateIssue(
             id_hint="sec-001",
@@ -418,7 +415,7 @@ class TestIssueDeduplication:
             confidence="high",
             source_model="model1",
         )
-        
+
         # Completely different summary
         different_summary = "ZZZZZ completely unrelated text YYYYY"
         issue2 = CandidateIssue(
@@ -434,15 +431,15 @@ class TestIssueDeduplication:
             confidence="high",
             source_model="model2",
         )
-        
+
         merger = IssueMerger()
-        
+
         # Check similarity is below threshold
         similarity = merger._calculate_similarity(base_summary, different_summary)
         assume(similarity <= SIMILARITY_THRESHOLD)
-        
+
         merged = merger.merge([issue1, issue2])
-        
+
         # Property: Low similarity = separate issues
         assert len(merged) == 2, (
             f"Expected 2 issues for low similarity ({similarity:.2f}), got {len(merged)}"
@@ -464,7 +461,7 @@ class TestMergeAttributionAndEvidence:
     @given(duplicate_issue_pair())
     @settings(max_examples=100)
     def test_all_models_tracked_in_found_by(
-        self, 
+        self,
         issue_pair: tuple[CandidateIssue, CandidateIssue]
     ):
         """
@@ -477,12 +474,12 @@ class TestMergeAttributionAndEvidence:
         issue1, issue2 = issue_pair
         # duplicate_issue_pair guarantees different models
         assert issue1.source_model != issue2.source_model
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue1, issue2])
-        
+
         assert len(merged) == 1
-        
+
         # Property: Both models should be in found_by_models
         assert issue1.source_model in merged[0].found_by_models, (
             f"Model {issue1.source_model} not in found_by_models"
@@ -494,7 +491,7 @@ class TestMergeAttributionAndEvidence:
     @given(duplicate_issue_pair())
     @settings(max_examples=100)
     def test_evidence_combined_from_all_sources(
-        self, 
+        self,
         issue_pair: tuple[CandidateIssue, CandidateIssue]
     ):
         """
@@ -507,12 +504,12 @@ class TestMergeAttributionAndEvidence:
         issue1, issue2 = issue_pair
         # duplicate_issue_pair guarantees different models
         assert issue1.source_model != issue2.source_model
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue1, issue2])
-        
+
         assert len(merged) == 1
-        
+
         # Property: All unique evidence should be included
         merged_evidence = set(merged[0].evidence_snippets)
         for snippet in issue1.evidence_snippets:
@@ -537,7 +534,7 @@ class TestMergeAttributionAndEvidence:
         """
         merger = IssueMerger()
         merged = merger.merge(issues)
-        
+
         for issue in merged:
             # Property: No duplicate models
             assert len(issue.found_by_models) == len(set(issue.found_by_models)), (
@@ -568,9 +565,9 @@ class TestUniqueIssueIDs:
         """
         merger = IssueMerger()
         merged = merger.merge(issues)
-        
+
         ids = [issue.id for issue in merged]
-        
+
         # Property: All IDs should be unique
         assert len(ids) == len(set(ids)), (
             f"Duplicate IDs found: {ids}"
@@ -587,21 +584,21 @@ class TestUniqueIssueIDs:
         """
         merger = IssueMerger()
         merged = merger.merge(issues)
-        
+
         valid_prefixes = set(DIMENSION_PREFIXES.values())
-        
+
         for issue in merged:
             # Property: ID should have correct format
             parts = issue.id.split("-")
             assert len(parts) == 2, (
                 f"ID '{issue.id}' should have format 'prefix-sequence'"
             )
-            
+
             prefix, sequence = parts
             assert prefix in valid_prefixes, (
                 f"Invalid prefix '{prefix}' in ID '{issue.id}'"
             )
-            
+
             # Sequence should be numeric
             assert sequence.isdigit(), (
                 f"Sequence '{sequence}' in ID '{issue.id}' should be numeric"
@@ -629,15 +626,15 @@ class TestUniqueIssueIDs:
             confidence="high",
             source_model="test/model",
         )
-        
+
         merger = IssueMerger()
         merged = merger.merge([issue])
-        
+
         assert len(merged) == 1
-        
+
         expected_prefix = DIMENSION_PREFIXES[dimension]
         actual_prefix = merged[0].id.split("-")[0]
-        
+
         # Property: Dimension should map to correct prefix
         assert actual_prefix == expected_prefix, (
             f"Dimension '{dimension}' should map to prefix '{expected_prefix}', "
@@ -662,14 +659,14 @@ class TestIssueMergerUnit:
     def test_similarity_calculation(self):
         """Test similarity calculation."""
         merger = IssueMerger()
-        
+
         # Identical strings
         assert merger._calculate_similarity("hello world", "hello world") == 1.0
-        
+
         # Empty strings
         assert merger._calculate_similarity("", "") == 0.0
         assert merger._calculate_similarity("hello", "") == 0.0
-        
+
         # Similar strings
         sim = merger._calculate_similarity("hello world", "hello there")
         assert 0 < sim < 1
@@ -677,7 +674,7 @@ class TestIssueMergerUnit:
     def test_file_path_extraction(self):
         """Test file path extraction from issues."""
         merger = IssueMerger()
-        
+
         issue = CandidateIssue(
             id_hint="test",
             dimension="security",
@@ -694,7 +691,7 @@ class TestIssueMergerUnit:
             confidence="high",
             source_model="test",
         )
-        
+
         paths = merger._get_file_paths(issue)
         assert paths == {"src/main.py", "src/utils.py"}
 
@@ -703,6 +700,6 @@ class TestIssueMergerUnit:
         merger = get_issue_merger()
         assert isinstance(merger, IssueMerger)
         assert merger.similarity_threshold == SIMILARITY_THRESHOLD
-        
+
         custom_merger = get_issue_merger(similarity_threshold=0.5)
         assert custom_merger.similarity_threshold == 0.5

@@ -52,7 +52,7 @@ def get_qdrant_client() -> QdrantClient:
 
 def _get_db_session() -> Session:
     """Create a new database session for worker tasks.
-    
+
     Returns:
         SQLAlchemy Session instance
     """
@@ -70,10 +70,10 @@ def _update_embeddings_state(
     vectors_count: int | None = None,
 ) -> None:
     """Update embeddings state in PostgreSQL via AnalysisStateService.
-    
+
     This is the primary state update mechanism. Redis pub/sub is used for
     real-time updates but PostgreSQL is the single source of truth.
-    
+
     Args:
         analysis_id: UUID of the analysis (as string)
         status: New embeddings_status (if changing status)
@@ -82,16 +82,16 @@ def _update_embeddings_state(
         message: Human-readable progress message
         error: Error message (for failed status)
         vectors_count: Number of vectors stored
-        
+
     **Feature: progress-tracking-refactor**
     **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     """
     from app.services.analysis_state import AnalysisStateService
-    
+
     try:
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
-            
+
             if status == "running":
                 # Use start_embeddings for pending -> running transition
                 state_service.start_embeddings(UUID(analysis_id))
@@ -109,7 +109,7 @@ def _update_embeddings_state(
                     stage=stage,
                     message=message,
                 )
-            
+
     except Exception as e:
         logger.warning(f"Failed to update embeddings state in PostgreSQL: {e}")
         # Don't raise - we still want to continue processing
@@ -120,14 +120,14 @@ def _compute_and_store_semantic_cache(
     analysis_id: str,
 ) -> dict | None:
     """Compute semantic analysis and store in Analysis.semantic_cache.
-    
+
     This function is DEPRECATED. Use compute_semantic_cache task instead.
     Kept for backward compatibility during migration.
-    
+
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis to update
-    
+
     Returns:
         The computed semantic cache dict, or None if failed
     """
@@ -169,20 +169,20 @@ def generate_embeddings(
 ) -> dict:
     """
     Generate code embeddings for a repository.
-    
+
     State is managed through AnalysisStateService with PostgreSQL as the single
     source of truth. Redis pub/sub is used for real-time updates but is not
     critical path.
-    
+
     Args:
         repository_id: UUID of the repository
         commit_sha: Optional specific commit
         files: List of {path: str, content: str} dicts to process
         analysis_id: Optional analysis ID to update with semantic cache
-    
+
     Returns:
         dict with embedding generation results
-        
+
     **Feature: progress-tracking-refactor**
     **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     """
@@ -191,7 +191,7 @@ def generate_embeddings(
     def publish_progress(stage: str, progress: int, message: str | None = None,
                          status: str = "running", chunks: int = 0, vectors: int = 0):
         """Helper to publish embedding progress.
-        
+
         Updates state in PostgreSQL (primary) and Redis (for real-time updates).
         """
         # Update PostgreSQL state via AnalysisStateService (primary source of truth)
@@ -224,7 +224,7 @@ def generate_embeddings(
                     stage=stage,
                     message=message,
                 )
-        
+
         # Also publish to Redis for backward compatibility and real-time updates
         publish_embedding_progress(
             repository_id=repository_id,
@@ -302,7 +302,7 @@ def generate_embeddings(
         batch_size = 50  # Larger batches = fewer API calls
         concurrent_batches = 4  # Process 4 batches in parallel
         points: list[PointStruct] = []
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        (len(all_chunks) + batch_size - 1) // batch_size
 
         def prepare_texts(batch: list[CodeChunk]) -> list[str]:
             """Prepare texts for embedding."""
@@ -324,7 +324,7 @@ def generate_embeddings(
             texts = prepare_texts(batch)
             try:
                 embeddings = await llm.embed(texts)
-                return list(zip(batch, embeddings))
+                return list(zip(batch, embeddings, strict=False))
             except Exception as e:
                 logger.error(f"Failed to embed batch {batch_idx}: {e}")
                 return []
@@ -482,7 +482,7 @@ def generate_embeddings(
 
     except Exception as e:
         logger.error(f"Embedding generation failed for repository {repository_id}: {e}")
-        
+
         # Update PostgreSQL state via AnalysisStateService (primary source of truth)
         if analysis_id:
             _update_embeddings_state(
@@ -490,7 +490,7 @@ def generate_embeddings(
                 status="failed",
                 error=str(e),
             )
-        
+
         # Also publish to Redis for backward compatibility
         publish_embedding_progress(
             repository_id=repository_id,
@@ -515,22 +515,22 @@ def compute_semantic_cache(
 ) -> dict:
     """
     Compute semantic cache (cluster analysis) for an analysis.
-    
+
     This task is automatically queued when embeddings generation completes.
     State is managed through AnalysisStateService with PostgreSQL as the
     single source of truth.
-    
+
     Note: In the parallel analysis pipeline, AI Scan is dispatched directly
     from the API endpoint alongside Static Analysis and Embeddings. This
     task no longer queues AI scan on completion.
-    
+
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis to update
-    
+
     Returns:
         dict with semantic cache computation results
-        
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 3.1, 3.2, 3.3, 6.1, 6.2, 6.3**
     """
@@ -544,7 +544,7 @@ def compute_semantic_cache(
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
             state_service.start_semantic_cache(UUID(analysis_id))
-        
+
         # Run cluster analysis
         analyzer = get_cluster_analyzer()
         health = run_async(analyzer.analyze(repository_id))
@@ -571,7 +571,7 @@ def compute_semantic_cache(
 
     except Exception as e:
         logger.error(f"Failed to compute semantic cache for analysis {analysis_id}: {e}")
-        
+
         # Transition semantic_cache_status: -> failed (Requirements 3.3)
         try:
             with _get_db_session() as session:
@@ -579,7 +579,7 @@ def compute_semantic_cache(
                 state_service.fail_semantic_cache(UUID(analysis_id), str(e))
         except Exception as state_error:
             logger.warning(f"Failed to update semantic cache state to failed: {state_error}")
-        
+
         self.update_state(
             state="FAILURE",
             meta={"error": str(e)}
@@ -594,11 +594,11 @@ def update_embeddings(
 ) -> dict:
     """
     Update embeddings for specific changed files.
-    
+
     Args:
         repository_id: UUID of the repository
         changed_files: List of {path: str, content: str} dicts
-    
+
     Returns:
         dict with update results
     """
@@ -607,10 +607,10 @@ def update_embeddings(
         f"in repository {repository_id}"
     )
 
-    chunker = get_code_chunker()
+    get_code_chunker()
     # Lazy import to avoid fork-safety issues with LiteLLM
     from app.services.llm_gateway import get_llm_gateway
-    llm = get_llm_gateway()
+    get_llm_gateway()
     qdrant = get_qdrant_client()
 
     # Delete existing embeddings for changed files
@@ -639,10 +639,10 @@ def update_embeddings(
 def delete_embeddings(repository_id: str) -> dict:
     """
     Delete all embeddings for a repository.
-    
+
     Args:
         repository_id: UUID of the repository
-    
+
     Returns:
         dict with deletion results
     """
@@ -699,12 +699,12 @@ def search_similar(
 ) -> list[dict]:
     """
     Search for similar code chunks using vector similarity.
-    
+
     Args:
         repository_id: UUID of the repository
         query: Search query text
         limit: Maximum results to return
-    
+
     Returns:
         List of similar chunks with scores
     """
@@ -758,22 +758,22 @@ def generate_embeddings_parallel(
 ) -> dict:
     """
     Generate code embeddings with independent repository clone.
-    
+
     This task clones the repository independently using the commit_sha from
     the Analysis record, enabling true parallel execution with Static Analysis
     and AI Scan tracks.
-    
+
     Unlike generate_embeddings which receives files from Static Analysis,
     this task clones the repo itself and collects files for embedding.
-    
+
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis
         commit_sha: Commit SHA to clone (from Analysis record)
-    
+
     Returns:
         dict with embedding generation results
-        
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 5.1, 5.4, 6.1**
     """
@@ -817,7 +817,7 @@ def generate_embeddings_parallel(
                 stage=stage,
                 message=message,
             )
-        
+
         # Also publish to Redis for real-time updates
         publish_embedding_progress(
             repository_id=repository_id,
@@ -840,12 +840,12 @@ def generate_embeddings_parallel(
 
         # Step 2: Clone repository independently using commit_sha
         publish_progress("cloning", 10, f"Cloning repository at commit {commit_sha[:7]}...")
-        
+
         with RepoAnalyzer(repo_url, access_token, commit_sha=commit_sha) as analyzer:
             # Clone the repository
             repo_path = analyzer.clone()
             logger.info(f"Cloned repository to {repo_path}")
-            
+
             publish_progress("cloning", 15, "Repository cloned successfully")
 
             # Step 3: Collect files for embedding
@@ -870,7 +870,7 @@ def generate_embeddings_parallel(
         # Step 5: Delegate to existing generate_embeddings logic
         # We call the task function directly (not .delay()) to reuse the embedding logic
         # but we need to handle the state transitions ourselves
-        
+
         chunker = get_code_chunker()
         from app.services.llm_gateway import get_llm_gateway
         llm = get_llm_gateway()
@@ -922,7 +922,7 @@ def generate_embeddings_parallel(
         batch_size = 50
         concurrent_batches = 4
         points: list[PointStruct] = []
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        (len(all_chunks) + batch_size - 1) // batch_size
 
         def prepare_texts(batch: list[CodeChunk]) -> list[str]:
             """Prepare texts for embedding."""
@@ -944,7 +944,7 @@ def generate_embeddings_parallel(
             texts = prepare_texts(batch)
             try:
                 embeddings = await llm.embed(texts)
-                return list(zip(batch, embeddings))
+                return list(zip(batch, embeddings, strict=False))
             except Exception as e:
                 logger.error(f"Failed to embed batch {batch_idx}: {e}")
                 return []
@@ -1097,14 +1097,14 @@ def generate_embeddings_parallel(
 
     except Exception as e:
         logger.error(f"Parallel embedding generation failed for analysis {analysis_id}: {e}")
-        
+
         # Update PostgreSQL state
         _update_embeddings_state(
             analysis_id=analysis_id,
             status="failed",
             error=str(e),
         )
-        
+
         # Also publish to Redis
         publish_embedding_progress(
             repository_id=repository_id,

@@ -9,7 +9,7 @@ Requirements: 1.1, 1.4, 6.4, 7.1, 7.2, 7.3
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -69,10 +69,10 @@ async def trigger_ai_scan(
     request: AIScanRequest | None = None,
 ) -> AIScanTriggerResponse:
     """Trigger AI scan for an existing analysis.
-    
+
     Validates the analysis exists and is completed, checks for in-progress
     scans, and queues a Celery task to perform the scan.
-    
+
     Requirements: 1.1, 1.4
     """
     from app.workers.ai_scan import run_ai_scan
@@ -120,7 +120,7 @@ async def trigger_ai_scan(
     # Mark scan as pending in cache
     analysis.ai_scan_cache = {
         "status": "pending",
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
     }
     await db.commit()
 
@@ -153,10 +153,10 @@ async def get_ai_scan_results(
     user: CurrentUser,
 ) -> AIScanCacheResponse:
     """Get AI scan results from cache.
-    
+
     Returns cached results from Analysis.ai_scan_cache.
     If no scan has been performed, returns is_cached=false.
-    
+
     Requirements: 7.1, 7.2
     """
     # Get analysis with repository
@@ -282,15 +282,15 @@ async def stream_ai_scan_progress(
     user: CurrentUser,
 ):
     """Stream AI scan progress via Server-Sent Events (SSE).
-    
+
     Subscribes to Redis Pub/Sub for the analysis_id and streams
     progress events to the client.
-    
+
     Events format:
     ```
     data: {"analysis_id": "...", "stage": "scanning", "progress": 50, "message": "...", "status": "running"}
     ```
-    
+
     Requirements: 6.4, 7.3
     """
     import redis.asyncio as aioredis

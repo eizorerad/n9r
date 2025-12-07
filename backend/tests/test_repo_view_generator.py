@@ -4,24 +4,20 @@ Uses Hypothesis for property-based testing to verify correctness properties
 defined in the design document.
 """
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from app.services.repo_view_generator import (
-    RepoViewGenerator,
-    RepoViewResult,
-    FileInfo,
-    ENTRY_POINT_PATTERNS,
     CONFIG_PATTERNS,
-    MAX_FILE_SIZE,
+    ENTRY_POINT_PATTERNS,
     EXCERPT_SIZE,
+    MAX_FILE_SIZE,
+    RepoViewGenerator,
 )
-
 
 # =============================================================================
 # Custom Strategies for Repository Generation
@@ -91,7 +87,7 @@ def large_file(draw) -> tuple[str, str]:
 @st.composite
 def repo_structure(draw) -> dict[str, Any]:
     """Generate a repository structure with files.
-    
+
     Returns a dict with:
     - files: list of (relative_path, content) tuples
     - has_entry_point: bool
@@ -100,17 +96,17 @@ def repo_structure(draw) -> dict[str, Any]:
     files = []
     has_entry_point = draw(st.booleans())
     has_config = draw(st.booleans())
-    
+
     # Add entry point if requested
     if has_entry_point:
         name, content = draw(entry_point_file())
         files.append((name, content))
-    
+
     # Add config if requested
     if has_config:
         name, content = draw(config_file())
         files.append((name, content))
-    
+
     # Add some regular source files
     num_source_files = draw(st.integers(min_value=1, max_value=10))
     for _ in range(num_source_files):
@@ -118,7 +114,7 @@ def repo_structure(draw) -> dict[str, Any]:
         # Avoid duplicates
         if not any(f[0] == name for f in files):
             files.append((name, content))
-    
+
     # Optionally add files in subdirectories
     if draw(st.booleans()):
         subdir = draw(st.sampled_from(["src", "lib", "core", "services", "api", "utils"]))
@@ -127,7 +123,7 @@ def repo_structure(draw) -> dict[str, Any]:
             path = f"{subdir}/{name}"
             if not any(f[0] == path for f in files):
                 files.append((path, content))
-    
+
     return {
         "files": files,
         "has_entry_point": has_entry_point,
@@ -139,12 +135,12 @@ def create_temp_repo(structure: dict[str, Any]) -> Path:
     """Create a temporary repository from a structure dict."""
     temp_dir = tempfile.mkdtemp(prefix="test_repo_")
     repo_path = Path(temp_dir)
-    
+
     for rel_path, content in structure["files"]:
         file_path = repo_path / rel_path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content)
-    
+
     return repo_path
 
 
@@ -179,12 +175,12 @@ class TestTokenBudgetConstraint:
         """
         # Skip if no files
         assume(len(structure["files"]) > 0)
-        
+
         repo_path = create_temp_repo(structure)
         try:
             generator = RepoViewGenerator(repo_path, token_budget=token_budget)
             result = generator.generate()
-            
+
             # Property: Token estimate must not exceed budget
             assert result.token_estimate <= token_budget, (
                 f"Token estimate {result.token_estimate} exceeds budget {token_budget}"
@@ -202,12 +198,12 @@ class TestTokenBudgetConstraint:
         Property: The token estimate should be approximately len(content) / 4.
         """
         assume(len(structure["files"]) > 0)
-        
+
         repo_path = create_temp_repo(structure)
         try:
             generator = RepoViewGenerator(repo_path)
             result = generator.generate()
-            
+
             # Verify token estimate is approximately content length / 4
             expected_tokens = len(result.content) // 4
             assert result.token_estimate == expected_tokens, (
@@ -241,17 +237,17 @@ class TestFilePrioritization:
         """
         assume(len(structure["files"]) > 0)
         assume(structure["has_entry_point"] or structure["has_config"])
-        
+
         repo_path = create_temp_repo(structure)
         try:
             generator = RepoViewGenerator(repo_path)
             files = generator._prioritize_files()
-            
+
             # Find indices of entry points, configs, and other files
             entry_point_indices = []
             config_indices = []
             other_indices = []
-            
+
             for i, file_info in enumerate(files):
                 filename = Path(file_info.relative_path).name
                 if filename in ENTRY_POINT_PATTERNS:
@@ -260,7 +256,7 @@ class TestFilePrioritization:
                     config_indices.append(i)
                 else:
                     other_indices.append(i)
-            
+
             # Property: Entry points should come before other files
             if entry_point_indices and other_indices:
                 max_entry_point_idx = max(entry_point_indices)
@@ -269,7 +265,7 @@ class TestFilePrioritization:
                     f"Entry point at index {max_entry_point_idx} comes after "
                     f"other file at index {min_other_idx}"
                 )
-            
+
             # Property: Config files should come before other files
             if config_indices and other_indices:
                 max_config_idx = max(config_indices)
@@ -292,12 +288,12 @@ class TestFilePrioritization:
         lower priority numbers come first.
         """
         assume(len(structure["files"]) > 0)
-        
+
         repo_path = create_temp_repo(structure)
         try:
             generator = RepoViewGenerator(repo_path)
             files = generator._prioritize_files()
-            
+
             # Property: Files should be sorted by priority
             priorities = [f.priority for f in files]
             assert priorities == sorted(priorities), (
@@ -330,23 +326,23 @@ class TestLargeFileTruncation:
         SHALL include only excerpts (partial content) rather than full content.
         """
         filename, content = file_data
-        
+
         # Create temp repo with just this large file
         temp_dir = tempfile.mkdtemp(prefix="test_repo_")
         repo_path = Path(temp_dir)
         try:
             file_path = repo_path / filename
             file_path.write_text(content)
-            
+
             generator = RepoViewGenerator(repo_path)
             result = generator.generate()
-            
+
             # Property: Large file should be truncated
             assert result.files_truncated >= 1, (
                 f"Large file was not truncated. "
                 f"Original size: {len(content)}, MAX_FILE_SIZE: {MAX_FILE_SIZE}"
             )
-            
+
             # Property: Truncation marker should be present
             assert "[TRUNCATED:" in result.content, (
                 "Truncation marker not found in output"
@@ -365,23 +361,23 @@ class TestLargeFileTruncation:
         characters (plus truncation marker).
         """
         filename, content = file_data
-        
+
         temp_dir = tempfile.mkdtemp(prefix="test_repo_")
         repo_path = Path(temp_dir)
         try:
             file_path = repo_path / filename
             file_path.write_text(content)
-            
+
             generator = RepoViewGenerator(repo_path)
-            
+
             # Read with truncation
             truncated_content, was_truncated = generator._read_file_content(
                 file_path, truncate=True
             )
-            
+
             # Property: Content should be truncated
             assert was_truncated, "Large file should be marked as truncated"
-            
+
             # Property: Truncated content should be much smaller than original
             # Allow some overhead for the truncation marker
             max_expected_size = EXCERPT_SIZE + 200  # 200 chars for marker
@@ -403,25 +399,25 @@ class TestLargeFileTruncation:
         """
         filename, content = file_data
         assume(len(content) < MAX_FILE_SIZE)
-        
+
         temp_dir = tempfile.mkdtemp(prefix="test_repo_")
         repo_path = Path(temp_dir)
         try:
             file_path = repo_path / filename
             file_path.write_text(content)
-            
+
             generator = RepoViewGenerator(repo_path)
-            
+
             # Read without forced truncation
             read_content, was_truncated = generator._read_file_content(
                 file_path, truncate=True
             )
-            
+
             # Property: Small file should not be truncated
             assert not was_truncated, (
                 f"Small file ({len(content)} chars) was incorrectly truncated"
             )
-            
+
             # Property: Content should be preserved exactly
             assert read_content == content, (
                 "Small file content was modified"

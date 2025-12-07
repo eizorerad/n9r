@@ -52,12 +52,12 @@ class DiagnosisAgent:
     ) -> DiagnosisResult:
         """
         Analyze an issue and determine the fix strategy.
-        
+
         Args:
             issue: Issue dict with type, severity, title, description, file_path, etc.
             file_content: Content of the file with the issue
             related_files: List of related file contents for context
-        
+
         Returns:
             DiagnosisResult with fix path and details
         """
@@ -142,13 +142,13 @@ Provide your analysis in the following format:
 7. FIX_TYPE: One of: simple_refactor, complex_refactor, architectural, manual
 
 Respond with just the values, one per line:
-CONFIDENCE: 
-COMPLEXITY: 
-ESTIMATED_CHANGES: 
-CONTEXT_FILES: 
-FIX_DESCRIPTION: 
-RISK_FACTORS: 
-FIX_TYPE: 
+CONFIDENCE:
+COMPLEXITY:
+ESTIMATED_CHANGES:
+CONTEXT_FILES:
+FIX_DESCRIPTION:
+RISK_FACTORS:
+FIX_TYPE:
 """
 
         try:

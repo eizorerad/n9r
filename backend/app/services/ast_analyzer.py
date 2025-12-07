@@ -94,7 +94,7 @@ class ASTAnalysisResult:
 
 class ASTAnalyzer:
     """AST-based code analyzer using Tree-sitter.
-    
+
     IMPORTANT: Parsers are initialized lazily on first use, not at import time.
     This is required for compatibility with Celery's prefork pool on macOS,
     where tree-sitter C-extensions cause SIGSEGV after fork().
@@ -106,7 +106,7 @@ class ASTAnalyzer:
 
     def _ensure_parsers(self) -> None:
         """Initialize Tree-sitter parsers lazily on first use.
-        
+
         This must be called inside worker processes, not at module import time,
         to avoid SIGSEGV issues with Celery prefork pool.
         """
@@ -364,9 +364,9 @@ class ASTAnalyzer:
                     elif target.type == 'lexical_declaration':
                         for child in target.children:
                             if child.type == 'variable_declarator':
-                                name = child.child_by_field_name('name')
-                                if name and name.type == 'identifier':
-                                    loop_vars.add(get_text(name))
+                                decl_name_node = child.child_by_field_name('name')
+                                if decl_name_node and decl_name_node.type == 'identifier':
+                                    loop_vars.add(get_text(decl_name_node))
 
                 body = node.child_by_field_name('body')
                 if body:
@@ -487,7 +487,7 @@ _thread_local = threading.local()
 
 def get_ast_analyzer() -> ASTAnalyzer:
     """Get thread-local AST analyzer instance.
-    
+
     Each worker thread/process gets its own analyzer instance.
     This ensures tree-sitter parsers are initialized in the correct process
     after Celery fork(), avoiding SIGSEGV on macOS.

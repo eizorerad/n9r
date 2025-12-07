@@ -51,7 +51,7 @@ def author_name() -> st.SearchStrategy[str]:
 
 class TestShortSHADerivationProperties:
     """Property tests for short SHA derivation.
-    
+
     **Feature: commit-selector-mvp, Property 4: Short SHA derivation**
     **Validates: Requirements 2.2**
     """
@@ -62,8 +62,8 @@ class TestShortSHADerivationProperties:
         """
         **Feature: commit-selector-mvp, Property 4: Short SHA derivation**
         **Validates: Requirements 2.2**
-        
-        Property: For any commit in the response, the `short_sha` field SHALL equal 
+
+        Property: For any commit in the response, the `short_sha` field SHALL equal
         the first 7 characters of the `sha` field.
         """
         # Create a CommitResponse with the generated data
@@ -95,7 +95,7 @@ class TestShortSHADerivationProperties:
 
 class TestMessageHeadlineTruncationProperties:
     """Property tests for message headline truncation.
-    
+
     **Feature: commit-selector-mvp, Property 5: Message headline truncation**
     **Validates: Requirements 2.3**
     """
@@ -106,8 +106,8 @@ class TestMessageHeadlineTruncationProperties:
         """
         **Feature: commit-selector-mvp, Property 5: Message headline truncation**
         **Validates: Requirements 2.3**
-        
-        Property: For any commit where the first line of `message` exceeds 80 characters, 
+
+        Property: For any commit where the first line of `message` exceeds 80 characters,
         the `message_headline` SHALL be truncated to 80 characters.
         """
         # Create a CommitResponse with a long message
@@ -139,8 +139,8 @@ class TestMessageHeadlineTruncationProperties:
         """
         **Feature: commit-selector-mvp, Property 5: Message headline truncation**
         **Validates: Requirements 2.3**
-        
-        Property: For any commit where the first line of `message` is 80 characters or fewer, 
+
+        Property: For any commit where the first line of `message` is 80 characters or fewer,
         the `message_headline` SHALL equal the first line of the message.
         """
         # Create a CommitResponse with a short message
@@ -172,8 +172,8 @@ class TestMessageHeadlineTruncationProperties:
         """
         **Feature: commit-selector-mvp, Property 5: Message headline truncation**
         **Validates: Requirements 2.3**
-        
-        Property: For any multi-line commit message, the `message_headline` SHALL be 
+
+        Property: For any multi-line commit message, the `message_headline` SHALL be
         derived from only the first line (truncated to 80 chars if needed).
         """
         # Create a multi-line message
@@ -210,7 +210,7 @@ class TestMessageHeadlineTruncationProperties:
 
 class TestDefaultBranchIdentificationProperties:
     """Property tests for default branch identification.
-    
+
     **Feature: commit-selector-mvp, Property 1: Default branch identification**
     **Validates: Requirements 1.2**
     """
@@ -228,9 +228,9 @@ class TestDefaultBranchIdentificationProperties:
         """
         **Feature: commit-selector-mvp, Property 1: Default branch identification**
         **Validates: Requirements 1.2**
-        
-        Property: For any list of branches returned by the API, exactly one branch 
-        SHALL be marked as `is_default: true`, and that branch name SHALL match 
+
+        Property: For any list of branches returned by the API, exactly one branch
+        SHALL be marked as `is_default: true`, and that branch name SHALL match
         the repository's `default_branch` field.
         """
         from app.schemas.repository import BranchListResponse, BranchResponse
@@ -274,7 +274,7 @@ class TestDefaultBranchIdentificationProperties:
 
 class TestCommitOrderingProperties:
     """Property tests for commit ordering.
-    
+
     **Feature: commit-selector-mvp, Property 2: Commit ordering**
     **Validates: Requirements 2.1**
     """
@@ -295,8 +295,8 @@ class TestCommitOrderingProperties:
         """
         **Feature: commit-selector-mvp, Property 2: Commit ordering**
         **Validates: Requirements 2.1**
-        
-        Property: For any list of commits returned by the API, the commits SHALL be 
+
+        Property: For any list of commits returned by the API, the commits SHALL be
         ordered by `committed_at` in descending order (newest first).
         """
         from app.schemas.repository import CommitListResponse, CommitResponse
@@ -335,7 +335,7 @@ class TestCommitOrderingProperties:
 
 class TestAnalysisStatusConsistencyProperties:
     """Property tests for analysis status consistency.
-    
+
     **Feature: commit-selector-mvp, Property 6: Analysis status consistency**
     **Validates: Requirements 3.1, 3.2, 3.4**
     """
@@ -351,8 +351,8 @@ class TestAnalysisStatusConsistencyProperties:
         """
         **Feature: commit-selector-mvp, Property 6: Analysis status consistency**
         **Validates: Requirements 3.1, 3.2, 3.4**
-        
-        Property: For any commit with `analysis_status = "completed"`, the `vci_score` 
+
+        Property: For any commit with `analysis_status = "completed"`, the `vci_score`
         field SHALL be non-null.
         """
         # Create a CommitResponse with completed analysis status
@@ -381,8 +381,8 @@ class TestAnalysisStatusConsistencyProperties:
         """
         **Feature: commit-selector-mvp, Property 6: Analysis status consistency**
         **Validates: Requirements 3.1, 3.2, 3.4**
-        
-        Property: For any commit with `analysis_status = null`, both `analysis_id` 
+
+        Property: For any commit with `analysis_status = null`, both `analysis_id`
         and `vci_score` SHALL be null.
         """
         # Create a CommitResponse with no analysis
@@ -422,9 +422,9 @@ class TestAnalysisStatusConsistencyProperties:
         """
         **Feature: commit-selector-mvp, Property 6: Analysis status consistency**
         **Validates: Requirements 3.1, 3.2, 3.4**
-        
-        Property: For any commit with `analysis_status = "pending"` or "running", 
-        the `analysis_id` SHALL be non-null (analysis record exists) but `vci_score` 
+
+        Property: For any commit with `analysis_status = "pending"` or "running",
+        the `analysis_id` SHALL be non-null (analysis record exists) but `vci_score`
         may be null (not yet computed).
         """
         # Create a CommitResponse with pending/running analysis status

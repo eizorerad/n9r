@@ -107,8 +107,8 @@ function PlaygroundContent() {
         repo_url: data.repo_url,
         status: "pending",
       });
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
       setIsLoading(false);
     }
   };

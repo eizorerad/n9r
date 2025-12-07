@@ -88,10 +88,10 @@ class HealingOrchestrator:
     ) -> HealingResult:
         """
         Execute the complete healing process for an issue with iterative retry.
-        
+
         If validation fails, the process will retry up to max_iterations times,
         passing the error output back to the FixAgent to generate an improved fix.
-        
+
         Args:
             issue: Issue dict with type, severity, title, description, etc.
             repository: Repository dict with id, full_name, clone_url, etc.
@@ -100,7 +100,7 @@ class HealingOrchestrator:
             on_log: Callback for log events (for streaming to UI)
             max_iterations: Override default max iterations
             access_token: GitHub access token for cloning private repositories
-        
+
         Returns:
             HealingResult with complete healing status
         """
@@ -300,19 +300,19 @@ class HealingOrchestrator:
         access_token: str | None = None,
     ) -> dict:
         """Validate the fix in a sandbox environment.
-        
+
         SECURITY NOTE:
         - Sandbox runs with network_mode="none" (complete network isolation)
         - Repository is cloned on HOST before sandbox starts
         - Fix and test files are written to host workdir (mounted into sandbox)
         - Sandbox only performs local linting/testing on mounted files
-        
+
         Args:
             repository: Repository dict with clone_url, default_branch, id
             fix: FixResult with file_path and fixed_content
             test: TestResult with test_file_path and test_content
             access_token: GitHub access token for private repositories
-            
+
         Returns:
             Dict with passed, lint, tests, error keys
         """
@@ -428,11 +428,11 @@ class HealingOrchestrator:
         self, sandbox: Sandbox, file_path: str
     ) -> dict:
         """Run lint check on the fixed file inside sandbox.
-        
+
         Args:
             sandbox: Active Sandbox instance
             file_path: Path to file relative to /workspace/repo
-            
+
         Returns:
             Dict with passed, output, skipped, error keys
         """
@@ -476,12 +476,12 @@ class HealingOrchestrator:
         self, sandbox: Sandbox, test_file_path: str, test_framework: str
     ) -> dict:
         """Run the generated tests inside sandbox.
-        
+
         Args:
             sandbox: Active Sandbox instance
             test_file_path: Path to test file relative to /workspace/repo
             test_framework: Test framework (pytest, jest, vitest)
-            
+
         Returns:
             Dict with passed, output, skipped, error keys
         """

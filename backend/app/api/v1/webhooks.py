@@ -48,7 +48,7 @@ async def github_webhook(
 ) -> dict:
     """
     Handle GitHub webhook events.
-    
+
     Supported events:
     - push: Trigger analysis on new commits
     - pull_request: Update PR status

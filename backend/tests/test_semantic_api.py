@@ -65,7 +65,7 @@ class UserService:
         if name:
             return {"name": name}
         return None
-    
+
     def delete_user(self, user_id):
         return True
 

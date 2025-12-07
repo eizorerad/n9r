@@ -17,14 +17,14 @@ def send_notification(
 ) -> dict:
     """
     Send a notification to a user.
-    
+
     Args:
         user_id: UUID of the user
         notification_type: Type of notification (analysis_complete, pr_created, etc.)
         title: Notification title
         message: Notification message
         data: Additional data (links, IDs, etc.)
-    
+
     Returns:
         dict with notification status
     """

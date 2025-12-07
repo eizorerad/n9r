@@ -8,7 +8,7 @@ ensuring state transitions are validated and events are published for real-time 
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -105,11 +105,11 @@ class InvalidProgressValueError(ValueError):
 def is_valid_embeddings_transition(current_status: str, new_status: str) -> bool:
     """
     Check if an embeddings status transition is valid.
-    
+
     Args:
         current_status: Current embeddings_status value
         new_status: Proposed new embeddings_status value
-        
+
     Returns:
         True if transition is valid, False otherwise
     """
@@ -121,11 +121,11 @@ def is_valid_embeddings_transition(current_status: str, new_status: str) -> bool
 def is_valid_semantic_cache_transition(current_status: str, new_status: str) -> bool:
     """
     Check if a semantic cache status transition is valid.
-    
+
     Args:
         current_status: Current semantic_cache_status value
         new_status: Proposed new semantic_cache_status value
-        
+
     Returns:
         True if transition is valid, False otherwise
     """
@@ -137,14 +137,14 @@ def is_valid_semantic_cache_transition(current_status: str, new_status: str) -> 
 def is_valid_ai_scan_transition(current_status: str, new_status: str) -> bool:
     """
     Check if an AI scan status transition is valid.
-    
+
     Args:
         current_status: Current ai_scan_status value
         new_status: Proposed new ai_scan_status value
-        
+
     Returns:
         True if transition is valid, False otherwise
-        
+
     **Validates: Requirements 1.2, 1.3, 1.4**
     """
     if current_status not in AI_SCAN_TRANSITIONS:
@@ -155,10 +155,10 @@ def is_valid_ai_scan_transition(current_status: str, new_status: str) -> bool:
 def validate_progress(progress: int) -> None:
     """
     Validate that progress value is within bounds (0-100).
-    
+
     Args:
         progress: Progress value to validate
-        
+
     Raises:
         InvalidProgressValueError: If progress is out of bounds
     """
@@ -174,13 +174,13 @@ def validate_progress(progress: int) -> None:
 class AnalysisStateService:
     """
     Centralized service for managing analysis state.
-    
+
     This service ensures:
     - State transitions are validated against allowed transitions
     - Events are published for real-time updates (optional)
     - Audit trail via state_updated_at timestamp
     - Atomic updates using database transactions
-    
+
     **Feature: progress-tracking-refactor**
     **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 5.1, 5.2, 5.3**
     """
@@ -188,7 +188,7 @@ class AnalysisStateService:
     def __init__(self, session: Session, publish_events: bool = True):
         """
         Initialize the state service.
-        
+
         Args:
             session: SQLAlchemy session for database operations
             publish_events: Whether to publish Redis events on state changes
@@ -199,13 +199,13 @@ class AnalysisStateService:
     def _get_analysis(self, analysis_id: UUID) -> Analysis:
         """
         Get analysis by ID or raise AnalysisNotFoundError.
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Analysis model instance
-            
+
         Raises:
             AnalysisNotFoundError: If analysis not found
         """
@@ -219,7 +219,7 @@ class AnalysisStateService:
 
     def _update_timestamp(self, analysis: Analysis) -> None:
         """Update state_updated_at timestamp for polling optimization."""
-        analysis.state_updated_at = datetime.now(timezone.utc)
+        analysis.state_updated_at = datetime.now(UTC)
 
     def _publish_event(
         self,
@@ -229,15 +229,15 @@ class AnalysisStateService:
     ) -> None:
         """
         Publish state change event to Redis pub/sub.
-        
+
         Non-blocking: catches and logs errors without raising.
         Uses the centralized publish_analysis_event function from redis.py.
-        
+
         Args:
             analysis: Analysis model instance
             event_type: Type of event (e.g., 'embeddings_status_changed')
             status_data: Additional status data to include
-            
+
         **Validates: Requirements 7.1, 7.4**
         """
         if not self.publish_events:
@@ -245,7 +245,7 @@ class AnalysisStateService:
 
         try:
             from app.core.redis import publish_analysis_event
-            
+
             # Call the centralized event publishing function
             # This is wrapped in try/except to ensure non-blocking (Requirements 7.2)
             publish_analysis_event(
@@ -270,7 +270,7 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Update embeddings status with transition validation.
-        
+
         Args:
             analysis_id: UUID of the analysis
             status: New embeddings_status value
@@ -279,15 +279,15 @@ class AnalysisStateService:
             message: Human-readable progress message
             error: Error message (for failed status)
             vectors_count: Number of vectors stored
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         Raises:
             AnalysisNotFoundError: If analysis not found
             InvalidStateTransitionError: If transition is invalid
             InvalidProgressValueError: If progress is out of bounds
-            
+
         **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 5.1, 5.2, 5.3**
         """
         analysis = self._get_analysis(analysis_id)
@@ -347,20 +347,20 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Update semantic cache status with transition validation.
-        
+
         Args:
             analysis_id: UUID of the analysis
             status: New semantic_cache_status value
             cache_data: Semantic cache data (for completed status)
             error: Error message (for failed status)
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         Raises:
             AnalysisNotFoundError: If analysis not found
             InvalidStateTransitionError: If transition is invalid
-            
+
         **Validates: Requirements 3.1, 3.2, 3.3, 5.1, 5.2**
         """
         analysis = self._get_analysis(analysis_id)
@@ -414,15 +414,15 @@ class AnalysisStateService:
     def mark_embeddings_pending(self, analysis_id: UUID) -> Analysis:
         """
         Mark embeddings as pending (ready to start).
-        
+
         Transition: none -> pending
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 2.1**
         """
         return self.update_embeddings_status(
@@ -436,16 +436,16 @@ class AnalysisStateService:
     def start_embeddings(self, analysis_id: UUID) -> Analysis:
         """
         Start embeddings generation.
-        
+
         Transition: pending -> running
         Sets embeddings_started_at timestamp.
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 2.1**
         """
         analysis = self._get_analysis(analysis_id)
@@ -464,7 +464,7 @@ class AnalysisStateService:
         analysis.embeddings_progress = 0
         analysis.embeddings_stage = "initializing"
         analysis.embeddings_message = "Starting embedding generation..."
-        analysis.embeddings_started_at = datetime.now(timezone.utc)
+        analysis.embeddings_started_at = datetime.now(UTC)
         analysis.embeddings_error = None  # Clear any previous error
 
         # Update timestamp for polling optimization
@@ -489,18 +489,18 @@ class AnalysisStateService:
     def complete_embeddings(self, analysis_id: UUID, vectors_count: int) -> Analysis:
         """
         Mark embeddings as completed.
-        
+
         Transition: running -> completed
         Sets embeddings_completed_at timestamp.
         Automatically triggers semantic_cache_status -> pending (Requirements 2.5).
-        
+
         Args:
             analysis_id: UUID of the analysis
             vectors_count: Number of vectors stored in Qdrant
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 2.3, 2.5**
         """
         analysis = self._get_analysis(analysis_id)
@@ -521,7 +521,7 @@ class AnalysisStateService:
         analysis.embeddings_progress = 100
         analysis.embeddings_stage = "completed"
         analysis.embeddings_message = "Embedding generation completed"
-        analysis.embeddings_completed_at = datetime.now(timezone.utc)
+        analysis.embeddings_completed_at = datetime.now(UTC)
         analysis.vectors_count = vectors_count
 
         # Automatically trigger semantic cache pending (Requirements 2.5)
@@ -555,16 +555,16 @@ class AnalysisStateService:
     def fail_embeddings(self, analysis_id: UUID, error: str) -> Analysis:
         """
         Mark embeddings as failed.
-        
+
         Transition: pending|running -> failed
-        
+
         Args:
             analysis_id: UUID of the analysis
             error: Error message describing the failure
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 2.4**
         """
         return self.update_embeddings_status(
@@ -578,15 +578,15 @@ class AnalysisStateService:
     def start_semantic_cache(self, analysis_id: UUID) -> Analysis:
         """
         Start semantic cache computation.
-        
+
         Transition: pending -> computing
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 3.1**
         """
         return self.update_semantic_cache_status(
@@ -599,20 +599,20 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Mark semantic cache as completed.
-        
+
         Transition: computing -> completed
-        
+
         Note: In the parallel analysis pipeline, AI Scan is dispatched directly
         from the API endpoint alongside Static Analysis and Embeddings. This
         method no longer auto-triggers AI scan.
-        
+
         Args:
             analysis_id: UUID of the analysis
             cache_data: Computed semantic cache data
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Feature: parallel-analysis-pipeline**
         **Validates: Requirements 3.2, 6.3**
         """
@@ -658,16 +658,16 @@ class AnalysisStateService:
     def fail_semantic_cache(self, analysis_id: UUID, error: str) -> Analysis:
         """
         Mark semantic cache as failed.
-        
+
         Transition: pending|computing -> failed
-        
+
         Args:
             analysis_id: UUID of the analysis
             error: Error message describing the failure
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 3.3**
         """
         return self.update_semantic_cache_status(
@@ -685,21 +685,21 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Update embeddings progress without changing status.
-        
+
         Use this for incremental progress updates during embedding generation.
-        
+
         Args:
             analysis_id: UUID of the analysis
             progress: Progress percentage (0-100)
             stage: Current stage name
             message: Human-readable progress message
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         Raises:
             InvalidProgressValueError: If progress is out of bounds
-            
+
         **Validates: Requirements 2.2, 5.3**
         """
         # Validate progress
@@ -754,7 +754,7 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Update AI scan status with transition validation.
-        
+
         Args:
             analysis_id: UUID of the analysis
             status: New ai_scan_status value
@@ -762,15 +762,15 @@ class AnalysisStateService:
             stage: Current stage name
             message: Human-readable progress message
             error: Error message (for failed status)
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         Raises:
             AnalysisNotFoundError: If analysis not found
             InvalidStateTransitionError: If transition is invalid
             InvalidProgressValueError: If progress is out of bounds
-            
+
         **Validates: Requirements 2.2, 2.4**
         """
         analysis = self._get_analysis(analysis_id)
@@ -822,15 +822,15 @@ class AnalysisStateService:
     def mark_ai_scan_pending(self, analysis_id: UUID) -> Analysis:
         """
         Mark AI scan as pending (ready to start).
-        
+
         Transition: none -> pending
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 1.2**
         """
         return self.update_ai_scan_status(
@@ -844,16 +844,16 @@ class AnalysisStateService:
     def start_ai_scan(self, analysis_id: UUID) -> Analysis:
         """
         Start AI scan.
-        
+
         Transition: pending -> running
         Sets ai_scan_started_at timestamp.
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 1.3**
         """
         analysis = self._get_analysis(analysis_id)
@@ -872,7 +872,7 @@ class AnalysisStateService:
         analysis.ai_scan_progress = 0
         analysis.ai_scan_stage = "initializing"
         analysis.ai_scan_message = "Starting AI scan..."
-        analysis.ai_scan_started_at = datetime.now(timezone.utc)
+        analysis.ai_scan_started_at = datetime.now(UTC)
         analysis.ai_scan_error = None  # Clear any previous error
 
         # Update timestamp for polling optimization
@@ -897,18 +897,18 @@ class AnalysisStateService:
     def complete_ai_scan(self, analysis_id: UUID, cache_data: dict[str, Any]) -> Analysis:
         """
         Mark AI scan as completed.
-        
+
         Transition: running -> completed
         Sets ai_scan_completed_at timestamp.
         Stores cache data in ai_scan_cache.
-        
+
         Args:
             analysis_id: UUID of the analysis
             cache_data: AI scan results to store in ai_scan_cache
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 1.4**
         """
         analysis = self._get_analysis(analysis_id)
@@ -929,7 +929,7 @@ class AnalysisStateService:
         analysis.ai_scan_progress = 100
         analysis.ai_scan_stage = "completed"
         analysis.ai_scan_message = "AI scan completed"
-        analysis.ai_scan_completed_at = datetime.now(timezone.utc)
+        analysis.ai_scan_completed_at = datetime.now(UTC)
         analysis.ai_scan_cache = cache_data
 
         # Update timestamp for polling optimization
@@ -954,16 +954,16 @@ class AnalysisStateService:
     def fail_ai_scan(self, analysis_id: UUID, error: str) -> Analysis:
         """
         Mark AI scan as failed.
-        
+
         Transition: pending|running -> failed
-        
+
         Args:
             analysis_id: UUID of the analysis
             error: Error message describing the failure
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 5.2**
         """
         return self.update_ai_scan_status(
@@ -977,15 +977,15 @@ class AnalysisStateService:
     def skip_ai_scan(self, analysis_id: UUID) -> Analysis:
         """
         Skip AI scan (disabled in settings).
-        
+
         Transition: none|pending -> skipped
-        
+
         Args:
             analysis_id: UUID of the analysis
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         **Validates: Requirements 5.1**
         """
         return self.update_ai_scan_status(
@@ -1005,22 +1005,22 @@ class AnalysisStateService:
     ) -> Analysis:
         """
         Update AI scan progress without changing status.
-        
+
         Use this for incremental progress updates during AI scan.
         Only allows updates when status is 'running'.
-        
+
         Args:
             analysis_id: UUID of the analysis
             progress: Progress percentage (0-100)
             stage: Current stage name
             message: Human-readable progress message
-            
+
         Returns:
             Updated Analysis model instance
-            
+
         Raises:
             InvalidProgressValueError: If progress is out of bounds
-            
+
         **Validates: Requirements 4.3**
         """
         # Validate progress

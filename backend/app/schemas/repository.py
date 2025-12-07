@@ -118,7 +118,7 @@ class FileContent(BaseModel):
 
 class BranchResponse(BaseSchema):
     """Branch information response.
-    
+
     Requirements: 1.1, 1.2
     """
 
@@ -130,7 +130,7 @@ class BranchResponse(BaseSchema):
 
 class BranchListResponse(BaseSchema):
     """List of branches response.
-    
+
     Requirements: 1.1, 1.2
     """
 
@@ -139,7 +139,7 @@ class BranchListResponse(BaseSchema):
 
 class CommitResponse(BaseSchema):
     """Commit with analysis status response.
-    
+
     Requirements: 2.1, 2.2, 2.3, 3.1, 3.2
     """
 
@@ -160,7 +160,7 @@ class CommitResponse(BaseSchema):
     @classmethod
     def derive_short_sha_and_headline(cls, data: dict) -> dict:
         """Derive short_sha from sha and truncate message_headline.
-        
+
         Property 4: Short SHA derivation - short_sha equals first 7 chars of sha
         Property 5: Message headline truncation - truncate to 80 chars if needed
         """
@@ -189,7 +189,7 @@ class CommitResponse(BaseSchema):
 
 class CommitListResponse(BaseSchema):
     """List of commits response.
-    
+
     Requirements: 2.1, 2.2, 3.1, 3.2
     """
 

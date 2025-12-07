@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.services.ast_analyzer import get_ast_analyzer
 from app.services.lizard_analyzer import LizardAnalyzer
@@ -92,10 +92,10 @@ class RepoAnalyzer:
 
     def clone(self) -> Path:
         """Clone repository to temporary directory.
-        
+
         Uses SANDBOX_ROOT_DIR from settings for consistency with Sandbox,
         though RepoAnalyzer doesn't require path translation (no sibling containers).
-        
+
         If commit_sha is specified, clones full history and checks out that commit.
         Otherwise, does a shallow clone of HEAD for speed.
         """
@@ -235,10 +235,10 @@ class RepoAnalyzer:
 
     def _detect_languages(self) -> set[str]:
         """Detect which programming languages are present in the repository.
-        
+
         Scans the repository for file extensions and returns a set of detected
         language names. Used to determine which analyzers to run.
-        
+
         Returns:
             Set of language names (e.g., {'python', 'javascript', 'typescript'})
         """
@@ -270,7 +270,7 @@ class RepoAnalyzer:
 
         detected_languages: set[str] = set()
 
-        for root, dirs, files in os.walk(self.temp_dir):
+        for _root, dirs, files in os.walk(self.temp_dir):
             # Skip hidden dirs and common non-source directories
             dirs[:] = [
                 d for d in dirs
@@ -288,11 +288,11 @@ class RepoAnalyzer:
 
     def analyze_with_lizard(self) -> tuple[dict, bool]:
         """Analyze non-Python files using lizard for complexity metrics.
-        
+
         Calls LizardAnalyzer for JavaScript, TypeScript, and other supported
         languages. Returns metrics in a format compatible with the existing
         complexity data structure.
-        
+
         Returns:
             Tuple of (results dict, success bool). Success is True if lizard
             ran successfully and returned data, False if lizard failed
@@ -348,18 +348,18 @@ class RepoAnalyzer:
         python_metrics: Optional['AnalysisMetrics'] = None
     ) -> dict:
         """Merge complexity results from radon (Python) and lizard (other languages).
-        
+
         Combines metrics from both analyzers into a unified result:
         - Sums complexity_distribution counts for each grade (A-F)
         - Calculates weighted average complexity based on function count
         - Combines and sorts top_complex_functions by complexity
         - Builds by_language breakdown
-        
+
         Args:
             python_data: Complexity data from radon (Python analysis)
             lizard_data: Complexity data from lizard (JS/TS/other analysis)
             python_metrics: Optional AnalysisMetrics for Python file/line counts
-            
+
         Returns:
             Merged complexity data dict with all metrics combined
         """
@@ -455,11 +455,11 @@ class RepoAnalyzer:
 
     def _get_fallback_complexity_data(self) -> dict:
         """Return fallback complexity data when both analyzers fail.
-        
+
         Provides a valid complexity data structure with zero values,
         allowing the analysis to complete with basic file/line counts
         even when complexity analysis is unavailable.
-        
+
         Returns:
             Dict with zero complexity metrics and empty distributions.
         """
@@ -496,7 +496,7 @@ class RepoAnalyzer:
 
     def analyze_python_complexity(self) -> tuple[dict, bool]:
         """Analyze Python code complexity using radon (CC, Halstead, MI).
-        
+
         Returns:
             Tuple of (results dict, success bool). Success is True if at least
             the cyclomatic complexity analysis succeeded, False if radon failed
@@ -505,7 +505,7 @@ class RepoAnalyzer:
         if not self.temp_dir:
             return {}, False
 
-        results = {
+        results: dict[str, Any] = {
             "functions_analyzed": 0,
             "avg_complexity": 0.0,
             "max_complexity": 0.0,
@@ -628,7 +628,7 @@ class RepoAnalyzer:
                 total_bugs = 0
                 file_count = 0
 
-                for filepath, metrics in hal_data.items():
+                for _filepath, metrics in hal_data.items():
                     if isinstance(metrics, dict) and 'total' in metrics:
                         totals = metrics['total']
                         total_volume += totals.get('volume', 0) or 0
@@ -670,7 +670,7 @@ class RepoAnalyzer:
                 file_count = 0
                 files_below_65 = 0
 
-                for filepath, mi_info in mi_data.items():
+                for _filepath, mi_info in mi_data.items():
                     if isinstance(mi_info, dict):
                         mi_score = mi_info.get('mi', 0) or 0
                         rank = mi_info.get('rank', 'C')
@@ -712,7 +712,7 @@ class RepoAnalyzer:
             if raw_result.returncode == 0 and raw_result.stdout:
                 raw_data = json.loads(raw_result.stdout)
 
-                for filepath, metrics in raw_data.items():
+                for _filepath, metrics in raw_data.items():
                     if isinstance(metrics, dict):
                         results["raw_metrics"]["loc"] += metrics.get('loc', 0) or 0
                         results["raw_metrics"]["lloc"] += metrics.get('lloc', 0) or 0
@@ -733,13 +733,13 @@ class RepoAnalyzer:
     def calculate_vci_score(self, metrics: AnalysisMetrics, complexity_data: dict) -> float:
         """
         Calculate Vibe-Code Index (VCI) score.
-        
+
         VCI = weighted average of:
         - Complexity score (25%)
         - Duplication score (25%)
         - Maintainability score (30%)
         - Architecture score (20%)
-        
+
         Score range: 0-100 (higher is better)
         """
         # Complexity score (based on cyclomatic complexity)
@@ -843,7 +843,7 @@ class RepoAnalyzer:
 
     def run_hard_heuristics(self, metrics: AnalysisMetrics) -> dict:
         """Run hard heuristics analysis using AST-based detection.
-        
+
         Uses Tree-sitter for Python/JS/TS to reduce false positives by:
         - Ignoring function parameters (e.g., def process(data): is OK)
         - Ignoring loop variables (e.g., for i in range(): is OK)
@@ -1043,7 +1043,7 @@ class RepoAnalyzer:
     def calculate_vci_score_enhanced(self, metrics: AnalysisMetrics, complexity_data: dict) -> float:
         """
         Calculate enhanced Vibe-Code Index (VCI) score.
-        
+
         VCI = weighted average of:
         - Complexity score (25%)
         - Duplication score (20%)
@@ -1113,13 +1113,13 @@ class RepoAnalyzer:
 
     def analyze(self) -> AnalysisResult:
         """Run complete analysis with multi-language support and hard heuristics.
-        
+
         Orchestrates analysis across multiple languages:
         1. Detects languages present in the repository
         2. Runs radon for Python files (CC, Halstead, MI)
         3. Runs lizard for non-Python files (JS, TS, Java, Go, etc.)
         4. Merges results into unified metrics with by_language breakdown
-        
+
         Implements graceful degradation:
         - If radon fails, continues with lizard results only
         - If lizard fails, continues with radon results only

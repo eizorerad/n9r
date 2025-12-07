@@ -5,15 +5,13 @@ defined in the design document.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-
 
 # =============================================================================
 # Custom Strategies for AI Scan API Testing
@@ -102,14 +100,14 @@ def valid_repo_overview(draw) -> dict[str, Any]:
 def valid_ai_scan_cache(draw) -> dict[str, Any]:
     """Generate valid AI scan cache data."""
     status = draw(valid_status())
-    
+
     cache = {
         "status": status,
         "models_used": draw(st.lists(st.text(min_size=1, max_size=50).filter(lambda s: s.strip()), min_size=1, max_size=3)),
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
         "commit_sha": draw(valid_commit_sha()),
     }
-    
+
     if status == "completed":
         cache["repo_overview"] = draw(valid_repo_overview())
         cache["issues"] = draw(st.lists(valid_ai_scan_issue(), min_size=0, max_size=5))
@@ -117,7 +115,7 @@ def valid_ai_scan_cache(draw) -> dict[str, Any]:
         cache["total_cost_usd"] = draw(st.floats(min_value=0, max_value=10.0))
     elif status == "failed":
         cache["error_message"] = draw(st.text(min_size=1, max_size=200).filter(lambda s: s.strip()))
-    
+
     return cache
 
 
@@ -161,16 +159,16 @@ class TestDuplicateRequestRejection:
         be rejected with an appropriate error.
         """
         from fastapi import HTTPException
-        
+
         # Create mock analysis with in-progress AI scan
-        analysis_id = uuid4()
-        
+        uuid4()
+
         # Simulate the cache check logic from the API endpoint
         cache = {
             "status": in_progress_status,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
         }
-        
+
         # Property: If cache status is pending or running, should reject
         if cache and cache.get("status") in ("pending", "running"):
             # This is the expected behavior - should raise 409 Conflict
@@ -179,7 +177,7 @@ class TestDuplicateRequestRejection:
                     status_code=409,
                     detail="AI scan already in progress",
                 )
-            
+
             assert exc_info.value.status_code == 409
             assert "already in progress" in exc_info.value.detail.lower()
         else:
@@ -205,13 +203,13 @@ class TestDuplicateRequestRejection:
         # Create mock analysis with completed/failed AI scan
         cache = {
             "status": completed_status,
-            "computed_at": datetime.now(timezone.utc).isoformat(),
+            "computed_at": datetime.now(UTC).isoformat(),
             "commit_sha": commit_sha,
         }
-        
+
         # Property: If cache status is completed or failed, should allow new scan
         should_reject = cache and cache.get("status") in ("pending", "running")
-        
+
         assert not should_reject, (
             f"Should allow new scan when previous status is '{completed_status}'"
         )
@@ -228,10 +226,10 @@ class TestDuplicateRequestRejection:
         """
         # No cache exists
         cache = None
-        
+
         # Property: If no cache, should allow scan
         should_reject = cache and cache.get("status") in ("pending", "running")
-        
+
         assert not should_reject, "Should allow scan when no cache exists"
 
 
@@ -271,17 +269,17 @@ class TestCacheRetrieval:
             InvestigationStatus,
             RepoOverview,
         )
-        
+
         analysis_id = uuid4()
         commit_sha = cache_data.get("commit_sha", "a" * 40)
-        
+
         # Parse status
         status_str = cache_data.get("status", "pending")
         try:
             scan_status = AIScanStatus(status_str)
         except ValueError:
             scan_status = AIScanStatus.PENDING
-        
+
         # Parse repo overview
         repo_overview = None
         if cache_data.get("repo_overview"):
@@ -289,7 +287,7 @@ class TestCacheRetrieval:
                 repo_overview = RepoOverview(**cache_data["repo_overview"])
             except Exception:
                 pass
-        
+
         # Parse issues
         issues = []
         for issue_data in cache_data.get("issues", []):
@@ -301,14 +299,14 @@ class TestCacheRetrieval:
                         line_start=f.get("line_start", 1),
                         line_end=f.get("line_end", 1),
                     ))
-                
+
                 inv_status = None
                 if issue_data.get("investigation_status"):
                     try:
                         inv_status = InvestigationStatus(issue_data["investigation_status"])
                     except ValueError:
                         pass
-                
+
                 issues.append(AIScanIssue(
                     id=issue_data.get("id", "unknown"),
                     dimension=AIScanDimension(issue_data.get("dimension", "other")),
@@ -324,7 +322,7 @@ class TestCacheRetrieval:
                 ))
             except Exception:
                 continue
-        
+
         # Parse computed_at
         computed_at = None
         if cache_data.get("computed_at"):
@@ -332,7 +330,7 @@ class TestCacheRetrieval:
                 computed_at = datetime.fromisoformat(cache_data["computed_at"].replace("Z", "+00:00"))
             except Exception:
                 pass
-        
+
         # Build response
         response = AIScanCacheResponse(
             analysis_id=analysis_id,
@@ -345,12 +343,12 @@ class TestCacheRetrieval:
             total_tokens_used=cache_data.get("total_tokens_used"),
             total_cost_usd=cache_data.get("total_cost_usd"),
         )
-        
+
         # Property: is_cached must be True when cache exists
         assert response.is_cached is True, (
             "is_cached should be True when cache data exists"
         )
-        
+
         # Property: status must match cache status
         assert response.status.value == cache_data["status"], (
             f"Status mismatch! Expected: {cache_data['status']}, Got: {response.status.value}"
@@ -367,9 +365,9 @@ class TestCacheRetrieval:
         SHALL return is_cached=false.
         """
         from app.schemas.ai_scan import AIScanCacheResponse, AIScanStatus
-        
+
         analysis_id = uuid4()
-        
+
         # No cache - build empty response
         response = AIScanCacheResponse(
             analysis_id=analysis_id,
@@ -382,12 +380,12 @@ class TestCacheRetrieval:
             total_tokens_used=None,
             total_cost_usd=None,
         )
-        
+
         # Property: is_cached must be False when no cache
         assert response.is_cached is False, (
             "is_cached should be False when no cache exists"
         )
-        
+
         # Property: issues should be empty
         assert len(response.issues) == 0, (
             "Issues should be empty when no cache exists"
@@ -420,22 +418,22 @@ class TestSSEEventFormat:
         stage, progress (0-100), and message fields.
         """
         from app.schemas.ai_scan import AIScanProgressEvent
-        
+
         # Create progress event
         event = AIScanProgressEvent(
             stage=event_data["stage"],
             progress=event_data["progress"],
             message=event_data["message"],
         )
-        
+
         # Property: stage must be present and non-empty
         assert event.stage, "SSE event must have non-empty stage"
-        
+
         # Property: progress must be between 0 and 100
         assert 0 <= event.progress <= 100, (
             f"Progress must be 0-100, got: {event.progress}"
         )
-        
+
         # Property: message must be present and non-empty
         assert event.message, "SSE event must have non-empty message"
 
@@ -460,7 +458,7 @@ class TestSSEEventFormat:
         Property: SSE events must be JSON serializable for transmission.
         """
         analysis_id = str(uuid4())
-        
+
         # Build event payload as the API would
         payload = {
             "analysis_id": analysis_id,
@@ -469,14 +467,14 @@ class TestSSEEventFormat:
             "message": message,
             "status": status,
         }
-        
+
         # Property: Must be JSON serializable
         try:
             serialized = json.dumps(payload)
             deserialized = json.loads(serialized)
         except (TypeError, json.JSONDecodeError) as e:
             pytest.fail(f"SSE event not JSON serializable: {e}")
-        
+
         # Property: Round-trip must preserve all fields
         assert deserialized["analysis_id"] == analysis_id
         assert deserialized["stage"] == stage
@@ -494,9 +492,9 @@ class TestSSEEventFormat:
         Property: SSE events with progress outside 0-100 SHALL be rejected.
         """
         from pydantic import ValidationError
-        
+
         from app.schemas.ai_scan import AIScanProgressEvent
-        
+
         if 0 <= progress <= 100:
             # Valid progress - should succeed
             event = AIScanProgressEvent(

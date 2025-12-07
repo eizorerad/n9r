@@ -8,15 +8,14 @@ and compute_is_complete_parallel functions.
 """
 
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from app.schemas.analysis import (
+    compute_is_complete_parallel,
     compute_overall_progress_parallel,
     compute_overall_stage_parallel,
-    compute_is_complete_parallel,
 )
-
 
 # =============================================================================
 # Hypothesis Strategies
@@ -72,7 +71,7 @@ def ai_scan_stage_strategy() -> st.SearchStrategy[str | None]:
 class TestParallelProgressCalculationProperty:
     """
     Property tests for parallel progress calculation.
-    
+
     **Feature: parallel-analysis-pipeline, Property 4: Parallel Progress Calculation**
     **Validates: Requirements 2.1, 2.2**
     """
@@ -100,7 +99,7 @@ class TestParallelProgressCalculationProperty:
         """
         Property: For any combination of track statuses and progress values,
         the computed overall_progress SHALL be between 0 and 100.
-        
+
         **Feature: parallel-analysis-pipeline, Property 4: Parallel Progress Calculation**
         **Validates: Requirements 2.1**
         """
@@ -113,7 +112,7 @@ class TestParallelProgressCalculationProperty:
             ai_scan_status=ai_scan_status,
             ai_scan_progress=ai_scan_progress,
         )
-        
+
         # Property: Progress MUST be between 0 and 100
         assert 0 <= progress <= 100, f"Progress {progress} is out of bounds [0, 100]"
 
@@ -141,7 +140,7 @@ class TestParallelProgressCalculationProperty:
         Property: For any combination of track statuses and progress values,
         the computed overall_progress SHALL equal the sum of weighted track
         contributions (33% each), capped at 95% unless all complete.
-        
+
         **Feature: parallel-analysis-pipeline, Property 4: Parallel Progress Calculation**
         **Validates: Requirements 2.1, 2.2**
         """
@@ -154,10 +153,10 @@ class TestParallelProgressCalculationProperty:
             ai_scan_status=ai_scan_status,
             ai_scan_progress=ai_scan_progress,
         )
-        
+
         # Calculate expected track contributions
         terminal_states = ("completed", "failed", "skipped")
-        
+
         # Track A: Static Analysis (0-33%)
         if analysis_status == "pending":
             expected_static = 0
@@ -167,7 +166,7 @@ class TestParallelProgressCalculationProperty:
             expected_static = 33
         else:
             expected_static = 0
-        
+
         # Track B: Embeddings + Semantic Cache (0-33%)
         if embeddings_status == "pending":
             expected_embeddings = 0
@@ -181,7 +180,7 @@ class TestParallelProgressCalculationProperty:
                 expected_embeddings = 33
         else:
             expected_embeddings = 0
-        
+
         # Track C: AI Scan (0-33%)
         if ai_scan_status == "pending":
             expected_ai_scan = 0
@@ -191,9 +190,9 @@ class TestParallelProgressCalculationProperty:
             expected_ai_scan = 33
         else:
             expected_ai_scan = 0
-        
+
         expected_total = expected_static + expected_embeddings + expected_ai_scan
-        
+
         # Check if all terminal
         all_terminal = (
             analysis_status in terminal_states and
@@ -201,12 +200,12 @@ class TestParallelProgressCalculationProperty:
             semantic_cache_status in terminal_states and
             ai_scan_status in terminal_states
         )
-        
+
         if all_terminal:
             expected_progress = 100
         else:
             expected_progress = min(expected_total, 95)
-        
+
         assert progress == expected_progress, \
             f"Expected progress {expected_progress}, got {progress}"
 
@@ -219,7 +218,7 @@ class TestParallelProgressCalculationProperty:
 class TestProgressCompletionDetectionProperty:
     """
     Property tests for progress completion detection.
-    
+
     **Feature: parallel-analysis-pipeline, Property 5: Progress Completion Detection**
     **Validates: Requirements 2.3**
     """
@@ -239,7 +238,7 @@ class TestProgressCompletionDetectionProperty:
         """
         Property: For any state where all tracks reach terminal states,
         the computed overall_progress SHALL be 100%.
-        
+
         **Feature: parallel-analysis-pipeline, Property 5: Progress Completion Detection**
         **Validates: Requirements 2.3**
         """
@@ -248,7 +247,7 @@ class TestProgressCompletionDetectionProperty:
         terminal_embeddings = ["completed", "failed"]
         terminal_semantic = ["completed", "failed"]
         terminal_ai_scan = ["completed", "failed", "skipped"]
-        
+
         for analysis_status in terminal_analysis:
             for embeddings_status in terminal_embeddings:
                 for semantic_cache_status in terminal_semantic:
@@ -262,7 +261,7 @@ class TestProgressCompletionDetectionProperty:
                             ai_scan_status=ai_scan_status,
                             ai_scan_progress=ai_scan_progress,
                         )
-                        
+
                         assert progress == 100, \
                             f"Expected 100% when all terminal, got {progress}% " \
                             f"(analysis={analysis_status}, embeddings={embeddings_status}, " \
@@ -277,7 +276,7 @@ class TestProgressCompletionDetectionProperty:
 class TestProgressCapProperty:
     """
     Property tests for progress cap at 95%.
-    
+
     **Feature: parallel-analysis-pipeline, Property 6: Progress Cap at 95%**
     **Validates: Requirements 2.4**
     """
@@ -305,12 +304,12 @@ class TestProgressCapProperty:
         """
         Property: For any state where at least one track has not reached
         a terminal state, the computed overall_progress SHALL NOT exceed 95%.
-        
+
         **Feature: parallel-analysis-pipeline, Property 6: Progress Cap at 95%**
         **Validates: Requirements 2.4**
         """
         terminal_states = ("completed", "failed", "skipped")
-        
+
         # Check if all terminal
         all_terminal = (
             analysis_status in terminal_states and
@@ -318,10 +317,10 @@ class TestProgressCapProperty:
             semantic_cache_status in terminal_states and
             ai_scan_status in terminal_states
         )
-        
+
         # Skip if all terminal (that case is tested separately)
         assume(not all_terminal)
-        
+
         progress = compute_overall_progress_parallel(
             analysis_status=analysis_status,
             analysis_progress=analysis_progress,
@@ -331,7 +330,7 @@ class TestProgressCapProperty:
             ai_scan_status=ai_scan_status,
             ai_scan_progress=ai_scan_progress,
         )
-        
+
         # Property: Progress MUST NOT exceed 95% when not all terminal
         assert progress <= 95, \
             f"Progress {progress}% exceeds 95% cap when not all tracks terminal"
@@ -345,7 +344,7 @@ class TestProgressCapProperty:
 class TestCombinedStageDescriptionProperty:
     """
     Property tests for combined stage description.
-    
+
     **Feature: parallel-analysis-pipeline, Property 7: Combined Stage Description**
     **Validates: Requirements 3.1, 3.2, 3.3**
     """
@@ -371,7 +370,7 @@ class TestCombinedStageDescriptionProperty:
         """
         Property: For any combination of track statuses, the computed
         overall_stage SHALL return a non-empty string.
-        
+
         **Feature: parallel-analysis-pipeline, Property 7: Combined Stage Description**
         **Validates: Requirements 3.1**
         """
@@ -383,7 +382,7 @@ class TestCombinedStageDescriptionProperty:
             ai_scan_status=ai_scan_status,
             ai_scan_stage=ai_scan_stage,
         )
-        
+
         assert stage, "Stage description should not be empty"
         assert len(stage) > 0, "Stage description should have content"
 
@@ -401,7 +400,7 @@ class TestCombinedStageDescriptionProperty:
         Property: For any state where multiple tracks are running,
         the computed overall_stage SHALL contain descriptions for all
         running tracks separated by bullet (•).
-        
+
         **Feature: parallel-analysis-pipeline, Property 7: Combined Stage Description**
         **Validates: Requirements 3.1, 3.3**
         """
@@ -414,7 +413,7 @@ class TestCombinedStageDescriptionProperty:
             ai_scan_status="running",
             ai_scan_stage=ai_scan_stage,
         )
-        
+
         # Property: Multiple running tracks should be separated by bullet
         assert "•" in stage, \
             f"Expected bullet separator in stage description: '{stage}'"
@@ -432,7 +431,7 @@ class TestCombinedStageDescriptionProperty:
         """
         Property: For any state where a track is completed while others run,
         the computed overall_stage SHALL indicate the completed track with checkmark.
-        
+
         **Feature: parallel-analysis-pipeline, Property 7: Combined Stage Description**
         **Validates: Requirements 3.2**
         """
@@ -445,7 +444,7 @@ class TestCombinedStageDescriptionProperty:
             ai_scan_status="running",
             ai_scan_stage=ai_scan_stage,
         )
-        
+
         # Property: Completed track should show checkmark
         assert "✓" in stage, \
             f"Expected checkmark for completed track in stage description: '{stage}'"
@@ -459,7 +458,7 @@ class TestCombinedStageDescriptionProperty:
 class TestTerminalStateCompletionProperty:
     """
     Property tests for terminal state completion.
-    
+
     **Feature: parallel-analysis-pipeline, Property 8: Terminal State Completion**
     **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
     """
@@ -482,7 +481,7 @@ class TestTerminalStateCompletionProperty:
         Property: For any combination where all tracks are in terminal states
         (completed/failed/skipped), is_complete SHALL return True regardless
         of which specific terminal state each track is in.
-        
+
         **Feature: parallel-analysis-pipeline, Property 8: Terminal State Completion**
         **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
         """
@@ -492,7 +491,7 @@ class TestTerminalStateCompletionProperty:
             semantic_cache_status=semantic_terminal,
             ai_scan_status=ai_scan_terminal,
         )
-        
+
         assert is_complete is True, \
             f"Expected is_complete=True for terminal states " \
             f"(analysis={analysis_terminal}, embeddings={embeddings_terminal}, " \
@@ -515,12 +514,12 @@ class TestTerminalStateCompletionProperty:
         """
         Property: For any combination where at least one track is NOT in
         a terminal state, is_complete SHALL return False.
-        
+
         **Feature: parallel-analysis-pipeline, Property 8: Terminal State Completion**
         **Validates: Requirements 4.4**
         """
         terminal_states = ("completed", "failed", "skipped")
-        
+
         # Check if all terminal
         all_terminal = (
             analysis_status in terminal_states and
@@ -528,17 +527,17 @@ class TestTerminalStateCompletionProperty:
             semantic_cache_status in terminal_states and
             ai_scan_status in terminal_states
         )
-        
+
         # Skip if all terminal (that case is tested separately)
         assume(not all_terminal)
-        
+
         is_complete = compute_is_complete_parallel(
             analysis_status=analysis_status,
             embeddings_status=embeddings_status,
             semantic_cache_status=semantic_cache_status,
             ai_scan_status=ai_scan_status,
         )
-        
+
         assert is_complete is False, \
             f"Expected is_complete=False when not all terminal " \
             f"(analysis={analysis_status}, embeddings={embeddings_status}, " \
@@ -595,7 +594,7 @@ class TestParallelProgressEdgeCases:
     def test_partial_failure_shows_partial_results(self):
         """
         Test that partial failure scenarios allow partial results.
-        
+
         **Validates: Requirements 4.1, 4.2, 4.3**
         """
         # Static Analysis fails, others succeed
@@ -606,7 +605,7 @@ class TestParallelProgressEdgeCases:
             ai_scan_status="completed",
         )
         assert is_complete is True, "Should be complete even with failed analysis"
-        
+
         # Embeddings fails, others succeed
         is_complete = compute_is_complete_parallel(
             analysis_status="completed",
@@ -615,7 +614,7 @@ class TestParallelProgressEdgeCases:
             ai_scan_status="completed",
         )
         assert is_complete is True, "Should be complete even with failed embeddings"
-        
+
         # AI Scan fails, others succeed
         is_complete = compute_is_complete_parallel(
             analysis_status="completed",

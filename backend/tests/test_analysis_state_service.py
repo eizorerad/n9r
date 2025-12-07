@@ -11,11 +11,11 @@ Tests cover:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from app.services.analysis_state import (
@@ -25,12 +25,10 @@ from app.services.analysis_state import (
     VALID_SEMANTIC_CACHE_STATUS,
     AnalysisStateService,
     InvalidProgressValueError,
-    InvalidStateTransitionError,
     is_valid_embeddings_transition,
     is_valid_semantic_cache_transition,
     validate_progress,
 )
-
 
 # =============================================================================
 # Custom Strategies
@@ -78,7 +76,7 @@ def semantic_cache_transition_pair() -> st.SearchStrategy[tuple[str, str]]:
 class TestValidStateTransitions:
     """
     Property tests for valid state transitions.
-    
+
     **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
     **Validates: Requirements 2.1, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 5.1, 5.2**
     """
@@ -91,20 +89,20 @@ class TestValidStateTransitions:
         """
         **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
         **Validates: Requirements 2.1, 2.3, 2.4, 5.1, 5.2**
-        
+
         Property: For any embeddings_status transition, the validation function
         SHALL return True if and only if the new status is in the allowed
         transitions set for the current status.
         """
         current_status, new_status = transition
-        
+
         # Get expected result from transition definition
         allowed_transitions = EMBEDDINGS_TRANSITIONS.get(current_status, set())
         expected_valid = new_status in allowed_transitions
-        
+
         # Validate using the function
         actual_valid = is_valid_embeddings_transition(current_status, new_status)
-        
+
         assert actual_valid == expected_valid, (
             f"Transition validation mismatch for '{current_status}' -> '{new_status}'\n"
             f"Expected valid: {expected_valid}, Got: {actual_valid}\n"
@@ -119,20 +117,20 @@ class TestValidStateTransitions:
         """
         **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
         **Validates: Requirements 3.1, 3.2, 3.3, 5.1, 5.2**
-        
+
         Property: For any semantic_cache_status transition, the validation function
         SHALL return True if and only if the new status is in the allowed
         transitions set for the current status.
         """
         current_status, new_status = transition
-        
+
         # Get expected result from transition definition
         allowed_transitions = SEMANTIC_CACHE_TRANSITIONS.get(current_status, set())
         expected_valid = new_status in allowed_transitions
-        
+
         # Validate using the function
         actual_valid = is_valid_semantic_cache_transition(current_status, new_status)
-        
+
         assert actual_valid == expected_valid, (
             f"Transition validation mismatch for '{current_status}' -> '{new_status}'\n"
             f"Expected valid: {expected_valid}, Got: {actual_valid}\n"
@@ -145,7 +143,7 @@ class TestValidStateTransitions:
         """
         **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
         **Validates: Requirements 5.2**
-        
+
         Property: When embeddings_status is 'completed', no transitions SHALL be
         allowed (terminal state).
         """
@@ -155,7 +153,7 @@ class TestValidStateTransitions:
             f"'completed' should be terminal state with no transitions, "
             f"but has: {allowed}"
         )
-        
+
         # Verify no transition from 'completed' to any status is valid
         is_valid = is_valid_embeddings_transition("completed", status)
         assert not is_valid, (
@@ -168,7 +166,7 @@ class TestValidStateTransitions:
         """
         **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
         **Validates: Requirements 5.2**
-        
+
         Property: When semantic_cache_status is 'completed', no transitions SHALL be
         allowed (terminal state).
         """
@@ -178,7 +176,7 @@ class TestValidStateTransitions:
             f"'completed' should be terminal state with no transitions, "
             f"but has: {allowed}"
         )
-        
+
         # Verify no transition from 'completed' to any status is valid
         is_valid = is_valid_semantic_cache_transition("completed", status)
         assert not is_valid, (
@@ -189,7 +187,7 @@ class TestValidStateTransitions:
         """
         **Feature: progress-tracking-refactor, Property 4: Valid State Transitions**
         **Validates: Requirements 5.1**
-        
+
         Property: When status is 'failed', transition to 'pending' SHALL be
         allowed (retry mechanism).
         """
@@ -197,7 +195,7 @@ class TestValidStateTransitions:
         assert is_valid_embeddings_transition("failed", "pending"), (
             "Embeddings: 'failed' -> 'pending' should be valid for retry"
         )
-        
+
         # Semantic cache
         assert is_valid_semantic_cache_transition("failed", "pending"), (
             "Semantic cache: 'failed' -> 'pending' should be valid for retry"
@@ -212,7 +210,7 @@ class TestValidStateTransitions:
 class TestProgressValueBounds:
     """
     Property tests for progress value bounds.
-    
+
     **Feature: progress-tracking-refactor, Property 5: Progress Value Bounds**
     **Validates: Requirements 2.2, 5.3, 6.3**
     """
@@ -223,7 +221,7 @@ class TestProgressValueBounds:
         """
         **Feature: progress-tracking-refactor, Property 5: Progress Value Bounds**
         **Validates: Requirements 2.2, 5.3, 6.3**
-        
+
         Property: For any progress value between 0 and 100 inclusive,
         the validation SHALL accept the value without raising an exception.
         """
@@ -236,13 +234,13 @@ class TestProgressValueBounds:
         """
         **Feature: progress-tracking-refactor, Property 5: Progress Value Bounds**
         **Validates: Requirements 2.2, 5.3, 6.3**
-        
+
         Property: For any progress value outside 0-100,
         the validation SHALL reject the value with InvalidProgressValueError.
         """
         with pytest.raises(InvalidProgressValueError) as exc_info:
             validate_progress(progress)
-        
+
         assert exc_info.value.progress == progress, (
             f"Exception should contain the invalid progress value {progress}"
         )
@@ -253,12 +251,12 @@ class TestProgressValueBounds:
         """
         **Feature: progress-tracking-refactor, Property 5: Progress Value Bounds**
         **Validates: Requirements 2.2, 5.3, 6.3**
-        
+
         Property: For any integer, the validation SHALL accept if and only if
         the value is between 0 and 100 inclusive.
         """
         is_valid = 0 <= progress <= 100
-        
+
         if is_valid:
             # Should not raise
             validate_progress(progress)
@@ -276,7 +274,7 @@ class TestProgressValueBounds:
 class TestTimestampUpdateOnStateChange:
     """
     Property tests for timestamp updates on state changes.
-    
+
     **Feature: progress-tracking-refactor, Property 3: Timestamp Update on State Change**
     **Validates: Requirements 1.4, 2.2**
     """
@@ -292,15 +290,15 @@ class TestTimestampUpdateOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 3: Timestamp Update on State Change**
         **Validates: Requirements 1.4, 2.2**
-        
+
         Property: For any state update to embeddings_status, the state_updated_at
         timestamp SHALL be updated to a value greater than or equal to the
         previous timestamp.
         """
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = initial_status
@@ -310,30 +308,30 @@ class TestTimestampUpdateOnStateChange:
         mock_analysis.embeddings_error = None
         mock_analysis.vectors_count = 0
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Determine valid next status
         allowed = EMBEDDINGS_TRANSITIONS.get(initial_status, set())
         if not allowed:
             return  # Skip if no valid transitions
-        
+
         new_status = list(allowed)[0]
-        
+
         # Perform update
         service.update_embeddings_status(
             analysis_id=analysis_id,
             status=new_status,
             progress=progress,
         )
-        
+
         # Verify timestamp was updated
         assert mock_analysis.state_updated_at >= initial_timestamp, (
             f"state_updated_at should be >= initial timestamp\n"
@@ -351,43 +349,43 @@ class TestTimestampUpdateOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 3: Timestamp Update on State Change**
         **Validates: Requirements 1.4**
-        
+
         Property: For any state update to semantic_cache_status, the state_updated_at
         timestamp SHALL be updated to a value greater than or equal to the
         previous timestamp.
         """
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = initial_status
         mock_analysis.semantic_cache = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Determine valid next status
         allowed = SEMANTIC_CACHE_TRANSITIONS.get(initial_status, set())
         if not allowed:
             return  # Skip if no valid transitions
-        
+
         new_status = list(allowed)[0]
-        
+
         # Perform update
         service.update_semantic_cache_status(
             analysis_id=analysis_id,
             status=new_status,
         )
-        
+
         # Verify timestamp was updated
         assert mock_analysis.state_updated_at >= initial_timestamp, (
             f"state_updated_at should be >= initial timestamp\n"
@@ -404,7 +402,7 @@ class TestTimestampUpdateOnStateChange:
 class TestCompletionTriggersSemanticCachePending:
     """
     Property tests for completion triggering semantic cache pending.
-    
+
     **Feature: progress-tracking-refactor, Property 6: Completion Triggers Semantic Cache Pending**
     **Validates: Requirements 2.5**
     """
@@ -417,15 +415,15 @@ class TestCompletionTriggersSemanticCachePending:
         """
         **Feature: progress-tracking-refactor, Property 6: Completion Triggers Semantic Cache Pending**
         **Validates: Requirements 2.5**
-        
+
         Property: For any analysis where embeddings_status transitions to 'completed',
         the semantic_cache_status SHALL automatically transition to 'pending'
         (if currently 'none').
         """
         # Create mock analysis in 'running' state with semantic_cache_status='none'
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = "running"
@@ -438,25 +436,25 @@ class TestCompletionTriggersSemanticCachePending:
         mock_analysis.vectors_count = 0
         mock_analysis.semantic_cache_status = "none"
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Complete embeddings
         service.complete_embeddings(analysis_id, vectors_count)
-        
+
         # Verify semantic_cache_status was set to 'pending'
         assert mock_analysis.semantic_cache_status == "pending", (
             f"semantic_cache_status should be 'pending' after embeddings completion, "
             f"got: '{mock_analysis.semantic_cache_status}'"
         )
-        
+
         # Verify embeddings fields were updated correctly
         assert mock_analysis.embeddings_status == "completed"
         assert mock_analysis.embeddings_progress == 100
@@ -473,14 +471,14 @@ class TestCompletionTriggersSemanticCachePending:
         """
         **Feature: progress-tracking-refactor, Property 6: Completion Triggers Semantic Cache Pending**
         **Validates: Requirements 2.5**
-        
+
         Property: When embeddings complete and semantic_cache_status is NOT 'none',
         the semantic_cache_status SHALL NOT be changed.
         """
         # Create mock analysis in 'running' state with non-'none' semantic_cache_status
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = "running"
@@ -493,19 +491,19 @@ class TestCompletionTriggersSemanticCachePending:
         mock_analysis.vectors_count = 0
         mock_analysis.semantic_cache_status = initial_semantic_status
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events disabled
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Complete embeddings
         service.complete_embeddings(analysis_id, vectors_count)
-        
+
         # Verify semantic_cache_status was NOT changed
         assert mock_analysis.semantic_cache_status == initial_semantic_status, (
             f"semantic_cache_status should remain '{initial_semantic_status}' "
@@ -521,7 +519,7 @@ class TestCompletionTriggersSemanticCachePending:
 class TestEventPublishingOnStateChange:
     """
     Property tests for event publishing on state changes.
-    
+
     **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
     **Validates: Requirements 7.1, 7.4**
     """
@@ -538,7 +536,7 @@ class TestEventPublishingOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
         **Validates: Requirements 7.1, 7.4**
-        
+
         Property: For any state update through AnalysisStateService, a Redis pub/sub
         event SHALL be published containing analysis_id, event_type, and the
         updated status data.
@@ -547,13 +545,13 @@ class TestEventPublishingOnStateChange:
         allowed = EMBEDDINGS_TRANSITIONS.get(initial_status, set())
         if not allowed:
             return  # Skip if no valid transitions
-        
+
         new_status = list(allowed)[0]
-        
+
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = initial_status
@@ -563,20 +561,20 @@ class TestEventPublishingOnStateChange:
         mock_analysis.embeddings_error = None
         mock_analysis.vectors_count = 0
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events ENABLED
         service = AnalysisStateService(mock_session, publish_events=True)
-        
+
         # Mock the publish_analysis_event function at the import location
         with patch('app.core.redis.publish_analysis_event') as mock_publish:
             mock_publish.return_value = True
-            
+
             # Perform update
             service.update_embeddings_status(
                 analysis_id=analysis_id,
@@ -584,24 +582,24 @@ class TestEventPublishingOnStateChange:
                 progress=progress,
                 stage=stage,
             )
-            
+
             # Verify event was published
             mock_publish.assert_called_once()
-            
+
             # Verify call arguments
             call_args = mock_publish.call_args
             assert call_args is not None, "publish_analysis_event should have been called"
-            
+
             # Check analysis_id (Requirements 7.4)
             assert call_args.kwargs.get('analysis_id') == str(analysis_id), (
                 f"Event should contain analysis_id={analysis_id}"
             )
-            
+
             # Check event_type (Requirements 7.4)
             assert call_args.kwargs.get('event_type') == "embeddings_status_changed", (
                 "Event type should be 'embeddings_status_changed'"
             )
-            
+
             # Check status_data contains relevant fields (Requirements 7.4)
             status_data = call_args.kwargs.get('status_data', {})
             assert 'embeddings_status' in status_data, (
@@ -621,7 +619,7 @@ class TestEventPublishingOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
         **Validates: Requirements 7.1, 7.4**
-        
+
         Property: For any semantic_cache_status update through AnalysisStateService,
         a Redis pub/sub event SHALL be published containing analysis_id, event_type,
         and the updated status data.
@@ -630,55 +628,55 @@ class TestEventPublishingOnStateChange:
         allowed = SEMANTIC_CACHE_TRANSITIONS.get(initial_status, set())
         if not allowed:
             return  # Skip if no valid transitions
-        
+
         new_status = list(allowed)[0]
-        
+
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = initial_status
         mock_analysis.semantic_cache = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events ENABLED
         service = AnalysisStateService(mock_session, publish_events=True)
-        
+
         # Mock the publish_analysis_event function at the import location
         with patch('app.core.redis.publish_analysis_event') as mock_publish:
             mock_publish.return_value = True
-            
+
             # Perform update
             service.update_semantic_cache_status(
                 analysis_id=analysis_id,
                 status=new_status,
             )
-            
+
             # Verify event was published
             mock_publish.assert_called_once()
-            
+
             # Verify call arguments
             call_args = mock_publish.call_args
             assert call_args is not None, "publish_analysis_event should have been called"
-            
+
             # Check analysis_id (Requirements 7.4)
             assert call_args.kwargs.get('analysis_id') == str(analysis_id), (
                 f"Event should contain analysis_id={analysis_id}"
             )
-            
+
             # Check event_type (Requirements 7.4)
             assert call_args.kwargs.get('event_type') == "semantic_cache_status_changed", (
                 "Event type should be 'semantic_cache_status_changed'"
             )
-            
+
             # Check status_data contains relevant fields (Requirements 7.4)
             status_data = call_args.kwargs.get('status_data', {})
             assert 'semantic_cache_status' in status_data, (
@@ -699,15 +697,15 @@ class TestEventPublishingOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
         **Validates: Requirements 7.1, 7.4**
-        
+
         Property: For any embeddings progress update through AnalysisStateService,
         a Redis pub/sub event SHALL be published containing analysis_id, event_type,
         and the updated progress data.
         """
         # Create mock analysis in 'running' state
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = "running"
@@ -715,44 +713,44 @@ class TestEventPublishingOnStateChange:
         mock_analysis.embeddings_stage = "initializing"
         mock_analysis.embeddings_message = None
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events ENABLED
         service = AnalysisStateService(mock_session, publish_events=True)
-        
+
         # Mock the publish_analysis_event function at the import location
         with patch('app.core.redis.publish_analysis_event') as mock_publish:
             mock_publish.return_value = True
-            
+
             # Perform progress update
             service.update_embeddings_progress(
                 analysis_id=analysis_id,
                 progress=progress,
                 stage=stage,
             )
-            
+
             # Verify event was published
             mock_publish.assert_called_once()
-            
+
             # Verify call arguments
             call_args = mock_publish.call_args
             assert call_args is not None, "publish_analysis_event should have been called"
-            
+
             # Check analysis_id (Requirements 7.4)
             assert call_args.kwargs.get('analysis_id') == str(analysis_id), (
                 f"Event should contain analysis_id={analysis_id}"
             )
-            
+
             # Check event_type (Requirements 7.4)
             assert call_args.kwargs.get('event_type') == "embeddings_progress_updated", (
                 "Event type should be 'embeddings_progress_updated'"
             )
-            
+
             # Check status_data contains progress (Requirements 7.4)
             status_data = call_args.kwargs.get('status_data', {})
             assert 'embeddings_progress' in status_data, (
@@ -766,13 +764,13 @@ class TestEventPublishingOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
         **Validates: Requirements 7.1**
-        
+
         Property: When publish_events=False, no events SHALL be published.
         """
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = "none"
@@ -782,16 +780,16 @@ class TestEventPublishingOnStateChange:
         mock_analysis.embeddings_error = None
         mock_analysis.vectors_count = 0
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events DISABLED
         service = AnalysisStateService(mock_session, publish_events=False)
-        
+
         # Mock the publish_analysis_event function at the import location
         with patch('app.core.redis.publish_analysis_event') as mock_publish:
             # Perform update
@@ -799,7 +797,7 @@ class TestEventPublishingOnStateChange:
                 analysis_id=analysis_id,
                 status="pending",
             )
-            
+
             # Verify event was NOT published
             mock_publish.assert_not_called()
 
@@ -807,14 +805,14 @@ class TestEventPublishingOnStateChange:
         """
         **Feature: progress-tracking-refactor, Property 9: Event Publishing on State Change**
         **Validates: Requirements 7.2**
-        
+
         Property: When Redis pub/sub fails, the state update SHALL still succeed
         (non-blocking).
         """
         # Create mock analysis
         analysis_id = uuid.uuid4()
-        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        
+        initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.embeddings_status = "none"
@@ -824,31 +822,31 @@ class TestEventPublishingOnStateChange:
         mock_analysis.embeddings_error = None
         mock_analysis.vectors_count = 0
         mock_analysis.state_updated_at = initial_timestamp
-        
+
         # Create mock session
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_analysis
         mock_session.execute.return_value = mock_result
-        
+
         # Create service with events ENABLED
         service = AnalysisStateService(mock_session, publish_events=True)
-        
+
         # Mock the publish_analysis_event function to raise an exception
         with patch('app.core.redis.publish_analysis_event') as mock_publish:
             mock_publish.side_effect = Exception("Redis connection failed")
-            
+
             # Perform update - should NOT raise despite Redis failure
-            result = service.update_embeddings_status(
+            service.update_embeddings_status(
                 analysis_id=analysis_id,
                 status="pending",
             )
-            
+
             # Verify state was still updated
             assert mock_analysis.embeddings_status == "pending", (
                 "State should be updated even when event publishing fails"
             )
-            
+
             # Verify session.commit was called
             mock_session.commit.assert_called()
 
@@ -861,7 +859,7 @@ class TestEventPublishingOnStateChange:
 class TestOverallProgressComputation:
     """
     Property tests for overall progress computation.
-    
+
     **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
     **Validates: Requirements 3.4, 4.2, 4.3**
     """
@@ -883,19 +881,19 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2**
-        
+
         Property: For any combination of analysis states, the computed overall_progress
         SHALL be between 0 and 100 inclusive.
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status=analysis_status,
             embeddings_status=embeddings_status,
             embeddings_progress=embeddings_progress,
             semantic_cache_status=semantic_cache_status,
         )
-        
+
         assert 0 <= progress <= 100, (
             f"overall_progress should be between 0 and 100, got: {progress}\n"
             f"Inputs: analysis={analysis_status}, embeddings={embeddings_status}, "
@@ -908,18 +906,18 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2**
-        
+
         Property: When analysis_status is 'pending', overall_progress SHALL be 0.
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="pending",
             embeddings_status="none",
             embeddings_progress=embeddings_progress,
             semantic_cache_status="none",
         )
-        
+
         assert progress == 0, (
             f"overall_progress should be 0 when analysis is pending, got: {progress}"
         )
@@ -930,12 +928,12 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When analysis_status is 'running', overall_progress SHALL be 15
         (mid-point of analysis phase 0-30%).
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="running",
             embeddings_status="none",
@@ -944,7 +942,7 @@ class TestOverallProgressComputation:
             ai_scan_status="none",
             ai_scan_progress=0,
         )
-        
+
         assert progress == 15, (
             f"overall_progress should be 15 when analysis is running, got: {progress}"
         )
@@ -955,18 +953,18 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2**
-        
+
         Property: When analysis_status is 'failed', overall_progress SHALL be 0.
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="failed",
             embeddings_status="none",
             embeddings_progress=embeddings_progress,
             semantic_cache_status="none",
         )
-        
+
         assert progress == 0, (
             f"overall_progress should be 0 when analysis failed, got: {progress}"
         )
@@ -977,13 +975,13 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When embeddings_status is 'running', overall_progress SHALL scale
         embeddings_progress from (0-100) to (30-60).
         Formula: 30 + int(embeddings_progress * 0.3)
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="completed",
             embeddings_status="running",
@@ -992,9 +990,9 @@ class TestOverallProgressComputation:
             ai_scan_status="none",
             ai_scan_progress=0,
         )
-        
+
         expected = 30 + int(embeddings_progress * 0.3)
-        
+
         assert progress == expected, (
             f"overall_progress should be {expected} when embeddings running "
             f"with progress={embeddings_progress}, got: {progress}"
@@ -1011,12 +1009,12 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When analysis is completed and embeddings_status is 'none' or 'pending',
         overall_progress SHALL be 30 (start of embeddings phase).
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="completed",
             embeddings_status=embeddings_status,
@@ -1025,7 +1023,7 @@ class TestOverallProgressComputation:
             ai_scan_status="none",
             ai_scan_progress=0,
         )
-        
+
         assert progress == 30, (
             f"overall_progress should be 30 when embeddings not started, got: {progress}"
         )
@@ -1038,12 +1036,12 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When embeddings are completed and semantic_cache_status is 'none' or 'pending',
         overall_progress SHALL be 60 (start of semantic cache phase).
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="completed",
             embeddings_status="completed",
@@ -1052,7 +1050,7 @@ class TestOverallProgressComputation:
             ai_scan_status="none",
             ai_scan_progress=0,
         )
-        
+
         assert progress == 60, (
             f"overall_progress should be 60 when semantic cache not started, got: {progress}"
         )
@@ -1061,12 +1059,12 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When semantic_cache_status is 'computing', overall_progress SHALL be 70
         (mid-point of semantic cache phase 60-80%).
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="completed",
             embeddings_status="completed",
@@ -1075,7 +1073,7 @@ class TestOverallProgressComputation:
             ai_scan_status="none",
             ai_scan_progress=0,
         )
-        
+
         assert progress == 70, (
             f"overall_progress should be 70 when semantic cache computing, got: {progress}"
         )
@@ -1084,11 +1082,11 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2, 6.1**
-        
+
         Property: When all phases are completed (including AI scan), overall_progress SHALL be 100.
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         progress = compute_overall_progress(
             analysis_status="completed",
             embeddings_status="completed",
@@ -1097,7 +1095,7 @@ class TestOverallProgressComputation:
             ai_scan_status="completed",
             ai_scan_progress=100,
         )
-        
+
         assert progress == 100, (
             f"overall_progress should be 100 when all complete, got: {progress}"
         )
@@ -1119,26 +1117,26 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, ai-scan-progress-fix, Property 7: Overall Progress Computation**
         **Validates: Requirements 4.2, 4.3, 6.1**
-        
+
         Property: is_complete SHALL be True if and only if all four phases
         (analysis, embeddings, semantic_cache, ai_scan) are 'completed' or ai_scan is 'skipped'.
         """
         from app.schemas.analysis import compute_is_complete
-        
+
         is_complete = compute_is_complete(
             analysis_status=analysis_status,
             embeddings_status=embeddings_status,
             semantic_cache_status=semantic_cache_status,
             ai_scan_status=ai_scan_status,
         )
-        
+
         expected = (
             analysis_status == "completed"
             and embeddings_status == "completed"
             and semantic_cache_status == "completed"
             and ai_scan_status in ("completed", "skipped")
         )
-        
+
         assert is_complete == expected, (
             f"is_complete should be {expected}, got: {is_complete}\n"
             f"Inputs: analysis={analysis_status}, embeddings={embeddings_status}, "
@@ -1165,19 +1163,19 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
         **Validates: Requirements 4.3**
-        
+
         Property: For any combination of states, compute_overall_stage SHALL return
         a non-empty string describing the current phase.
         """
         from app.schemas.analysis import compute_overall_stage
-        
+
         stage = compute_overall_stage(
             analysis_status=analysis_status,
             embeddings_status=embeddings_status,
             embeddings_stage=embeddings_stage,
             semantic_cache_status=semantic_cache_status,
         )
-        
+
         assert isinstance(stage, str), f"overall_stage should be a string, got: {type(stage)}"
         assert len(stage) > 0, "overall_stage should not be empty"
 
@@ -1187,33 +1185,33 @@ class TestOverallProgressComputation:
         """
         **Feature: progress-tracking-refactor, Property 7: Overall Progress Computation**
         **Validates: Requirements 3.4, 4.2**
-        
+
         Property: Progress SHALL monotonically increase as phases complete:
         pending < running < completed(analysis) < running(embeddings) < completed(embeddings) < completed(semantic)
         """
         from app.schemas.analysis import compute_overall_progress
-        
+
         # Phase 1: Analysis pending
         p1 = compute_overall_progress("pending", "none", 0, "none")
-        
+
         # Phase 2: Analysis running
         p2 = compute_overall_progress("running", "none", 0, "none")
-        
+
         # Phase 3: Analysis complete, embeddings not started
         p3 = compute_overall_progress("completed", "none", 0, "none")
-        
+
         # Phase 4: Embeddings running at given progress
         p4 = compute_overall_progress("completed", "running", embeddings_progress, "none")
-        
+
         # Phase 5: Embeddings complete
         p5 = compute_overall_progress("completed", "completed", 100, "none")
-        
+
         # Phase 6: Semantic cache computing
         p6 = compute_overall_progress("completed", "completed", 100, "computing")
-        
+
         # Phase 7: All complete
         p7 = compute_overall_progress("completed", "completed", 100, "completed")
-        
+
         # Verify monotonic increase (allowing equality for edge cases)
         assert p1 <= p2, f"pending ({p1}) should be <= running ({p2})"
         assert p2 <= p3, f"running ({p2}) should be <= completed analysis ({p3})"

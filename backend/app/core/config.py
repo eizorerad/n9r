@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn, model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _find_env_file() -> str | None:
     """Find .env file in common locations.
-    
+
     Checks (in order):
     1. ../.env (running from backend/ directory - local dev)
     2. .env (running from project root or Docker)
@@ -51,12 +51,12 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/v1"
 
     # Database
-    database_url: PostgresDsn = Field(
+    database_url: str = Field(
         default="postgresql://n9r:n9r_dev_password@localhost:5432/n9r"
     )
 
     # Redis
-    redis_url: RedisDsn = Field(default="redis://localhost:6379/0")
+    redis_url: str = Field(default="redis://localhost:6379/0")
     redis_host: str = "localhost"
     redis_port: int = 6379
 
@@ -146,11 +146,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
         """Validate critical security settings based on environment.
-        
+
         In production:
         - secret_key MUST be set to a secure value
         - GitHub OAuth credentials MUST be set
-        
+
         In development:
         - Warnings are logged for missing credentials
         - Insecure defaults are allowed but logged

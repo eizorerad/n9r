@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 def calculate_cyclomatic_complexity(content: str, language: str) -> int:
     """Calculate cyclomatic complexity for a code chunk.
-    
+
     Uses a simple heuristic: count decision points (if, for, while, etc.)
     CC = 1 + number of decision points
-    
+
     Args:
         content: The code content
         language: Programming language
-        
+
     Returns:
         Cyclomatic complexity score (minimum 1)
     """
@@ -191,7 +191,7 @@ class CodeChunker:
         # Patterns for Python constructs
         class_pattern = re.compile(r'^class\s+(\w+)')
         func_pattern = re.compile(r'^(async\s+)?def\s+(\w+)')
-        docstring_pattern = re.compile(r'^\s*("""|\'\'\')(.+?)("""|\'\'\')', re.DOTALL)
+        re.compile(r'^\s*("""|\'\'\')(.+?)("""|\'\'\')', re.DOTALL)
 
         current_class = None
         current_func = None
@@ -312,7 +312,7 @@ class CodeChunker:
         func_lines: list[str] = []
 
         for i, line in enumerate(lines):
-            stripped = line.strip()
+            line.strip()
 
             # Check for class
             class_match = class_pattern.match(line)

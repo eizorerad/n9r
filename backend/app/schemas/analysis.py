@@ -212,7 +212,7 @@ class SemanticCacheStatus(str, Enum):
 
 class AIScanStatus(str, Enum):
     """AI scan status enum for schemas.
-    
+
     **Feature: ai-scan-progress-fix**
     **Validates: Requirements 2.3**
     """
@@ -227,11 +227,11 @@ class AIScanStatus(str, Enum):
 class AnalysisFullStatusResponse(BaseModel):
     """
     Full analysis status response combining all state information.
-    
+
     This schema provides a single source of truth for frontend polling,
     including analysis status, embeddings status, semantic cache status,
     AI scan status, and computed overall progress.
-    
+
     **Feature: progress-tracking-refactor, ai-scan-progress-fix, parallel-analysis-pipeline**
     **Validates: Requirements 4.1, 4.2, 4.3, 2.3, 2.1**
     """
@@ -291,13 +291,13 @@ def compute_overall_progress(
 ) -> int:
     """
     Compute overall progress from individual phase statuses.
-    
+
     Progress breakdown (Requirements 6.1):
     - Analysis phase: 0-30%
     - Embeddings phase: 30-60%
     - Semantic cache phase: 60-80%
     - AI scan phase: 80-100%
-    
+
     Args:
         analysis_status: Current analysis status
         embeddings_status: Current embeddings status
@@ -305,10 +305,10 @@ def compute_overall_progress(
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status (default: "none")
         ai_scan_progress: AI scan progress percentage (0-100, default: 0)
-        
+
     Returns:
         Overall progress percentage (0-100)
-        
+
     **Feature: progress-tracking-refactor, ai-scan-progress-fix**
     **Property 5: Progress Calculation Bounds**
     **Validates: Requirements 3.4, 4.2, 4.3, 6.1**
@@ -373,7 +373,7 @@ def compute_overall_stage(
 ) -> str:
     """
     Compute human-readable overall stage description.
-    
+
     Args:
         analysis_status: Current analysis status
         embeddings_status: Current embeddings status
@@ -381,10 +381,10 @@ def compute_overall_stage(
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status (default: "none")
         ai_scan_stage: Current AI scan stage (if running)
-        
+
     Returns:
         Human-readable stage description
-        
+
     **Feature: progress-tracking-refactor, ai-scan-progress-fix**
     **Validates: Requirements 4.3, 6.2**
     """
@@ -462,16 +462,16 @@ def compute_is_complete(
 ) -> bool:
     """
     Determine if all processing phases are complete.
-    
+
     Args:
         analysis_status: Current analysis status
         embeddings_status: Current embeddings status
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status (default: "none")
-        
+
     Returns:
         True if all phases are completed (including AI scan completed or skipped), False otherwise
-        
+
     **Feature: progress-tracking-refactor, ai-scan-progress-fix**
     **Validates: Requirements 4.2, 6.1**
     """
@@ -496,25 +496,25 @@ def compute_is_complete_parallel(
 ) -> bool:
     """
     Determine if all parallel processing tracks are complete.
-    
+
     All three tracks must be in a terminal state (completed, failed, or skipped).
     This allows partial results when one track fails but others succeed.
-    
+
     Args:
         analysis_status: Current static analysis status
         embeddings_status: Current embeddings status
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status
-        
+
     Returns:
         True if all tracks are in terminal states, False otherwise
-        
+
     **Feature: parallel-analysis-pipeline**
     **Property 8: Terminal State Completion**
     **Validates: Requirements 4.1, 4.2, 4.3, 4.4**
     """
     terminal_states = ("completed", "failed", "skipped")
-    
+
     return (
         analysis_status in terminal_states and
         embeddings_status in terminal_states and
@@ -533,11 +533,11 @@ def compute_overall_stage_parallel(
 ) -> str:
     """
     Compute human-readable overall stage description for parallel tracks.
-    
+
     Shows all running tracks with bullet separator (•).
     Shows completed tracks with checkmark (✓).
     Shows failed tracks with cross (✗).
-    
+
     Args:
         analysis_status: Current static analysis status
         embeddings_status: Current embeddings status
@@ -545,10 +545,10 @@ def compute_overall_stage_parallel(
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status
         ai_scan_stage: Current AI scan stage (if running)
-        
+
     Returns:
         Human-readable stage description
-        
+
     **Feature: parallel-analysis-pipeline**
     **Property 7: Combined Stage Description**
     **Validates: Requirements 3.1, 3.2, 3.3**
@@ -557,7 +557,7 @@ def compute_overall_stage_parallel(
     running_parts = []
     completed_parts = []
     failed_parts = []
-    
+
     # Track A: Static Analysis
     if analysis_status == "pending":
         running_parts.append("Static Analysis pending")
@@ -567,7 +567,7 @@ def compute_overall_stage_parallel(
         completed_parts.append("Static Analysis ✓")
     elif analysis_status == "failed":
         failed_parts.append("Static Analysis ✗")
-    
+
     # Track B: Embeddings + Semantic Cache
     if embeddings_status == "pending":
         running_parts.append("Embeddings pending")
@@ -596,7 +596,7 @@ def compute_overall_stage_parallel(
             completed_parts.append("Embeddings ✓")
     elif embeddings_status == "failed":
         failed_parts.append("Embeddings ✗")
-    
+
     # Track C: AI Scan
     if ai_scan_status == "pending":
         running_parts.append("AI Scan pending")
@@ -619,7 +619,7 @@ def compute_overall_stage_parallel(
         failed_parts.append("AI Scan ✗")
     elif ai_scan_status == "skipped":
         completed_parts.append("AI Scan skipped")
-    
+
     # Build the final description
     all_terminal = (
         analysis_status in terminal_states and
@@ -627,13 +627,13 @@ def compute_overall_stage_parallel(
         semantic_cache_status in terminal_states and
         ai_scan_status in terminal_states
     )
-    
+
     if all_terminal:
         # All tracks complete - show summary
         if failed_parts:
             return f"Completed with failures: {' • '.join(failed_parts)}"
         return "All processing complete"
-    
+
     # Show running tracks first, then completed
     parts = []
     if running_parts:
@@ -642,10 +642,10 @@ def compute_overall_stage_parallel(
         parts.extend(completed_parts)
     if failed_parts:
         parts.extend(failed_parts)
-    
+
     if parts:
         return " • ".join(parts)
-    
+
     return "Initializing parallel analysis"
 
 
@@ -660,16 +660,16 @@ def compute_overall_progress_parallel(
 ) -> int:
     """
     Compute overall progress with three parallel tracks.
-    
+
     Progress breakdown:
     - Static Analysis track: 33% weight
     - Embeddings + Semantic Cache track: 33% weight
     - AI Scan track: 33% weight
-    
+
     Each track contributes 0-33% based on its progress.
     Progress is capped at 95% until all tracks reach terminal states.
     Returns 100% when all tracks complete.
-    
+
     Args:
         analysis_status: Current static analysis status
         analysis_progress: Static analysis progress percentage (0-100)
@@ -678,10 +678,10 @@ def compute_overall_progress_parallel(
         semantic_cache_status: Current semantic cache status
         ai_scan_status: Current AI scan status
         ai_scan_progress: AI scan progress percentage (0-100)
-        
+
     Returns:
         Overall progress percentage (0-100)
-        
+
     **Feature: parallel-analysis-pipeline**
     **Property 4: Parallel Progress Calculation**
     **Property 5: Progress Completion Detection**
@@ -690,7 +690,7 @@ def compute_overall_progress_parallel(
     """
     # Terminal states for each track
     terminal_states = ("completed", "failed", "skipped")
-    
+
     # Track A: Static Analysis (0-33%)
     static_track = 0
     if analysis_status == "pending":
@@ -700,7 +700,7 @@ def compute_overall_progress_parallel(
         static_track = int(analysis_progress * 0.33)
     elif analysis_status in terminal_states:
         static_track = 33
-    
+
     # Track B: Embeddings + Semantic Cache (0-33%)
     # Embeddings is 0-25% of track, Semantic Cache is 25-33%
     embeddings_track = 0
@@ -716,7 +716,7 @@ def compute_overall_progress_parallel(
             embeddings_track = 29  # Mid-point of semantic cache portion
         elif semantic_cache_status in terminal_states:
             embeddings_track = 33
-    
+
     # Track C: AI Scan (0-33%)
     ai_scan_track = 0
     if ai_scan_status == "pending":
@@ -726,10 +726,10 @@ def compute_overall_progress_parallel(
         ai_scan_track = int(ai_scan_progress * 0.33)
     elif ai_scan_status in terminal_states:
         ai_scan_track = 33
-    
+
     # Combine all tracks
     total = static_track + embeddings_track + ai_scan_track
-    
+
     # Check if all tracks are in terminal state
     all_terminal = (
         analysis_status in terminal_states and
@@ -737,7 +737,7 @@ def compute_overall_progress_parallel(
         semantic_cache_status in terminal_states and
         ai_scan_status in terminal_states
     )
-    
+
     # Return 100% when all complete, otherwise cap at 95%
     if all_terminal:
         return 100

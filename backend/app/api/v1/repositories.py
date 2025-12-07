@@ -13,18 +13,22 @@ from app.models.user import User
 
 
 def require_github_token(user: User) -> str:
-    """Get GitHub token or raise 401 to trigger re-authentication.
-    
+    """Get GitHub token or raise 403 to indicate GitHub re-authentication needed.
+
     Returns the decrypted GitHub token if valid.
-    Raises HTTPException 401 if token is missing or invalid,
-    which triggers automatic re-auth flow on frontend.
+    Raises HTTPException 403 if token is missing or invalid.
+
+    Note: We use 403 (not 401) because:
+    - 401 means "JWT session invalid" → redirect to login
+    - 403 means "GitHub token invalid" → show re-auth prompt in UI
     """
+    logger.debug(f"Decrypting token for user {user.id}, encrypted_token exists: {bool(user.access_token_encrypted)}")
     github_token = decrypt_token_or_none(user.access_token_encrypted)
     if not github_token:
+        logger.warning(f"Failed to decrypt GitHub token for user {user.id}. Token encrypted: {bool(user.access_token_encrypted)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="GitHub token expired or invalid. Please re-authenticate.",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token expired or invalid. Please reconnect your GitHub account.",
         )
     return github_token
 from app.schemas.common import PaginatedResponse, PaginationMeta
@@ -499,23 +503,23 @@ async def get_repository_file_content(
                 path=file_path,
                 ref=ref or repository.default_branch,
             )
-            
+
             # Check if path is a directory
             if isinstance(file_info, list):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Path '{file_path}' is a directory, not a file",
                 )
-            
+
             file_size = file_info.get("size", 0)
-            
+
             # Check for large files (GitHub limits to 1MB for content API)
             if file_size > 1_000_000:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"File is too large ({file_size:,} bytes). Files over 1MB cannot be displayed in the IDE.",
                 )
-            
+
             # Check for binary files - GitHub returns empty content for binary files
             file_content = file_info.get("content", "")
             if not file_content and file_size > 0:
@@ -523,7 +527,7 @@ async def get_repository_file_content(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="This file appears to be binary and cannot be displayed as text.",
                 )
-                
+
         except HTTPException:
             raise
         except Exception as e:
@@ -610,7 +614,7 @@ async def list_branches(
     db: DbSession,
 ) -> BranchListResponse:
     """List branches for a repository.
-    
+
     Requirements: 1.1, 1.2, 1.3, 6.1, 6.4
     """
     # Verify repository ownership
@@ -703,7 +707,7 @@ async def list_commits(
     per_page: int = Query(default=30, le=100, description="Number of commits to return"),
 ) -> CommitListResponse:
     """List commits for a repository branch with analysis status.
-    
+
     Requirements: 2.1, 2.2, 3.1, 3.2, 3.3, 3.4, 6.1, 6.4
     """
     from app.models.analysis import Analysis

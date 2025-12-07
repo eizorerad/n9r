@@ -64,13 +64,7 @@ function VCISectionClientComponent({
       analysisId: analysisStatus.analysis_id,
       stage: analysisStatus.overall_stage,
     }
-  }, [
-    analysisStatus?.vci_score,
-    analysisStatus?.grade,
-    analysisStatus?.analysis_status,
-    analysisStatus?.analysis_id,
-    analysisStatus?.overall_stage,
-  ])
+  }, [analysisStatus])
 
   // Show loading state
   if (isLoading) {

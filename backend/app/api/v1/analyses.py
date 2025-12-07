@@ -11,26 +11,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
+from app.core.config import settings
 from app.core.redis import publish_analysis_progress, subscribe_analysis_progress
 from app.models.analysis import Analysis
 from app.models.issue import Issue
 from app.models.repository import Repository
-from app.core.config import settings
 from app.schemas.analysis import (
     AIScanStatus,
     AnalysisFullStatusResponse,
     EmbeddingsStatus,
     SemanticCacheStatus,
-    compute_is_complete,
     compute_is_complete_parallel,
-    compute_overall_progress,
     compute_overall_progress_parallel,
-    compute_overall_stage,
     compute_overall_stage_parallel,
 )
+from app.workers.ai_scan import run_ai_scan
 from app.workers.analysis import analyze_repository
 from app.workers.embeddings import generate_embeddings_parallel
-from app.workers.ai_scan import run_ai_scan
 
 router = APIRouter()
 
@@ -243,14 +240,14 @@ async def trigger_analysis(
         commit_sha=commit_sha,
         triggered_by="manual",
     )
-    
+
     # Task 2: Embeddings (independent clone) - Requirements 5.1
     generate_embeddings_parallel.delay(
         repository_id=str(repository_id),
         analysis_id=str(analysis.id),
         commit_sha=commit_sha,
     )
-    
+
     # Task 3: AI Scan (independent clone) - Requirements 1.4
     if settings.ai_scan_enabled:
         run_ai_scan.delay(analysis_id=str(analysis.id))
@@ -281,16 +278,16 @@ async def stream_analysis_progress(
 ):
     """
     Stream analysis progress via Server-Sent Events (SSE).
-    
+
     This endpoint provides real-time updates on analysis progress.
     Connect to this endpoint after triggering an analysis to receive
     live progress updates without polling.
-    
+
     Events format:
     ```
     data: {"analysis_id": "...", "stage": "cloning", "progress": 25, "message": "...", "status": "running"}
     ```
-    
+
     Final event will have status: "completed" or "failed"
     """
     # Verify analysis exists and user has access
@@ -340,7 +337,7 @@ async def stream_analysis_progress(
 
     async def event_generator():
         """Generate SSE events from Redis Pub/Sub.
-        
+
         First sends the last known state (if any) to catch up late subscribers,
         then streams real-time updates from Redis Pub/Sub.
         """
@@ -534,14 +531,14 @@ async def get_analysis_full_status(
 ) -> AnalysisFullStatusResponse:
     """
     Get full analysis status including embeddings, semantic cache, and AI scan state.
-    
+
     This endpoint provides a single source of truth for all analysis state,
     enabling simplified frontend polling with computed overall progress.
     PostgreSQL is the single source of truth - no Redis fallback.
-    
+
     Returns:
         AnalysisFullStatusResponse with all status fields and computed progress
-        
+
     **Feature: progress-tracking-refactor, ai-scan-progress-fix**
     **Property 10: PostgreSQL as Single Source of Truth**
     **Validates: Requirements 1.3, 2.3, 4.1, 4.2, 4.3, 4.4**
@@ -829,7 +826,7 @@ async def get_semantic_cache(
 ) -> dict:
     """
     Get cached semantic analysis data for an analysis.
-    
+
     Returns cached architecture health, clusters, outliers from PostgreSQL.
     If cache is missing, returns is_cached: false with null fields.
     """
@@ -885,7 +882,7 @@ async def generate_semantic_cache(
 ) -> dict:
     """
     Generate and cache semantic analysis for an analysis.
-    
+
     Computes architecture health using ClusterAnalyzer and stores
     results in the semantic_cache column.
     """

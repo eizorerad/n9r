@@ -19,20 +19,20 @@ logger = logging.getLogger(__name__)
 
 def get_repo_url(repository_id: str) -> tuple[str, str | None]:
     """Get repository URL and access token from database.
-    
+
     This function retrieves the repository URL and the owner's decrypted
     access token for cloning private repositories.
-    
+
     Args:
         repository_id: UUID of the repository (as string)
-        
+
     Returns:
         Tuple of (repo_url, access_token) where access_token may be None
         for public repositories or if decryption fails.
-        
+
     Raises:
         ValueError: If repository is not found
-        
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 5.1, 5.2, 5.3**
     """
@@ -68,16 +68,16 @@ def get_repo_url(repository_id: str) -> tuple[str, str | None]:
 
 def collect_files_for_embedding(repo_path) -> list[dict]:
     """Collect code files from repository for embedding generation.
-    
+
     Walks the repository directory and collects code files that are
     suitable for embedding generation, filtering by extension and size.
-    
+
     Args:
         repo_path: Path to the cloned repository (str or Path)
-        
+
     Returns:
         List of {path: str, content: str} dicts for each code file
-        
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 5.1**
     """

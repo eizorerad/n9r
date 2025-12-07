@@ -42,7 +42,7 @@ def print_info(message: str) -> None:
 
 async def run_migrations() -> None:
     """Run Alembic migrations to upgrade database schema.
-    
+
     Migrations include:
     - 001_initial_schema: Base tables for all models
     - 002_fix_organization_schema: Align GitHub org + SaaS org models
@@ -84,7 +84,7 @@ async def run_migrations() -> None:
 
 def init_qdrant() -> None:
     """Initialize Qdrant vector database collection.
-    
+
     Creates:
     - Collection with 3072-dimensional vectors (text-embedding-3-large)
     - COSINE distance metric for similarity search
@@ -152,7 +152,7 @@ def init_qdrant() -> None:
 
 def init_minio() -> None:
     """Initialize MinIO object storage buckets.
-    
+
     Creates:
     - Main bucket for storing reports, logs, and artifacts
     - Folder structure: reports/, logs/, artifacts/
@@ -205,7 +205,7 @@ def init_minio() -> None:
 
 async def check_redis() -> None:
     """Check Redis connectivity and test key features.
-    
+
     Tests:
     - Basic connectivity (ping)
     - Key operations (set/get/delete)
@@ -288,7 +288,7 @@ def check_postgres() -> None:
 
 async def main() -> None:
     """Run all initialization steps.
-    
+
     This script prepares the n9r development environment by:
     1. Validating infrastructure connectivity
     2. Running database migrations

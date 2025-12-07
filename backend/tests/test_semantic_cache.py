@@ -131,7 +131,7 @@ def semantic_cache_data(draw) -> dict:
 
 class TestSemanticCacheServingProperties:
     """Property tests for semantic cache serving.
-    
+
     **Feature: commit-centric-dashboard, Property 5: Cached semantic data served from PostgreSQL**
     **Validates: Requirements 3.2, 4.2**
     """
@@ -142,7 +142,7 @@ class TestSemanticCacheServingProperties:
         """
         **Feature: commit-centric-dashboard, Property 5: Cached semantic data served from PostgreSQL**
         **Validates: Requirements 3.2, 4.2**
-        
+
         Property: For any valid semantic cache data stored in PostgreSQL, when retrieved
         the response SHALL contain all required fields (architecture_health, computed_at)
         and is_cached SHALL be True.
@@ -202,7 +202,7 @@ class TestSemanticCacheServingProperties:
         """
         **Feature: commit-centric-dashboard, Property 5: Cached semantic data served from PostgreSQL**
         **Validates: Requirements 3.2, 4.2**
-        
+
         Property: For any architecture health data, it SHALL be deserializable into
         the ArchitectureHealthCache Pydantic schema without errors.
         """
@@ -237,7 +237,7 @@ class TestSemanticCacheServingProperties:
         """
         **Feature: commit-centric-dashboard, Property 5: Cached semantic data served from PostgreSQL**
         **Validates: Requirements 3.2, 4.2**
-        
+
         Property: When semantic_cache is None or missing architecture_health,
         the response SHALL have is_cached=False and null fields.
         """

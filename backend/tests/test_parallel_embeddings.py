@@ -7,13 +7,10 @@ independently using the commit_sha from the Analysis record.
 **Validates: Requirements 5.1, 5.4**
 """
 
-import uuid
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
-
 
 # =============================================================================
 # Hypothesis Strategies
@@ -51,7 +48,7 @@ def valid_repo_url() -> st.SearchStrategy[str]:
 class TestIndependentCloningProperty:
     """
     Property tests for independent cloning with commit SHA.
-    
+
     **Feature: parallel-analysis-pipeline, Property 9: Independent Cloning with Commit SHA**
     **Validates: Requirements 5.1, 5.4**
     """
@@ -71,7 +68,7 @@ class TestIndependentCloningProperty:
         """
         Property: For any analysis, generate_embeddings_parallel SHALL clone
         the repository using the commit_sha provided as parameter.
-        
+
         **Feature: parallel-analysis-pipeline, Property 9: Independent Cloning with Commit SHA**
         **Validates: Requirements 5.1, 5.4**
         """
@@ -80,45 +77,45 @@ class TestIndependentCloningProperty:
         mock_repo_analyzer.__enter__ = MagicMock(return_value=mock_repo_analyzer)
         mock_repo_analyzer.__exit__ = MagicMock(return_value=False)
         mock_repo_analyzer.clone.return_value = "/tmp/test_repo"
-        
+
         repo_url = f"https://github.com/test/repo-{repository_id[:8]}"
         access_token = "test_token"
-        
+
         # Track what RepoAnalyzer was called with
         captured_args = {}
-        
+
         def capture_repo_analyzer(*args, **kwargs):
             captured_args['args'] = args
             captured_args['kwargs'] = kwargs
             return mock_repo_analyzer
-        
+
         # Patch at the source modules where the imports happen
         with patch('app.workers.helpers.get_repo_url', return_value=(repo_url, access_token)) as mock_get_repo_url, \
-             patch('app.services.repo_analyzer.RepoAnalyzer', side_effect=capture_repo_analyzer) as mock_analyzer_class, \
-             patch('app.workers.helpers.collect_files_for_embedding', return_value=[]) as mock_collect, \
-             patch('app.workers.embeddings._update_embeddings_state') as mock_update_state, \
-             patch('app.workers.embeddings.publish_embedding_progress') as mock_publish:
-            
+             patch('app.services.repo_analyzer.RepoAnalyzer', side_effect=capture_repo_analyzer), \
+             patch('app.workers.helpers.collect_files_for_embedding', return_value=[]), \
+             patch('app.workers.embeddings._update_embeddings_state'), \
+             patch('app.workers.embeddings.publish_embedding_progress'):
+
             # Import after patching
             from app.workers.embeddings import generate_embeddings_parallel
-            
+
             # Patch the task's update_state method on the task object itself
             generate_embeddings_parallel.update_state = MagicMock()
-            
+
             # Call the task synchronously using apply()
-            result = generate_embeddings_parallel.apply(
+            generate_embeddings_parallel.apply(
                 args=[repository_id, analysis_id, commit_sha],
             )
-            
+
             # Verify RepoAnalyzer was instantiated with correct commit_sha
             assert 'kwargs' in captured_args, "RepoAnalyzer was not called"
             assert captured_args['kwargs'].get('commit_sha') == commit_sha, \
                 f"Expected commit_sha={commit_sha}, got {captured_args['kwargs'].get('commit_sha')}"
-            
+
             # Verify the repo_url was passed correctly
             assert captured_args['args'][0] == repo_url, \
                 f"Expected repo_url={repo_url}, got {captured_args['args'][0]}"
-            
+
             # Verify get_repo_url was called with correct repository_id
             mock_get_repo_url.assert_called_once_with(repository_id)
 
@@ -137,7 +134,7 @@ class TestIndependentCloningProperty:
         """
         Property: For any analysis, the commit_sha used for cloning SHALL be
         the same commit_sha stored in the result payload.
-        
+
         **Feature: parallel-analysis-pipeline, Property 9: Independent Cloning with Commit SHA**
         **Validates: Requirements 5.4**
         """
@@ -145,27 +142,27 @@ class TestIndependentCloningProperty:
         mock_repo_analyzer.__enter__ = MagicMock(return_value=mock_repo_analyzer)
         mock_repo_analyzer.__exit__ = MagicMock(return_value=False)
         mock_repo_analyzer.clone.return_value = "/tmp/test_repo"
-        
-        repo_url = f"https://github.com/test/repo"
-        
+
+        repo_url = "https://github.com/test/repo"
+
         # Patch at the source modules where the imports happen
         with patch('app.workers.helpers.get_repo_url', return_value=(repo_url, None)), \
              patch('app.services.repo_analyzer.RepoAnalyzer', return_value=mock_repo_analyzer), \
              patch('app.workers.helpers.collect_files_for_embedding', return_value=[]), \
              patch('app.workers.embeddings._update_embeddings_state'), \
              patch('app.workers.embeddings.publish_embedding_progress'):
-            
+
             from app.workers.embeddings import generate_embeddings_parallel
-            
+
             # Patch the task's update_state method on the task object itself
             generate_embeddings_parallel.update_state = MagicMock()
-            
+
             # Call the task synchronously using apply()
             async_result = generate_embeddings_parallel.apply(
                 args=[repository_id, analysis_id, commit_sha],
             )
             result = async_result.result
-            
+
             # Verify the result contains the same commit_sha
             assert result["commit_sha"] == commit_sha
             assert result["repository_id"] == repository_id
@@ -180,7 +177,7 @@ class TestIndependentCloningProperty:
 class TestHelperFunctions:
     """
     Unit tests for shared helper functions.
-    
+
     **Feature: parallel-analysis-pipeline**
     **Validates: Requirements 5.1, 5.2, 5.3**
     """
@@ -222,7 +219,7 @@ class TestHelperFunctions:
 class TestTaskRegistration:
     """
     Tests for Celery task registration.
-    
+
     **Feature: parallel-analysis-pipeline**
     """
 

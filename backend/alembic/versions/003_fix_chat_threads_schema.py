@@ -56,8 +56,8 @@ def upgrade() -> None:
 
     # Migrate data: context_type='file' + context_ref -> context_file
     op.execute("""
-        UPDATE chat_threads 
-        SET context_file = context_ref 
+        UPDATE chat_threads
+        SET context_file = context_ref
         WHERE context_type = 'file' AND context_ref IS NOT NULL
     """)
 
@@ -80,8 +80,8 @@ def downgrade() -> None:
 
     # Migrate data back
     op.execute("""
-        UPDATE chat_threads 
-        SET context_type = 'file', context_ref = context_file 
+        UPDATE chat_threads
+        SET context_type = 'file', context_ref = context_file
         WHERE context_file IS NOT NULL
     """)
 

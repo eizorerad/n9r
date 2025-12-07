@@ -108,7 +108,7 @@ async def start_scan(
 ):
     """
     Start a public repository scan.
-    
+
     - **repo_url**: GitHub repository URL (must be public)
     - Rate limited: 5 scans per hour per IP
     - No authentication required
@@ -148,7 +148,7 @@ async def start_scan(
 async def get_scan_result(scan_id: str):
     """
     Get scan result by ID.
-    
+
     - Returns current status and results when completed
     - Results are cached for 1 hour
     """
