@@ -152,6 +152,7 @@ jobs:
           script_stop: true
           script: |
             set -e
+            export PATH="$HOME/.local/bin:$PATH"
             echo "🚀 Starting deployment..."
 
             cd ~/n9r
