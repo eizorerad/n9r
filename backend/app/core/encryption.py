@@ -1,6 +1,7 @@
 """Token encryption/decryption utilities for secrets management."""
 
 import base64
+import hashlib
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -10,12 +11,19 @@ from app.core.config import settings
 
 
 def _get_key() -> bytes:
-    """Derive encryption key from SECRET_KEY."""
-    # Use PBKDF2 to derive a proper Fernet key from the secret
+    """Derive encryption key from SECRET_KEY.
+    
+    Uses a salt derived from SECRET_KEY itself, making it unique per installation
+    while remaining deterministic for consistent encryption/decryption.
+    """
+    # Derive installation-unique salt from SECRET_KEY
+    # This ensures each deployment has a unique salt without storing it separately
+    salt = hashlib.sha256(f"{settings.secret_key}_n9r_salt_v2".encode()).digest()[:16]
+    
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
-        salt=b"n9r_token_salt_v1",  # Static salt for consistent derivation
+        salt=salt,
         iterations=100000,
     )
     key = base64.urlsafe_b64encode(kdf.derive(settings.secret_key.encode()))
