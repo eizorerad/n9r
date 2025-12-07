@@ -28,31 +28,35 @@ export async function connectRepository(formData: FormData) {
   const mode = formData.get('mode') || 'view_only'
   const orgId = formData.get('org_id')
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/repositories`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        github_id: Number(githubId),
-        mode,
-        org_id: orgId || undefined,
-      }),
-    })
+  const response = await fetch(`${API_BASE_URL}/repositories`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      github_id: Number(githubId),
+      mode,
+      org_id: orgId || undefined,
+    }),
+  })
 
-    if (!response.ok) {
-      const error = await response.json()
-      return { error: error.message || 'Failed to connect repository' }
-    }
-
-    revalidatePath('/dashboard')
-    
-    return { success: true }
-  } catch (error) {
-    return { error: 'Network error. Please try again.' }
+  // Handle 401 - need re-auth
+  if (response.status === 401) {
+    await handleUnauthorized()
   }
+
+  if (!response.ok) {
+    try {
+      const error = await response.json()
+      return { error: error.detail || error.message || 'Failed to connect repository' }
+    } catch {
+      return { error: 'Failed to connect repository' }
+    }
+  }
+
+  revalidatePath('/dashboard')
+  return { success: true }
 }
 
 // Update repository settings
@@ -127,30 +131,36 @@ export async function getAvailableRepositories() {
     return { error: 'Unauthorized', repositories: [] }
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/repositories/available`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: 'no-store',
-    })
+  const response = await fetch(`${API_BASE_URL}/repositories/available`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+  })
 
-    if (response.status === 401) {
-      await handleUnauthorized()
-    }
+  // Handle 401 - GitHub token expired/invalid, need re-auth
+  if (response.status === 401) {
+    await handleUnauthorized()
+    // redirect() throws, so this won't be reached
+  }
 
-    if (!response.ok) {
+  if (!response.ok) {
+    try {
       const error = await response.json()
       return { error: error.detail || 'Failed to load repositories', repositories: [] }
+    } catch {
+      return { error: 'Failed to load repositories', repositories: [] }
     }
+  }
 
+  try {
     const result = await response.json()
     // Backend returns { data: [...] }
     const repositories = result.data || result
     return { repositories, error: null }
-  } catch (error) {
-    return { error: 'Network error. Please try again.', repositories: [] }
+  } catch {
+    return { error: 'Failed to parse response', repositories: [] }
   }
 }
 

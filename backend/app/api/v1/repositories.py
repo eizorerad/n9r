@@ -9,6 +9,24 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.core.encryption import decrypt_token_or_none
 from app.models.repository import Repository
+from app.models.user import User
+
+
+def require_github_token(user: User) -> str:
+    """Get GitHub token or raise 401 to trigger re-authentication.
+    
+    Returns the decrypted GitHub token if valid.
+    Raises HTTPException 401 if token is missing or invalid,
+    which triggers automatic re-auth flow on frontend.
+    """
+    github_token = decrypt_token_or_none(user.access_token_encrypted)
+    if not github_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="GitHub token expired or invalid. Please re-authenticate.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return github_token
 from app.schemas.common import PaginatedResponse, PaginationMeta
 from app.schemas.repository import (
     AvailableRepository,
@@ -96,14 +114,7 @@ async def list_available_repositories(
     db: DbSession,
 ) -> dict[str, list[AvailableRepository]]:
     """List available GitHub repositories for connection."""
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         github = GitHubService(github_token)
@@ -175,14 +186,7 @@ async def connect_repository(
                 detail="Repository already connected by another user",
             )
 
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         # Fetch repository details from GitHub
@@ -412,14 +416,7 @@ async def get_repository_files(
             detail="Repository not found",
         )
 
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         github = GitHubService(github_token)
@@ -486,14 +483,7 @@ async def get_repository_file_content(
             detail="Repository not found",
         )
 
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         github = GitHubService(github_token)
@@ -638,14 +628,7 @@ async def list_branches(
             detail="Repository not found",
         )
 
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         github = GitHubService(github_token)
@@ -743,14 +726,7 @@ async def list_commits(
     # Default to repository's default branch
     target_branch = branch or repository.default_branch
 
-    # Get user's GitHub token
-    github_token = decrypt_token_or_none(current_user.access_token_encrypted)
-
-    if not github_token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="GitHub token not found. Please re-authenticate.",
-        )
+    github_token = require_github_token(current_user)
 
     try:
         github = GitHubService(github_token)
