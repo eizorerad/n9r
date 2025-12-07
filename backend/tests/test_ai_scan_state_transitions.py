@@ -622,10 +622,14 @@ class TestAIScanRetryCapability:
 
 class TestAutomaticChainingFromSemanticCache:
     """
-    Property tests for automatic AI scan chaining from semantic cache completion.
+    Property tests for semantic cache completion behavior in parallel pipeline.
     
-    **Feature: ai-scan-progress-fix, Property 2: Automatic Chaining from Semantic Cache**
-    **Validates: Requirements 1.1**
+    **Feature: parallel-analysis-pipeline**
+    **Validates: Requirements 6.3**
+    
+    Note: In the parallel pipeline, AI Scan is dispatched directly from the API
+    endpoint, NOT from semantic cache completion. These tests verify that
+    semantic cache completion does NOT auto-trigger AI scan.
     """
 
     @given(
@@ -635,16 +639,16 @@ class TestAutomaticChainingFromSemanticCache:
         }),
     )
     @settings(max_examples=100)
-    def test_semantic_cache_completion_triggers_ai_scan_pending_when_enabled(
+    def test_semantic_cache_completion_does_not_change_ai_scan_status(
         self, cache_data: dict
     ):
         """
-        **Feature: ai-scan-progress-fix, Property 2: Automatic Chaining from Semantic Cache**
-        **Validates: Requirements 1.1**
+        **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
+        **Validates: Requirements 6.3**
         
         Property: For any analysis where semantic_cache_status transitions to 
-        "completed" and ai_scan_enabled=True, the ai_scan_status SHALL 
-        automatically transition to "pending".
+        "completed", the ai_scan_status SHALL remain unchanged (AI Scan is
+        dispatched from API, not from semantic cache).
         """
         from datetime import datetime, timezone
         from unittest.mock import MagicMock, patch
@@ -653,6 +657,7 @@ class TestAutomaticChainingFromSemanticCache:
         from app.services.analysis_state import AnalysisStateService
         
         # Create mock analysis in 'computing' state (can transition to 'completed')
+        # In parallel pipeline, ai_scan_status is already "pending" from API dispatch
         analysis_id = uuid.uuid4()
         initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         
@@ -660,9 +665,9 @@ class TestAutomaticChainingFromSemanticCache:
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
         mock_analysis.semantic_cache = None
-        mock_analysis.ai_scan_status = "none"  # Not yet started
-        mock_analysis.ai_scan_stage = None
-        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_status = "pending"  # Already pending from API dispatch
+        mock_analysis.ai_scan_stage = "pending"
+        mock_analysis.ai_scan_message = "Queued for AI scan"
         mock_analysis.state_updated_at = initial_timestamp
         
         # Create mock session
@@ -692,18 +697,10 @@ class TestAutomaticChainingFromSemanticCache:
             f"semantic_cache should contain the cache data"
         )
         
-        # Verify AI scan was auto-triggered to pending
+        # Verify AI scan status was NOT changed (parallel pipeline)
         assert mock_analysis.ai_scan_status == "pending", (
-            f"ai_scan_status should be 'pending' after semantic cache completion, "
+            f"ai_scan_status should remain 'pending' (not changed by semantic cache), "
             f"got: '{mock_analysis.ai_scan_status}'"
-        )
-        
-        # Verify AI scan stage and message were set
-        assert mock_analysis.ai_scan_stage == "pending", (
-            f"ai_scan_stage should be 'pending', got: '{mock_analysis.ai_scan_stage}'"
-        )
-        assert mock_analysis.ai_scan_message is not None, (
-            "ai_scan_message should be set"
         )
 
     @given(
@@ -791,10 +788,13 @@ class TestAutomaticChainingFromSemanticCache:
 
 class TestAIScanSkipBehavior:
     """
-    Property tests for AI scan skip behavior when disabled.
+    Property tests for AI scan skip behavior in parallel pipeline.
     
-    **Feature: ai-scan-progress-fix, Property 8: Skip Behavior**
-    **Validates: Requirements 5.1**
+    **Feature: parallel-analysis-pipeline**
+    **Validates: Requirements 6.3**
+    
+    Note: In the parallel pipeline, AI Scan skip status is set by the API
+    endpoint at analysis creation, NOT by semantic cache completion.
     """
 
     @given(
@@ -804,16 +804,16 @@ class TestAIScanSkipBehavior:
         }),
     )
     @settings(max_examples=100)
-    def test_semantic_cache_completion_skips_ai_scan_when_disabled(
+    def test_semantic_cache_completion_preserves_skipped_ai_scan_status(
         self, cache_data: dict
     ):
         """
-        **Feature: ai-scan-progress-fix, Property 8: Skip Behavior**
-        **Validates: Requirements 5.1**
+        **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
+        **Validates: Requirements 6.3**
         
-        Property: For any analysis where ai_scan_enabled=False, the ai_scan_status 
-        SHALL be "skipped" after semantic cache completes, and no AI scan task 
-        SHALL be queued.
+        Property: For any analysis where ai_scan_status is already "skipped"
+        (set by API when ai_scan_enabled=False), semantic cache completion
+        SHALL NOT change the ai_scan_status.
         """
         from datetime import datetime, timezone
         from unittest.mock import MagicMock, patch
@@ -822,6 +822,7 @@ class TestAIScanSkipBehavior:
         from app.services.analysis_state import AnalysisStateService
         
         # Create mock analysis in 'computing' state (can transition to 'completed')
+        # In parallel pipeline, ai_scan_status is already "skipped" from API dispatch
         analysis_id = uuid.uuid4()
         initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         
@@ -829,9 +830,9 @@ class TestAIScanSkipBehavior:
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
         mock_analysis.semantic_cache = None
-        mock_analysis.ai_scan_status = "none"  # Not yet started
-        mock_analysis.ai_scan_stage = None
-        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_status = "skipped"  # Already skipped from API dispatch
+        mock_analysis.ai_scan_stage = "skipped"
+        mock_analysis.ai_scan_message = "AI scan disabled"
         mock_analysis.state_updated_at = initial_timestamp
         
         # Create mock session
@@ -861,21 +862,10 @@ class TestAIScanSkipBehavior:
             f"semantic_cache should contain the cache data"
         )
         
-        # Verify AI scan was skipped (not pending)
+        # Verify AI scan status was NOT changed (parallel pipeline)
         assert mock_analysis.ai_scan_status == "skipped", (
-            f"ai_scan_status should be 'skipped' when ai_scan_enabled=False, "
+            f"ai_scan_status should remain 'skipped' (not changed by semantic cache), "
             f"got: '{mock_analysis.ai_scan_status}'"
-        )
-        
-        # Verify AI scan stage and message were set appropriately
-        assert mock_analysis.ai_scan_stage == "skipped", (
-            f"ai_scan_stage should be 'skipped', got: '{mock_analysis.ai_scan_stage}'"
-        )
-        assert mock_analysis.ai_scan_message is not None, (
-            "ai_scan_message should be set"
-        )
-        assert "disabled" in mock_analysis.ai_scan_message.lower() or "skipped" in mock_analysis.ai_scan_message.lower(), (
-            f"ai_scan_message should indicate skipped/disabled, got: '{mock_analysis.ai_scan_message}'"
         )
 
     @given(
@@ -973,16 +963,16 @@ class TestAIScanSkipBehavior:
         }),
     )
     @settings(max_examples=100)
-    def test_ai_scan_status_depends_on_enabled_setting(
+    def test_semantic_cache_completion_does_not_change_ai_scan_status_regardless_of_setting(
         self, ai_scan_enabled: bool, cache_data: dict
     ):
         """
-        **Feature: ai-scan-progress-fix, Property 8: Skip Behavior**
-        **Validates: Requirements 5.1**
+        **Feature: parallel-analysis-pipeline, Property 10: Embeddings → Semantic Cache Chain**
+        **Validates: Requirements 6.3**
         
-        Property: For any analysis with ai_scan_status='none', after semantic 
-        cache completes, the ai_scan_status SHALL be 'pending' if ai_scan_enabled=True, 
-        or 'skipped' if ai_scan_enabled=False.
+        Property: For any analysis, semantic cache completion SHALL NOT change
+        the ai_scan_status, regardless of ai_scan_enabled setting. In the parallel
+        pipeline, AI scan status is set by the API endpoint at analysis creation.
         """
         from datetime import datetime, timezone
         from unittest.mock import MagicMock, patch
@@ -991,16 +981,20 @@ class TestAIScanSkipBehavior:
         from app.services.analysis_state import AnalysisStateService
         
         # Create mock analysis in 'computing' state
+        # In parallel pipeline, ai_scan_status is already set by API dispatch
         analysis_id = uuid.uuid4()
         initial_timestamp = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        
+        # Simulate what API would have set based on ai_scan_enabled
+        initial_ai_scan_status = "pending" if ai_scan_enabled else "skipped"
         
         mock_analysis = MagicMock()
         mock_analysis.id = analysis_id
         mock_analysis.semantic_cache_status = "computing"
         mock_analysis.semantic_cache = None
-        mock_analysis.ai_scan_status = "none"  # Not yet started
-        mock_analysis.ai_scan_stage = None
-        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_status = initial_ai_scan_status  # Already set by API
+        mock_analysis.ai_scan_stage = initial_ai_scan_status
+        mock_analysis.ai_scan_message = "Set by API"
         mock_analysis.state_updated_at = initial_timestamp
         
         # Create mock session
@@ -1020,9 +1014,8 @@ class TestAIScanSkipBehavior:
             # Complete semantic cache
             service.complete_semantic_cache(analysis_id, cache_data)
         
-        # Verify the expected ai_scan_status based on ai_scan_enabled
-        expected_status = "pending" if ai_scan_enabled else "skipped"
-        assert mock_analysis.ai_scan_status == expected_status, (
-            f"ai_scan_status should be '{expected_status}' when ai_scan_enabled={ai_scan_enabled}, "
+        # Verify ai_scan_status was NOT changed by semantic cache completion
+        assert mock_analysis.ai_scan_status == initial_ai_scan_status, (
+            f"ai_scan_status should remain '{initial_ai_scan_status}' (not changed by semantic cache), "
             f"got: '{mock_analysis.ai_scan_status}'"
         )

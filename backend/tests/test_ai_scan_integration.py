@@ -116,21 +116,22 @@ class TestFullPipelineIntegration:
         
         **Validates: Requirements 1.1**
         
-        Workflow:
-        1. Analysis completes → embeddings_status = pending
+        In the parallel pipeline:
+        1. API endpoint dispatches all three tasks (Static Analysis, Embeddings, AI Scan)
         2. Embeddings complete → semantic_cache_status = pending
-        3. Semantic cache completes → ai_scan_status = pending (auto-triggered)
-        4. AI scan completes → ai_scan_status = completed
+        3. Semantic cache completes (does NOT trigger AI scan - it's already running)
+        4. AI scan completes independently
         """
         analysis_id = uuid.uuid4()
         
-        # Step 1: Create analysis in 'completed' state with embeddings 'none'
+        # Step 1: Create analysis with all statuses set to pending (parallel dispatch)
+        # In parallel pipeline, API sets ai_scan_status to "pending" at creation
         mock_analysis = create_mock_analysis(
             analysis_id=analysis_id,
             status="completed",
             embeddings_status="none",
             semantic_cache_status="none",
-            ai_scan_status="none",
+            ai_scan_status="pending",  # Already pending from API dispatch
         )
         mock_session = create_mock_session(mock_analysis)
         
@@ -160,10 +161,11 @@ class TestFullPipelineIntegration:
                 cache_data = {"clusters": [], "architecture_health": {"overall_score": 80}}
                 service.complete_semantic_cache(analysis_id, cache_data)
                 assert mock_analysis.semantic_cache_status == "completed"
-                # Verify ai_scan_status auto-triggered to pending (Requirements 1.1)
+                # In parallel pipeline, AI scan status is NOT changed by semantic cache
+                # It was already "pending" from API dispatch
                 assert mock_analysis.ai_scan_status == "pending"
                 
-                # Step 4: Start and complete AI scan
+                # Step 4: Start and complete AI scan (running in parallel)
                 service.start_ai_scan(analysis_id)
                 assert mock_analysis.ai_scan_status == "running"
                 assert mock_analysis.ai_scan_started_at is not None
@@ -180,17 +182,19 @@ class TestFullPipelineIntegration:
         
         **Validates: Requirements 5.1**
         
-        When AI scan is disabled, semantic cache completion should set
-        ai_scan_status to 'skipped' instead of 'pending'.
+        In the parallel pipeline, when AI scan is disabled:
+        - API endpoint sets ai_scan_status to 'skipped' at creation
+        - Semantic cache completion does NOT change ai_scan_status
         """
         analysis_id = uuid.uuid4()
         
+        # In parallel pipeline, API sets ai_scan_status to "skipped" when disabled
         mock_analysis = create_mock_analysis(
             analysis_id=analysis_id,
             status="completed",
             embeddings_status="completed",
             semantic_cache_status="computing",
-            ai_scan_status="none",
+            ai_scan_status="skipped",  # Already skipped from API dispatch
         )
         mock_session = create_mock_session(mock_analysis)
         
@@ -204,7 +208,7 @@ class TestFullPipelineIntegration:
                 cache_data = {"clusters": [], "architecture_health": {"overall_score": 80}}
                 service.complete_semantic_cache(analysis_id, cache_data)
                 
-                # Verify ai_scan_status is 'skipped' (not 'pending')
+                # Verify ai_scan_status remains 'skipped' (not changed by semantic cache)
                 assert mock_analysis.ai_scan_status == "skipped"
 
     def test_ai_scan_state_transitions_are_validated(self):

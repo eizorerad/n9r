@@ -200,11 +200,11 @@ def _get_analysis_with_repo(analysis_id: str) -> tuple[Analysis, Repository, str
         if not analysis:
             raise ValueError(f"Analysis {analysis_id} not found")
 
-        if analysis.status != "completed":
-            raise ValueError(
-                f"Analysis {analysis_id} is not completed (status: {analysis.status}). "
-                "AI scan requires a completed analysis."
-            )
+        # NOTE: Status check removed to enable parallel execution.
+        # AI Scan only needs commit_sha, repository_id, and access_token -
+        # all available immediately after Analysis record creation.
+        # **Feature: parallel-analysis-pipeline**
+        # **Validates: Requirements 5.2**
 
         # Fetch repository
         repo_result = db.execute(

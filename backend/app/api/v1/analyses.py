@@ -15,16 +15,22 @@ from app.core.redis import publish_analysis_progress, subscribe_analysis_progres
 from app.models.analysis import Analysis
 from app.models.issue import Issue
 from app.models.repository import Repository
+from app.core.config import settings
 from app.schemas.analysis import (
     AIScanStatus,
     AnalysisFullStatusResponse,
     EmbeddingsStatus,
     SemanticCacheStatus,
     compute_is_complete,
+    compute_is_complete_parallel,
     compute_overall_progress,
+    compute_overall_progress_parallel,
     compute_overall_stage,
+    compute_overall_stage_parallel,
 )
 from app.workers.analysis import analyze_repository
+from app.workers.embeddings import generate_embeddings_parallel
+from app.workers.ai_scan import run_ai_scan
 
 router = APIRouter()
 
@@ -213,12 +219,15 @@ async def trigger_analysis(
                 detail="Analysis already in progress",
             )
 
-    # Create analysis record (still within the lock)
+    # Create analysis record with ALL statuses pending (Requirements 1.2)
+    # This enables parallel execution of all three tracks
     analysis = Analysis(
         repository_id=repository_id,
         commit_sha=commit_sha,
         branch=target_branch,
         status="pending",
+        embeddings_status="pending",  # Set pending immediately for parallel execution
+        ai_scan_status="pending" if settings.ai_scan_enabled else "skipped",  # Skip if disabled
     )
     db.add(analysis)
 
@@ -226,13 +235,25 @@ async def trigger_analysis(
     await db.commit()
     await db.refresh(analysis)
 
-    # Queue analysis task via Celery (now passing analysis_id)
+    # Dispatch ALL tasks in parallel (Requirements 1.1, 1.4)
+    # Task 1: Static Analysis (VCI calculation)
     task = analyze_repository.delay(
         repository_id=str(repository_id),
         analysis_id=str(analysis.id),
         commit_sha=commit_sha,
         triggered_by="manual",
     )
+    
+    # Task 2: Embeddings (independent clone) - Requirements 5.1
+    generate_embeddings_parallel.delay(
+        repository_id=str(repository_id),
+        analysis_id=str(analysis.id),
+        commit_sha=commit_sha,
+    )
+    
+    # Task 3: AI Scan (independent clone) - Requirements 1.4
+    if settings.ai_scan_enabled:
+        run_ai_scan.delay(analysis_id=str(analysis.id))
 
     # Publish initial status to Redis for SSE clients that connect immediately
     publish_analysis_progress(
@@ -548,9 +569,22 @@ async def get_analysis_full_status(
             detail="Analysis not found",
         )
 
-    # Compute overall progress (Requirements 4.2, 6.1)
-    overall_progress = compute_overall_progress(
+    # Derive analysis_progress from status (static analysis doesn't track granular progress)
+    # pending=0, running=50, completed/failed=100
+    # **Feature: parallel-analysis-pipeline**
+    # **Validates: Requirements 2.1**
+    if analysis.status == "pending":
+        analysis_progress = 0
+    elif analysis.status == "running":
+        analysis_progress = 50  # Mid-point since static analysis doesn't track progress
+    else:  # completed, failed
+        analysis_progress = 100
+
+    # Compute overall progress using parallel calculation (Requirements 2.1, 2.2, 2.3, 2.4)
+    # **Feature: parallel-analysis-pipeline**
+    overall_progress = compute_overall_progress_parallel(
         analysis_status=analysis.status,
+        analysis_progress=analysis_progress,
         embeddings_status=analysis.embeddings_status,
         embeddings_progress=analysis.embeddings_progress,
         semantic_cache_status=analysis.semantic_cache_status,
@@ -558,8 +592,9 @@ async def get_analysis_full_status(
         ai_scan_progress=analysis.ai_scan_progress,
     )
 
-    # Compute overall stage (Requirements 4.3, 6.2)
-    overall_stage = compute_overall_stage(
+    # Compute overall stage using parallel calculation (Requirements 3.1, 3.2, 3.3)
+    # **Feature: parallel-analysis-pipeline**
+    overall_stage = compute_overall_stage_parallel(
         analysis_status=analysis.status,
         embeddings_status=analysis.embeddings_status,
         embeddings_stage=analysis.embeddings_stage,
@@ -568,8 +603,9 @@ async def get_analysis_full_status(
         ai_scan_stage=analysis.ai_scan_stage,
     )
 
-    # Compute is_complete flag (Requirements 4.2, 6.1)
-    is_complete = compute_is_complete(
+    # Compute is_complete flag using parallel calculation (Requirements 4.1, 4.2, 4.3, 4.4)
+    # **Feature: parallel-analysis-pipeline**
+    is_complete = compute_is_complete_parallel(
         analysis_status=analysis.status,
         embeddings_status=analysis.embeddings_status,
         semantic_cache_status=analysis.semantic_cache_status,
@@ -593,8 +629,10 @@ async def get_analysis_full_status(
         analysis_id=str(analysis.id),
         repository_id=str(analysis.repository_id),
         commit_sha=analysis.commit_sha,
-        # Analysis status
+        # Analysis status (Requirements 2.1)
+        # **Feature: parallel-analysis-pipeline**
         analysis_status=analysis.status,
+        analysis_progress=analysis_progress,  # NEW: Track static analysis progress separately
         vci_score=float(analysis.vci_score) if analysis.vci_score is not None else None,
         grade=analysis.grade,
         # Embeddings status

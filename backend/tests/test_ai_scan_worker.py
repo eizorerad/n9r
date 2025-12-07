@@ -370,3 +370,193 @@ class TestResultsPersistence:
             f"Got: {deserialized['commit_sha']}"
         )
 
+
+
+# =============================================================================
+# Property Tests for Parallel Execution (Status Check Removed)
+# =============================================================================
+
+
+class TestParallelExecution:
+    """Property tests for parallel execution support.
+
+    **Feature: parallel-analysis-pipeline, Property 10: Analysis Status Precondition (removed)**
+    **Validates: Requirements 5.2**
+    """
+
+    @given(
+        analysis_status=st.sampled_from(["pending", "running", "completed", "failed"]),
+        test_commit_sha=valid_commit_sha(),
+    )
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+    def test_ai_scan_works_with_any_analysis_status(
+        self,
+        analysis_status: str,
+        test_commit_sha: str,
+    ):
+        """
+        **Feature: parallel-analysis-pipeline, Property 10: Analysis Status Precondition (removed)**
+        **Validates: Requirements 5.2**
+
+        Property: For any analysis status (pending, running, completed, failed),
+        the AI Scan worker SHALL be able to retrieve the analysis record and
+        proceed with scanning. The status check that previously blocked parallel
+        execution has been removed.
+        """
+        from dataclasses import dataclass
+        from unittest.mock import MagicMock, patch
+        
+        # Create mock analysis with the given status
+        analysis_id = str(uuid4())
+        
+        @dataclass
+        class MockAnalysis:
+            id: str = analysis_id
+            commit_sha: str = test_commit_sha
+            status: str = analysis_status  # Can be ANY status now
+            repository_id: str = str(uuid4())
+        
+        @dataclass
+        class MockRepository:
+            id: str = str(uuid4())
+            full_name: str = "test/repo"
+            owner_id: str = str(uuid4())
+        
+        @dataclass
+        class MockUser:
+            id: str = str(uuid4())
+            access_token_encrypted: str | None = None
+        
+        # Mock the database queries
+        with patch("app.workers.ai_scan.get_sync_session") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            
+            # Setup query results
+            mock_analysis = MockAnalysis()
+            mock_repo = MockRepository()
+            mock_user = MockUser()
+            
+            def mock_execute(query):
+                result = MagicMock()
+                query_str = str(query)
+                if "analyses" in query_str.lower() or "Analysis" in query_str:
+                    result.scalar_one_or_none.return_value = mock_analysis
+                elif "repositories" in query_str.lower() or "Repository" in query_str:
+                    result.scalar_one_or_none.return_value = mock_repo
+                elif "users" in query_str.lower() or "User" in query_str:
+                    result.scalar_one_or_none.return_value = mock_user
+                else:
+                    result.scalar_one_or_none.return_value = None
+                return result
+            
+            mock_db.execute.side_effect = mock_execute
+            
+            # Import and call the helper function
+            from app.workers.ai_scan import _get_analysis_with_repo
+            
+            # This should NOT raise ValueError regardless of analysis status
+            # Previously, this would fail for status != "completed"
+            try:
+                analysis, repo, access_token, returned_commit_sha, repo_url = _get_analysis_with_repo(analysis_id)
+                
+                # Property: Function should succeed for any status
+                assert returned_commit_sha == test_commit_sha, (
+                    f"Commit SHA mismatch!\n"
+                    f"Expected: {test_commit_sha}\n"
+                    f"Got: {returned_commit_sha}"
+                )
+                
+                # Property: Repository URL should be constructed correctly
+                assert repo_url == "https://github.com/test/repo", (
+                    f"Repo URL mismatch!\n"
+                    f"Expected: https://github.com/test/repo\n"
+                    f"Got: {repo_url}"
+                )
+                
+            except ValueError as e:
+                # If we get a ValueError about status, the test fails
+                # because the status check should have been removed
+                if "not completed" in str(e) or "status" in str(e).lower():
+                    pytest.fail(
+                        f"AI Scan should work with any analysis status, but got error: {e}\n"
+                        f"Analysis status was: {analysis_status}"
+                    )
+                # Re-raise other ValueErrors (e.g., analysis not found)
+                raise
+
+    @given(
+        analysis_status=st.sampled_from(["pending", "running"]),
+        test_commit_sha=valid_commit_sha(),
+    )
+    @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+    def test_ai_scan_works_during_parallel_execution(
+        self,
+        analysis_status: str,
+        test_commit_sha: str,
+    ):
+        """
+        **Feature: parallel-analysis-pipeline, Property 10: Analysis Status Precondition (removed)**
+        **Validates: Requirements 5.2**
+
+        Property: Specifically for parallel execution scenarios, AI Scan SHALL
+        work when analysis status is "pending" or "running" (i.e., when Static
+        Analysis has not yet completed).
+        """
+        from dataclasses import dataclass
+        from unittest.mock import MagicMock, patch
+        
+        analysis_id = str(uuid4())
+        
+        @dataclass
+        class MockAnalysis:
+            id: str = analysis_id
+            commit_sha: str = test_commit_sha
+            status: str = analysis_status  # Specifically pending or running
+            repository_id: str = str(uuid4())
+        
+        @dataclass
+        class MockRepository:
+            id: str = str(uuid4())
+            full_name: str = "owner/repo"
+            owner_id: str = str(uuid4())
+        
+        @dataclass
+        class MockUser:
+            id: str = str(uuid4())
+            access_token_encrypted: str | None = None
+        
+        with patch("app.workers.ai_scan.get_sync_session") as mock_session:
+            mock_db = MagicMock()
+            mock_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_session.return_value.__exit__ = MagicMock(return_value=False)
+            
+            mock_analysis = MockAnalysis()
+            mock_repo = MockRepository()
+            mock_user = MockUser()
+            
+            def mock_execute(query):
+                result = MagicMock()
+                query_str = str(query)
+                if "analyses" in query_str.lower() or "Analysis" in query_str:
+                    result.scalar_one_or_none.return_value = mock_analysis
+                elif "repositories" in query_str.lower() or "Repository" in query_str:
+                    result.scalar_one_or_none.return_value = mock_repo
+                elif "users" in query_str.lower() or "User" in query_str:
+                    result.scalar_one_or_none.return_value = mock_user
+                else:
+                    result.scalar_one_or_none.return_value = None
+                return result
+            
+            mock_db.execute.side_effect = mock_execute
+            
+            from app.workers.ai_scan import _get_analysis_with_repo
+            
+            # This is the key test: AI Scan should work even when
+            # Static Analysis is still pending or running
+            analysis, repo, access_token, returned_commit_sha, repo_url = _get_analysis_with_repo(analysis_id)
+            
+            # Property: Should succeed without raising ValueError
+            assert returned_commit_sha == test_commit_sha
+            assert repo_url == "https://github.com/owner/repo"

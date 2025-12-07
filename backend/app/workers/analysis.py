@@ -8,42 +8,20 @@ from sqlalchemy import select
 from app.core.celery import celery_app
 from app.core.database import get_sync_session
 from app.core.redis import publish_analysis_progress
-from app.services.analysis_state import AnalysisStateService
 from app.services.repo_analyzer import RepoAnalyzer
+from app.workers.helpers import collect_files_for_embedding, get_repo_url
 
 logger = logging.getLogger(__name__)
 
 
+# Keep _get_repo_url as an alias for backward compatibility
 def _get_repo_url(repository_id: str) -> tuple[str, str | None]:
-    """Get repository URL and access token from database."""
-    from app.core.encryption import decrypt_token
-    from app.models.repository import Repository
-    from app.models.user import User
-
-    with get_sync_session() as db:
-        result = db.execute(
-            select(Repository).where(Repository.id == repository_id)
-        )
-        repo = result.scalar_one_or_none()
-
-        if not repo:
-            raise ValueError(f"Repository {repository_id} not found")
-
-        # Get owner's access token for private repos
-        access_token = None
-        if repo.owner_id:
-            user_result = db.execute(
-                select(User).where(User.id == repo.owner_id)
-            )
-            user = user_result.scalar_one_or_none()
-            if user and user.access_token_encrypted:
-                try:
-                    access_token = decrypt_token(user.access_token_encrypted)
-                except Exception as e:
-                    logger.warning(f"Could not decrypt access token: {e}")
-
-        repo_url = f"https://github.com/{repo.full_name}"
-        return repo_url, access_token
+    """Get repository URL and access token from database.
+    
+    DEPRECATED: Use get_repo_url from app.workers.helpers instead.
+    This function is kept for backward compatibility.
+    """
+    return get_repo_url(repository_id)
 
 
 def _save_analysis_results(repository_id: str, analysis_id: str, result):
@@ -143,74 +121,16 @@ def _mark_analysis_failed(analysis_id: str, error_message: str):
 def _collect_files_for_embedding(repo_path) -> list[dict]:
     """Collect code files from repository for embedding generation.
     
+    DEPRECATED: Use collect_files_for_embedding from app.workers.helpers instead.
+    This function is kept for backward compatibility.
+    
     Args:
         repo_path: Path to the cloned repository
         
     Returns:
         List of {path: str, content: str} dicts
     """
-    from pathlib import Path
-
-    if not repo_path:
-        return []
-
-    repo_path = Path(repo_path)
-    files = []
-
-    # Extensions to include for embedding
-    code_extensions = {
-        ".py", ".js", ".jsx", ".ts", ".tsx",
-        ".java", ".go", ".rs", ".rb", ".php",
-        ".c", ".cpp", ".h", ".hpp", ".cs",
-        ".swift", ".kt", ".scala",
-    }
-
-    # Directories to skip
-    skip_dirs = {
-        "node_modules", "vendor", "__pycache__", ".git",
-        "dist", "build", ".next", "coverage", ".venv", "venv",
-    }
-
-    # Max file size (100KB)
-    max_file_size = 100 * 1024
-
-    for root, dirs, filenames in repo_path.walk():
-        # Skip excluded directories
-        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
-
-        for filename in filenames:
-            file_path = root / filename
-
-            # Check extension
-            if file_path.suffix.lower() not in code_extensions:
-                continue
-
-            # Check file size
-            try:
-                if file_path.stat().st_size > max_file_size:
-                    continue
-            except OSError:
-                continue
-
-            # Read content
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-                if len(content) < 50:  # Skip very small files
-                    continue
-
-                # Get relative path
-                rel_path = str(file_path.relative_to(repo_path))
-
-                files.append({
-                    "path": rel_path,
-                    "content": content,
-                })
-            except Exception as e:
-                logger.debug(f"Could not read {file_path}: {e}")
-                continue
-
-    logger.info(f"Collected {len(files)} files for embedding")
-    return files
+    return collect_files_for_embedding(repo_path)
 
 
 @celery_app.task(bind=True, name="app.workers.analysis.analyze_repository")
@@ -273,41 +193,14 @@ def analyze_repository(
             # Full analysis
             result = analyzer.analyze()
 
-            # Step 4: Collect files for embedding BEFORE temp dir is cleaned up
-            publish_progress("generating_embeddings", 90, "Collecting files for embeddings...")
-            logger.info(f"Analyzer temp_dir: {analyzer.temp_dir}")
-            files_for_embedding = _collect_files_for_embedding(analyzer.temp_dir)
-            logger.info(f"Collected {len(files_for_embedding)} files for embedding")
-
         # Step 3: Save results (after context manager exits, temp dir is cleaned)
-        publish_progress("saving_results", 92, "Saving results...")
+        # Note: Embeddings are now generated in parallel via generate_embeddings_parallel task
+        publish_progress("saving_results", 95, "Saving results...")
         _save_analysis_results(repository_id, analysis_id, result)
 
-        # Step 5: Queue embedding generation
-        logger.info(f"files_for_embedding count: {len(files_for_embedding) if files_for_embedding else 0}")
-        if files_for_embedding:
-            publish_progress("queueing_embeddings", 95, "Queueing embedding generation...")
-            try:
-                # Mark embeddings as pending using AnalysisStateService (PostgreSQL SSOT)
-                # This replaces the old Redis-based reset_embedding_state call.
-                # The state service updates PostgreSQL and publishes events to Redis.
-                # Requirements: 2.1
-                from uuid import UUID
-                with get_sync_session() as db:
-                    state_service = AnalysisStateService(db, publish_events=True)
-                    state_service.mark_embeddings_pending(UUID(analysis_id))
-                    logger.info(f"Marked embeddings as pending for analysis {analysis_id}")
-                
-                from app.workers.embeddings import generate_embeddings
-                generate_embeddings.delay(
-                    repository_id=repository_id,
-                    commit_sha=commit_sha,
-                    files=files_for_embedding,
-                    analysis_id=analysis_id,
-                )
-                logger.info(f"Queued embedding generation for {len(files_for_embedding)} files")
-            except Exception as e:
-                logger.warning(f"Failed to queue embedding generation: {e}")
+        # Note: Embeddings are now dispatched in parallel from the API endpoint
+        # (generate_embeddings_parallel task), not from this worker.
+        # This enables true parallel execution of Static Analysis, Embeddings, and AI Scan.
 
         # Publish completion with VCI score and commit_sha
         publish_analysis_progress(

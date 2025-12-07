@@ -520,9 +520,9 @@ def compute_semantic_cache(
     State is managed through AnalysisStateService with PostgreSQL as the
     single source of truth.
     
-    After completion, automatically queues AI scan if enabled.
-    This follows the same pattern as generate_embeddings which
-    queues compute_semantic_cache on completion.
+    Note: In the parallel analysis pipeline, AI Scan is dispatched directly
+    from the API endpoint alongside Static Analysis and Embeddings. This
+    task no longer queues AI scan on completion.
     
     Args:
         repository_id: UUID of the repository
@@ -531,16 +531,13 @@ def compute_semantic_cache(
     Returns:
         dict with semantic cache computation results
         
-    **Feature: progress-tracking-refactor, ai-scan-progress-fix**
-    **Validates: Requirements 1.1, 3.1, 3.2, 3.3**
+    **Feature: parallel-analysis-pipeline**
+    **Validates: Requirements 3.1, 3.2, 3.3, 6.1, 6.2, 6.3**
     """
-    from app.models.analysis import Analysis
     from app.services.analysis_state import AnalysisStateService
     from app.services.cluster_analyzer import get_cluster_analyzer
 
     logger.info(f"Computing semantic cache for analysis {analysis_id}")
-
-    ai_scan_queued = False
 
     try:
         # Transition semantic_cache_status: pending -> computing (Requirements 3.1)
@@ -556,17 +553,12 @@ def compute_semantic_cache(
         semantic_cache = health.to_cacheable_dict()
 
         # Transition semantic_cache_status: computing -> completed (Requirements 3.2)
-        # This also auto-triggers ai_scan_status -> pending if enabled (Requirements 1.1)
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
-            analysis = state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
-            
-            # Queue AI scan if it was auto-triggered to pending (Requirements 1.1)
-            if analysis.ai_scan_status == "pending":
-                from app.workers.ai_scan import run_ai_scan
-                run_ai_scan.delay(analysis_id=analysis_id)
-                ai_scan_queued = True
-                logger.info(f"Queued AI scan for analysis {analysis_id}")
+            state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
+
+        # Note: AI Scan dispatch removed for parallel-analysis-pipeline (Requirements 6.3)
+        # AI Scan is now dispatched directly from the API endpoint
 
         logger.info(f"Semantic cache computed for analysis {analysis_id}")
 
@@ -575,7 +567,6 @@ def compute_semantic_cache(
             "analysis_id": analysis_id,
             "status": "completed",
             "clusters_count": len(semantic_cache.get("clusters", [])),
-            "ai_scan_queued": ai_scan_queued,
         }
 
     except Exception as e:
@@ -756,3 +747,375 @@ def search_similar(
     except Exception as e:
         logger.error(f"Search failed: {e}")
         return []
+
+
+@celery_app.task(bind=True, name="app.workers.embeddings.generate_embeddings_parallel")
+def generate_embeddings_parallel(
+    self,
+    repository_id: str,
+    analysis_id: str,
+    commit_sha: str,
+) -> dict:
+    """
+    Generate code embeddings with independent repository clone.
+    
+    This task clones the repository independently using the commit_sha from
+    the Analysis record, enabling true parallel execution with Static Analysis
+    and AI Scan tracks.
+    
+    Unlike generate_embeddings which receives files from Static Analysis,
+    this task clones the repo itself and collects files for embedding.
+    
+    Args:
+        repository_id: UUID of the repository
+        analysis_id: UUID of the analysis
+        commit_sha: Commit SHA to clone (from Analysis record)
+    
+    Returns:
+        dict with embedding generation results
+        
+    **Feature: parallel-analysis-pipeline**
+    **Validates: Requirements 5.1, 5.4, 6.1**
+    """
+    from app.services.repo_analyzer import RepoAnalyzer
+    from app.workers.helpers import collect_files_for_embedding, get_repo_url
+
+    logger.info(
+        f"Starting parallel embeddings for analysis {analysis_id}, "
+        f"repository {repository_id}, commit {commit_sha}"
+    )
+
+    def publish_progress(stage: str, progress: int, message: str | None = None,
+                         status: str = "running", chunks: int = 0, vectors: int = 0):
+        """Helper to publish embedding progress."""
+        # Update PostgreSQL state via AnalysisStateService (primary source of truth)
+        if status == "running" and stage == "initializing" and progress <= 5:
+            # Transition from pending -> running
+            _update_embeddings_state(
+                analysis_id=analysis_id,
+                status="running",
+            )
+        elif status == "completed":
+            # Transition from running -> completed
+            _update_embeddings_state(
+                analysis_id=analysis_id,
+                status="completed",
+                vectors_count=vectors,
+            )
+        elif status == "error" or status == "failed":
+            # Transition to failed
+            _update_embeddings_state(
+                analysis_id=analysis_id,
+                status="failed",
+                error=message,
+            )
+        else:
+            # Progress update without status change
+            _update_embeddings_state(
+                analysis_id=analysis_id,
+                progress=progress,
+                stage=stage,
+                message=message,
+            )
+        
+        # Also publish to Redis for real-time updates
+        publish_embedding_progress(
+            repository_id=repository_id,
+            stage=stage,
+            progress=progress,
+            message=message,
+            status=status,
+            chunks_processed=chunks,
+            vectors_stored=vectors,
+            analysis_id=analysis_id,
+        )
+        self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
+
+    try:
+        publish_progress("initializing", 5, "Starting parallel embedding generation...")
+
+        # Step 1: Get repository URL and access token
+        repo_url, access_token = get_repo_url(repository_id)
+        logger.info(f"Repository URL: {repo_url}")
+
+        # Step 2: Clone repository independently using commit_sha
+        publish_progress("cloning", 10, f"Cloning repository at commit {commit_sha[:7]}...")
+        
+        with RepoAnalyzer(repo_url, access_token, commit_sha=commit_sha) as analyzer:
+            # Clone the repository
+            repo_path = analyzer.clone()
+            logger.info(f"Cloned repository to {repo_path}")
+            
+            publish_progress("cloning", 15, "Repository cloned successfully")
+
+            # Step 3: Collect files for embedding
+            publish_progress("collecting", 20, "Collecting code files...")
+            files = collect_files_for_embedding(repo_path)
+            logger.info(f"Collected {len(files)} files for embedding")
+
+        # Step 4: If no files, complete early
+        if not files:
+            logger.warning("No files found for embedding generation")
+            publish_progress("completed", 100, "No files to process", status="completed", vectors=0)
+            return {
+                "repository_id": repository_id,
+                "analysis_id": analysis_id,
+                "commit_sha": commit_sha,
+                "status": "completed",
+                "message": "No files to process",
+                "chunks_processed": 0,
+                "vectors_stored": 0,
+            }
+
+        # Step 5: Delegate to existing generate_embeddings logic
+        # We call the task function directly (not .delay()) to reuse the embedding logic
+        # but we need to handle the state transitions ourselves
+        
+        chunker = get_code_chunker()
+        from app.services.llm_gateway import get_llm_gateway
+        llm = get_llm_gateway()
+        qdrant = get_qdrant_client()
+
+        # Chunk all files
+        publish_progress("chunking", 25, f"Chunking {len(files)} files...")
+
+        all_chunks: list[CodeChunk] = []
+        for file_info in files:
+            file_path = file_info.get("path", "")
+            content = file_info.get("content", "")
+
+            if not content or len(content) < 10:
+                continue
+
+            # Skip binary/non-code files
+            if any(file_path.endswith(ext) for ext in [
+                ".png", ".jpg", ".gif", ".ico", ".svg",
+                ".woff", ".woff2", ".ttf", ".eot",
+                ".pdf", ".zip", ".tar", ".gz",
+                ".lock", ".sum", ".min.js", ".min.css",
+            ]):
+                continue
+
+            try:
+                chunks = chunker.chunk_file(file_path, content)
+                all_chunks.extend(chunks)
+            except Exception as e:
+                logger.warning(f"Failed to chunk {file_path}: {e}")
+
+        logger.info(f"Created {len(all_chunks)} chunks from {len(files)} files")
+        publish_progress("chunking", 30, f"Created {len(all_chunks)} chunks", chunks=len(all_chunks))
+
+        if not all_chunks:
+            publish_progress("completed", 100, "No chunks to embed", status="completed", vectors=0)
+            return {
+                "repository_id": repository_id,
+                "analysis_id": analysis_id,
+                "commit_sha": commit_sha,
+                "status": "completed",
+                "chunks_processed": 0,
+                "vectors_stored": 0,
+            }
+
+        # Generate embeddings in parallel batches
+        publish_progress("embedding", 35, f"Generating embeddings for {len(all_chunks)} chunks...")
+
+        batch_size = 50
+        concurrent_batches = 4
+        points: list[PointStruct] = []
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+
+        def prepare_texts(batch: list[CodeChunk]) -> list[str]:
+            """Prepare texts for embedding."""
+            texts = []
+            for chunk in batch:
+                text = f"File: {chunk.file_path}\n"
+                if chunk.name:
+                    text += f"Name: {chunk.name}\n"
+                if chunk.chunk_type:
+                    text += f"Type: {chunk.chunk_type}\n"
+                if chunk.docstring:
+                    text += f"Description: {chunk.docstring}\n"
+                text += f"\n{chunk.content}"
+                texts.append(text)
+            return texts
+
+        async def embed_batch(batch: list[CodeChunk], batch_idx: int) -> list[tuple[CodeChunk, list[float]]]:
+            """Embed a single batch asynchronously."""
+            texts = prepare_texts(batch)
+            try:
+                embeddings = await llm.embed(texts)
+                return list(zip(batch, embeddings))
+            except Exception as e:
+                logger.error(f"Failed to embed batch {batch_idx}: {e}")
+                return []
+
+        async def process_all_batches():
+            """Process all batches with controlled concurrency."""
+            all_results = []
+            batches = [
+                all_chunks[i:i + batch_size]
+                for i in range(0, len(all_chunks), batch_size)
+            ]
+
+            for group_idx in range(0, len(batches), concurrent_batches):
+                group = batches[group_idx:group_idx + concurrent_batches]
+                tasks = [
+                    embed_batch(batch, group_idx + i)
+                    for i, batch in enumerate(group)
+                ]
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for result in results:
+                    if isinstance(result, Exception):
+                        logger.error(f"Batch failed: {result}")
+                    elif result:
+                        all_results.extend(result)
+
+                completed_batches = min(group_idx + len(group), len(batches))
+                progress = 35 + int(45 * completed_batches / len(batches))
+                publish_progress(
+                    "embedding",
+                    min(progress, 80),
+                    f"Embedding batch {completed_batches}/{len(batches)}...",
+                    chunks=len(all_chunks),
+                    vectors=len(all_results)
+                )
+
+            return all_results
+
+        chunk_embedding_pairs = run_async(process_all_batches())
+
+        # Create Qdrant points from results
+        for chunk, embedding in chunk_embedding_pairs:
+            point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
+
+            points.append(PointStruct(
+                id=hash(point_id) % (2**63),
+                vector=embedding,
+                payload={
+                    "repository_id": repository_id,
+                    "commit_sha": commit_sha,
+                    "file_path": chunk.file_path,
+                    "language": chunk.language,
+                    "chunk_type": chunk.chunk_type,
+                    "name": chunk.name,
+                    "line_start": chunk.line_start,
+                    "line_end": chunk.line_end,
+                    "parent_name": chunk.parent_name,
+                    "docstring": chunk.docstring,
+                    "content": chunk.content[:2000],
+                    "token_estimate": chunk.token_estimate,
+                    "level": chunk.level,
+                    "qualified_name": chunk.qualified_name,
+                    "cyclomatic_complexity": chunk.cyclomatic_complexity,
+                    "line_count": chunk.line_count,
+                    "cluster_id": None,
+                }
+            ))
+
+        logger.info(f"Generated {len(points)} embedding vectors")
+
+        # Store in Qdrant
+        publish_progress("indexing", 85, "Storing vectors in Qdrant...", chunks=len(all_chunks), vectors=len(points))
+
+        if points:
+            try:
+                # Delete old embeddings for this repo first
+                qdrant.delete(
+                    collection_name=COLLECTION_NAME,
+                    points_selector=FilterSelector(
+                        filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="repository_id",
+                                    match=MatchValue(value=repository_id)
+                                )
+                            ]
+                        )
+                    )
+                )
+
+                # Upsert new points in batches
+                upsert_batch_size = 100
+                for i in range(0, len(points), upsert_batch_size):
+                    batch = points[i:i + upsert_batch_size]
+                    qdrant.upsert(
+                        collection_name=COLLECTION_NAME,
+                        points=batch,
+                    )
+
+                logger.info(f"Stored {len(points)} vectors in Qdrant")
+
+            except Exception as e:
+                logger.error(f"Failed to store vectors in Qdrant: {e}")
+                publish_progress("error", 0, f"Failed to store vectors: {e}", status="error")
+                return {
+                    "repository_id": repository_id,
+                    "analysis_id": analysis_id,
+                    "commit_sha": commit_sha,
+                    "status": "error",
+                    "error": str(e),
+                    "chunks_processed": len(all_chunks),
+                    "vectors_generated": len(points),
+                }
+
+        # Publish completion for embeddings
+        publish_progress(
+            "completed", 100,
+            f"Generated {len(points)} embeddings",
+            status="completed",
+            chunks=len(all_chunks),
+            vectors=len(points)
+        )
+
+        # Queue semantic cache computation (Requirements 6.1)
+        semantic_cache_queued = False
+        if len(points) >= 5:
+            try:
+                compute_semantic_cache.delay(
+                    repository_id=repository_id,
+                    analysis_id=analysis_id,
+                )
+                semantic_cache_queued = True
+                logger.info(f"Queued semantic cache computation for analysis {analysis_id}")
+            except Exception as e:
+                logger.warning(f"Failed to queue semantic cache computation: {e}")
+
+        results = {
+            "repository_id": repository_id,
+            "analysis_id": analysis_id,
+            "commit_sha": commit_sha,
+            "chunks_processed": len(all_chunks),
+            "vectors_stored": len(points),
+            "status": "completed",
+            "semantic_cache_queued": semantic_cache_queued,
+        }
+
+        logger.info(f"Parallel embeddings completed for analysis {analysis_id}: {results}")
+        return results
+
+    except Exception as e:
+        logger.error(f"Parallel embedding generation failed for analysis {analysis_id}: {e}")
+        
+        # Update PostgreSQL state
+        _update_embeddings_state(
+            analysis_id=analysis_id,
+            status="failed",
+            error=str(e),
+        )
+        
+        # Also publish to Redis
+        publish_embedding_progress(
+            repository_id=repository_id,
+            stage="error",
+            progress=0,
+            message=str(e),
+            status="error",
+            analysis_id=analysis_id,
+        )
+        self.update_state(
+            state="FAILURE",
+            meta={"error": str(e)}
+        )
+        raise

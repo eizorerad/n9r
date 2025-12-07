@@ -601,10 +601,10 @@ class AnalysisStateService:
         Mark semantic cache as completed.
         
         Transition: computing -> completed
-        Automatically triggers ai_scan_status -> pending (if enabled).
         
-        This follows the same pattern as complete_embeddings() which
-        auto-triggers semantic_cache_status -> pending.
+        Note: In the parallel analysis pipeline, AI Scan is dispatched directly
+        from the API endpoint alongside Static Analysis and Embeddings. This
+        method no longer auto-triggers AI scan.
         
         Args:
             analysis_id: UUID of the analysis
@@ -613,7 +613,8 @@ class AnalysisStateService:
         Returns:
             Updated Analysis model instance
             
-        **Validates: Requirements 1.1, 3.2, 5.1**
+        **Feature: parallel-analysis-pipeline**
+        **Validates: Requirements 3.2, 6.3**
         """
         analysis = self._get_analysis(analysis_id)
         current_status = analysis.semantic_cache_status
@@ -632,25 +633,8 @@ class AnalysisStateService:
         analysis.semantic_cache_status = "completed"
         analysis.semantic_cache = cache_data
 
-        # Auto-trigger AI scan pending (Requirements 1.1, 5.1)
-        # Only if ai_scan_status is 'none' (not already started/completed)
-        if analysis.ai_scan_status == "none":
-            # Check if AI scan is enabled via settings
-            from app.core.config import settings
-            if getattr(settings, 'ai_scan_enabled', True):
-                analysis.ai_scan_status = "pending"
-                analysis.ai_scan_stage = "pending"
-                analysis.ai_scan_message = "Waiting for AI scan to start..."
-                logger.info(
-                    f"Auto-triggered ai_scan_status -> pending for analysis {analysis_id}"
-                )
-            else:
-                analysis.ai_scan_status = "skipped"
-                analysis.ai_scan_stage = "skipped"
-                analysis.ai_scan_message = "AI scan skipped (disabled in settings)"
-                logger.info(
-                    f"AI scan skipped (disabled) for analysis {analysis_id}"
-                )
+        # Note: AI Scan auto-trigger removed for parallel-analysis-pipeline
+        # AI Scan is now dispatched directly from the API endpoint (Requirements 6.3)
 
         # Update timestamp for polling optimization
         self._update_timestamp(analysis)

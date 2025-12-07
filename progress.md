@@ -197,3 +197,28 @@ Implemented full AI-powered code analysis as the third analysis method in n9r. P
 
 ## What Was Done
 Integrated AI Scan into the unified analysis pipeline architecture with PostgreSQL as single source of truth. Features include: automatic chaining from semantic cache completion to AI scan (following same pattern as embeddings → semantic cache), validated state transitions via AnalysisStateService, extended Full Status API with AI scan fields, updated overall progress calculation (Static 0-30%, Embeddings 30-60%, Semantic Cache 60-80%, AI Scan 80-100%), frontend progress store extended with 'ai_scan' task type, smart polling intervals for AI scan states, and skip behavior when ai_scan_enabled=False. Property-based tests validate 10 correctness properties including state transitions, automatic chaining, failure isolation, retry capability, and PostgreSQL as SSOT.
+
+
+# 07-dec-2025 - Parallel Analysis Pipeline
+
+## Files Created
+- `backend/app/workers/helpers.py` - Shared helpers: `_get_repo_url`, `_collect_files_for_embedding` extracted for reuse
+- `backend/tests/test_parallel_embeddings.py` - Property tests for independent cloning with commit_sha
+- `backend/tests/test_parallel_dispatch.py` - Property tests for parallel task dispatch from API
+- `backend/tests/test_parallel_progress.py` - Property tests for parallel progress calculation (3-track weighted average)
+- `backend/tests/test_semantic_cache_chain.py` - Property tests for Embeddings → Semantic Cache chain (no AI Scan dispatch)
+- `backend/tests/test_parallel_pipeline_integration.py` - Integration tests for full parallel pipeline and partial failures
+
+## Files Modified
+- `backend/app/api/v1/analyses.py` - Orchestrator now dispatches all 3 tasks in parallel, sets all statuses to "pending"
+- `backend/app/workers/analysis.py` - Removed embeddings dispatch, Static Analysis only calculates VCI
+- `backend/app/workers/embeddings.py` - Added `generate_embeddings_parallel` task with independent repo cloning
+- `backend/app/workers/ai_scan.py` - Removed `analysis.status != "completed"` blocker
+- `backend/app/services/analysis_state.py` - Removed AI Scan auto-trigger from `complete_semantic_cache`
+- `backend/app/schemas/analysis.py` - New `compute_overall_progress_parallel` (33% per track), updated `compute_overall_stage` with bullet separators, updated `compute_is_complete` for 3-track terminal detection
+- `backend/tests/test_ai_scan_worker.py` - Updated tests for parallel execution
+- `backend/tests/test_analysis_state_service.py` - Updated tests for new parallel behavior
+- `backend/tests/test_full_status_api.py` - Updated tests for new progress calculation
+
+## What Was Done
+Transformed sequential analysis pipeline (Analysis → Embeddings → Semantic Cache → AI Scan) into fully parallel execution where Static Analysis, Embeddings, and AI Scan all start simultaneously. Each track clones the repository independently using the same commit_sha. Semantic Cache still chains from Embeddings completion. New progress calculation uses 33% weight per track, capped at 95% until all tracks reach terminal states. Partial failures handled gracefully (e.g., VCI + AI insights without semantic if Embeddings fails). Reduces total analysis time by 50-60%.
