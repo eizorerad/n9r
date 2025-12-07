@@ -108,6 +108,19 @@ export class AIScanApiError extends Error {
   isNotFound(): boolean {
     return this.status === 404;
   }
+
+  isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+}
+
+/**
+ * Handle 401 Unauthorized by redirecting to login.
+ */
+function handleUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.location.href = "/login?error=session_expired";
+  }
 }
 
 // =============================================================================
@@ -137,6 +150,11 @@ export async function triggerAIScan(
   );
 
   if (!response.ok) {
+    // Handle 401 - session expired
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new AIScanApiError(401, "Session expired. Please log in again.");
+    }
     const error = await response.json().catch(() => ({}));
     throw new AIScanApiError(
       response.status,
@@ -167,6 +185,11 @@ export async function getAIScanResults(
   );
 
   if (!response.ok) {
+    // Handle 401 - session expired
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new AIScanApiError(401, "Session expired. Please log in again.");
+    }
     const error = await response.json().catch(() => ({}));
     throw new AIScanApiError(
       response.status,

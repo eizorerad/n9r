@@ -90,6 +90,11 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
         )
         
         if (!response.ok) {
+          // Handle 401 - session expired, redirect to login
+          if (response.status === 401 && typeof window !== "undefined") {
+            window.location.href = "/login?error=session_expired"
+            throw new Error('Session expired. Please log in again.')
+          }
           throw new Error('Failed to fetch analysis')
         }
         

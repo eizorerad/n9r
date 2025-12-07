@@ -2,6 +2,20 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/v
 
 interface RequestOptions extends RequestInit {
   token?: string;
+  /** Skip automatic redirect on 401 errors */
+  skipAuthRedirect?: boolean;
+}
+
+/**
+ * Handle 401 Unauthorized errors by redirecting to login.
+ * This clears the stale session and forces re-authentication.
+ */
+function handleUnauthorized() {
+  // Only redirect in browser context
+  if (typeof window !== "undefined") {
+    // Clear any client-side state
+    window.location.href = "/login?error=session_expired";
+  }
 }
 
 class ApiError extends Error {
@@ -44,7 +58,7 @@ async function request<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const { token, ...fetchOptions } = options;
+  const { token, skipAuthRedirect, ...fetchOptions } = options;
 
   const headers: HeadersInit = {
     "Content-Type": "application/json",
@@ -61,6 +75,18 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    // Handle 401 Unauthorized - redirect to login
+    if (response.status === 401 && !skipAuthRedirect) {
+      handleUnauthorized();
+      // Still throw error for proper error handling in calling code
+      throw new ApiError(
+        401,
+        "UNAUTHORIZED",
+        "Session expired. Please log in again.",
+        undefined
+      );
+    }
+
     const error = await response.json().catch(() => ({}));
     throw new ApiError(
       response.status,

@@ -57,6 +57,15 @@ export interface AnalysisFullStatus {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/v1";
 
 /**
+ * Handle 401 Unauthorized by redirecting to login.
+ */
+function handleUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.location.href = "/login?error=session_expired";
+  }
+}
+
+/**
  * Fetch analysis full status from the API.
  */
 async function fetchAnalysisFullStatus(
@@ -74,6 +83,11 @@ async function fetchAnalysisFullStatus(
   );
 
   if (!response.ok) {
+    // Handle 401 - session expired
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error("Session expired. Please log in again.");
+    }
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || `Failed to fetch analysis status: ${response.status}`);
   }

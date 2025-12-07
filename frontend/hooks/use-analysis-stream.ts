@@ -180,6 +180,11 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                     })
 
                     if (!response.ok) {
+                        // Handle 401 - session expired, redirect to login
+                        if (response.status === 401) {
+                            window.location.href = "/login?error=session_expired"
+                            return
+                        }
                         throw new Error(`SSE connection failed: ${response.status}`)
                     }
 

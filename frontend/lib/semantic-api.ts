@@ -161,6 +161,15 @@ export interface RelatedCodeResponse {
   related: RelatedCodeResult[];
 }
 
+/**
+ * Handle 401 Unauthorized by redirecting to login.
+ */
+function handleUnauthorized() {
+  if (typeof window !== "undefined") {
+    window.location.href = "/login?error=session_expired";
+  }
+}
+
 // API Client
 async function request<T>(
   endpoint: string,
@@ -177,6 +186,11 @@ async function request<T>(
   });
 
   if (!response.ok) {
+    // Handle 401 - session expired
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error("Session expired. Please log in again.");
+    }
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || response.statusText);
   }
