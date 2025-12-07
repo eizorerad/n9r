@@ -730,12 +730,29 @@ class CouplingHotspot:
 
 
 @dataclass
+class SimilarCodeGroup:
+    """A group of similar code chunks."""
+    similarity: float
+    suggestion: str
+    chunks: list[dict]  # [{file, name, lines, chunk_type}, ...]
+
+
+@dataclass
+class SimilarCodeResult:
+    """Result of similar code detection."""
+    groups: list[SimilarCodeGroup]
+    total_groups: int
+    potential_loc_reduction: int
+
+
+@dataclass
 class ArchitectureHealth:
     """Complete architecture health analysis."""
     overall_score: int  # 0-100
     clusters: list[ClusterInfo]
     outliers: list[OutlierInfo]
     coupling_hotspots: list[CouplingHotspot]
+    similar_code: SimilarCodeResult | None  # Similar code groups
     total_chunks: int
     total_files: int
     metrics: dict = field(default_factory=dict)
@@ -764,6 +781,22 @@ class ArchitectureHealth:
             elif isinstance(val, list):
                 return [convert_value(item) for item in val]
             return val
+
+        # Convert similar code to cacheable format
+        similar_code_data = None
+        if self.similar_code:
+            similar_code_data = {
+                "groups": [
+                    {
+                        "similarity": float(g.similarity),
+                        "suggestion": g.suggestion,
+                        "chunks": g.chunks,
+                    }
+                    for g in self.similar_code.groups
+                ],
+                "total_groups": int(self.similar_code.total_groups),
+                "potential_loc_reduction": int(self.similar_code.potential_loc_reduction),
+            }
 
         return {
             "architecture_health": {
@@ -809,7 +842,7 @@ class ArchitectureHealth:
                 ],
                 "metrics": convert_value(self.metrics),
             },
-            "similar_code": [],  # Placeholder for future similar code detection
+            "similar_code": similar_code_data,
             "tech_debt_hotspots": [],  # Placeholder for future tech debt analysis
             "computed_at": datetime.now(UTC).isoformat(),
         }
@@ -825,8 +858,13 @@ class ClusterAnalyzer:
             timeout=settings.qdrant_timeout,
         )
 
-    async def analyze(self, repo_id: str) -> ArchitectureHealth:
-        """Run full architecture analysis on a repository."""
+    async def analyze(self, repo_id: str, include_similar_code: bool = True) -> ArchitectureHealth:
+        """Run full architecture analysis on a repository.
+
+        Args:
+            repo_id: Repository ID to analyze
+            include_similar_code: Whether to compute similar code detection (default True)
+        """
         logger.info(f"Starting cluster analysis for repo {repo_id}")
 
         # Fetch all vectors
@@ -849,6 +887,11 @@ class ClusterAnalyzer:
         # Build cluster ID to name mapping for hotspot display
         cluster_id_to_name = {c.id: c.name for c in clusters}
         hotspots = self._find_coupling_hotspots(labels, payloads, cluster_id_to_name)
+
+        # Find similar code (potential duplicates)
+        similar_code = None
+        if include_similar_code:
+            similar_code = self._find_similar_code(vectors, payloads, threshold=0.85, limit=20)
 
         # Count unique files
         unique_files = {p.get("file_path") for p in payloads if p.get("file_path")}
@@ -877,6 +920,7 @@ class ClusterAnalyzer:
             clusters=clusters,
             outliers=outliers,
             coupling_hotspots=hotspots,
+            similar_code=similar_code,
             total_chunks=len(vectors),
             total_files=len(unique_files),
             metrics={
@@ -1343,6 +1387,99 @@ class ClusterAnalyzer:
         total_score = cohesion_score + outlier_score + balance_score + coupling_score
         return int(min(100, max(0, total_score)))
 
+    def _find_similar_code(
+        self,
+        vectors: np.ndarray,
+        payloads: list[dict],
+        threshold: float = 0.85,
+        limit: int = 20,
+    ) -> SimilarCodeResult:
+        """Find groups of similar code (potential duplicates).
+
+        Uses cosine similarity to find code chunks that are semantically similar,
+        even if the syntax differs.
+
+        Args:
+            vectors: Array of embedding vectors
+            payloads: Metadata for each chunk
+            threshold: Minimum similarity to consider as duplicate (default 0.85)
+            limit: Maximum number of groups to return (default 20)
+
+        Returns:
+            SimilarCodeResult with groups of similar code
+        """
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        if len(vectors) < 2:
+            return SimilarCodeResult(groups=[], total_groups=0, potential_loc_reduction=0)
+
+        logger.info(f"Finding similar code with threshold {threshold}")
+
+        # Compute pairwise similarities
+        similarities = cosine_similarity(vectors)
+
+        # Find groups above threshold
+        groups: list[SimilarCodeGroup] = []
+        used: set[int] = set()
+
+        for i in range(len(vectors)):
+            if i in used:
+                continue
+
+            # Find all similar chunks
+            similar_indices = np.where(similarities[i] >= threshold)[0]
+            similar_indices = [j for j in similar_indices if j != i and j not in used]
+
+            if similar_indices:
+                group_indices = [i] + similar_indices
+                avg_similarity = float(np.mean([similarities[i][j] for j in similar_indices]))
+
+                # Mark as used
+                used.update(group_indices)
+
+                # Build group
+                chunks = []
+                total_lines = 0
+                for idx in group_indices:
+                    p = payloads[idx]
+                    line_start = p.get("line_start", 0) or 0
+                    line_end = p.get("line_end", 0) or 0
+                    line_count = p.get("line_count", 0) or (line_end - line_start)
+
+                    chunks.append({
+                        "file": p.get("file_path", ""),
+                        "name": p.get("name", ""),
+                        "lines": [line_start, line_end],
+                        "chunk_type": p.get("chunk_type", ""),
+                    })
+                    total_lines += line_count
+
+                suggestion = "Extract to shared utility" if len(chunks) > 2 else "Consider consolidating"
+
+                groups.append(SimilarCodeGroup(
+                    similarity=round(avg_similarity, 3),
+                    suggestion=suggestion,
+                    chunks=chunks,
+                ))
+
+        # Sort by similarity and limit
+        groups.sort(key=lambda g: g.similarity, reverse=True)
+        groups = groups[:limit]
+
+        # Estimate LOC reduction (sum of lines in all but first chunk of each group)
+        potential_loc = sum(
+            sum(c.get("lines", [0, 0])[1] - c.get("lines", [0, 0])[0] for c in g.chunks[1:])
+            for g in groups
+        )
+
+        logger.info(f"Found {len(groups)} similar code groups")
+
+        return SimilarCodeResult(
+            groups=groups,
+            total_groups=len(groups),
+            potential_loc_reduction=potential_loc,
+        )
+
     def _empty_health(self, chunk_count: int) -> ArchitectureHealth:
         """Return empty health result for repos with insufficient data."""
         return ArchitectureHealth(
@@ -1350,6 +1487,7 @@ class ClusterAnalyzer:
             clusters=[],
             outliers=[],
             coupling_hotspots=[],
+            similar_code=None,
             total_chunks=chunk_count,
             total_files=0,
             metrics={

@@ -49,6 +49,20 @@ interface SemanticCacheData {
     total_files: number
     metrics: Record<string, number>
   } | null
+  similar_code: {
+    groups: Array<{
+      similarity: number
+      suggestion: string
+      chunks: Array<{
+        file: string
+        name: string
+        lines: [number, number]
+        chunk_type: string
+      }>
+    }>
+    total_groups: number
+    potential_loc_reduction: number
+  } | null
   computed_at: string | null
   is_cached: boolean
 }
@@ -362,27 +376,34 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
             repositoryId={repositoryId}
             token={token}
             cachedData={semanticCache?.architecture_health || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}
         {activeTab === 'clusters' && (
           <ClusterMap
-            key={`clusters-${refreshKey}`}
+            key={`clusters-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
             token={token}
+            cachedData={semanticCache?.architecture_health || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}
         {activeTab === 'duplicates' && (
           <SimilarCode
-            key={`similar-${refreshKey}`}
+            key={`similar-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
             token={token}
+            cachedData={semanticCache?.similar_code || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}
         {activeTab === 'debt' && (
           <TechDebtHeatmap
-            key={`debt-${refreshKey}`}
+            key={`debt-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
             token={token}
+            cachedData={semanticCache?.architecture_health || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}
       </div>

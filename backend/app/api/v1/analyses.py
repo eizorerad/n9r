@@ -1,7 +1,7 @@
 """Analysis API endpoints."""
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -860,6 +860,7 @@ async def get_semantic_cache(
             "analysis_id": str(analysis.id),
             "commit_sha": analysis.commit_sha,
             "architecture_health": cache.get("architecture_health"),
+            "similar_code": cache.get("similar_code"),
             "computed_at": cache.get("computed_at"),
             "is_cached": True,
         }
@@ -869,6 +870,7 @@ async def get_semantic_cache(
         "analysis_id": str(analysis.id),
         "commit_sha": analysis.commit_sha,
         "architecture_health": None,
+        "similar_code": None,
         "computed_at": None,
         "is_cached": False,
     }
@@ -886,7 +888,6 @@ async def generate_semantic_cache(
     Computes architecture health using ClusterAnalyzer and stores
     results in the semantic_cache column.
     """
-    from datetime import datetime
 
     from app.services.cluster_analyzer import ClusterAnalyzer
 
@@ -923,57 +924,11 @@ async def generate_semantic_cache(
         analyzer = ClusterAnalyzer()
         health = await analyzer.analyze(str(analysis.repository_id))
 
-        # Convert to JSON-serializable dict
-        computed_at = datetime.now(UTC).isoformat()
-
-        architecture_health = {
-            "overall_score": health.overall_score,
-            "clusters": [
-                {
-                    "id": c.id,
-                    "name": c.name,
-                    "file_count": c.file_count,
-                    "chunk_count": c.chunk_count,
-                    "cohesion": c.cohesion,
-                    "top_files": c.top_files,
-                    "dominant_language": c.dominant_language,
-                    "status": c.status,
-                }
-                for c in health.clusters
-            ],
-            "outliers": [
-                {
-                    "file_path": o.file_path,
-                    "chunk_name": o.chunk_name,
-                    "chunk_type": o.chunk_type,
-                    "nearest_similarity": o.nearest_similarity,
-                    "nearest_file": o.nearest_file,
-                    "suggestion": o.suggestion,
-                    "confidence": o.confidence,
-                    "confidence_factors": o.confidence_factors,
-                    "tier": o.tier,
-                }
-                for o in health.outliers
-            ],
-            "coupling_hotspots": [
-                {
-                    "file_path": h.file_path,
-                    "clusters_connected": h.clusters_connected,
-                    "cluster_names": h.cluster_names,
-                    "suggestion": h.suggestion,
-                }
-                for h in health.coupling_hotspots
-            ],
-            "total_chunks": health.total_chunks,
-            "total_files": health.total_files,
-            "metrics": health.metrics,
-        }
+        # Convert to JSON-serializable dict using the built-in method
+        cache_data = health.to_cacheable_dict()
 
         # Store in semantic_cache column
-        analysis.semantic_cache = {
-            "architecture_health": architecture_health,
-            "computed_at": computed_at,
-        }
+        analysis.semantic_cache = cache_data
 
         await db.commit()
         await db.refresh(analysis)
@@ -981,8 +936,9 @@ async def generate_semantic_cache(
         return {
             "analysis_id": str(analysis.id),
             "commit_sha": analysis.commit_sha,
-            "architecture_health": architecture_health,
-            "computed_at": computed_at,
+            "architecture_health": cache_data.get("architecture_health"),
+            "similar_code": cache_data.get("similar_code"),
+            "computed_at": cache_data.get("computed_at"),
             "is_cached": True,
         }
 

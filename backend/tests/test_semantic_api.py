@@ -245,6 +245,7 @@ class TestClusterAnalyzer:
             ],
             outliers=[],
             coupling_hotspots=[],
+            similar_code=None,
             total_chunks=100,
             total_files=25,
             metrics={"avg_cohesion": 0.75},

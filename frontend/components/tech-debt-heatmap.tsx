@@ -1,21 +1,57 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { 
-  semanticApi, 
-  TechDebtHeatmapResponse, 
-  TechDebtHotspot,
-  TechDebtByCluster 
-} from '@/lib/semantic-api'
+
+interface ClusterInfo {
+  id: number
+  name: string
+  file_count: number
+  chunk_count: number
+  cohesion: number
+  top_files: string[]
+  dominant_language: string | null
+  status: string
+}
+
+interface OutlierInfo {
+  file_path: string
+  chunk_name: string | null
+  chunk_type: string | null
+  nearest_similarity: number
+  nearest_file: string | null
+  suggestion: string
+  confidence: number
+  confidence_factors: string[]
+  tier: string
+}
+
+interface CouplingHotspot {
+  file_path: string
+  clusters_connected: number
+  cluster_names: string[]
+  suggestion: string
+}
+
+interface CachedArchitectureData {
+  clusters: ClusterInfo[]
+  outliers: OutlierInfo[]
+  coupling_hotspots: CouplingHotspot[]
+  overall_score?: number
+  total_chunks?: number
+  total_files?: number
+  metrics?: Record<string, number>
+}
 
 interface TechDebtHeatmapProps {
   repositoryId: string
   token: string
   className?: string
+  cachedData?: CachedArchitectureData
+  hasSemanticCache?: boolean
 }
 
 const riskColors: Record<string, string> = {
@@ -31,29 +67,56 @@ const healthColors: Record<string, string> = {
   poor: 'text-red-400',
 }
 
-export function TechDebtHeatmap({ repositoryId, token, className }: TechDebtHeatmapProps) {
-  const [data, setData] = useState<TechDebtHeatmapResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function TechDebtHeatmap({ className, cachedData, hasSemanticCache = false }: TechDebtHeatmapProps) {
   const [view, setView] = useState<'hotspots' | 'clusters'>('hotspots')
 
-  useEffect(() => {
-    fetchData()
-  }, [repositoryId, token])
+  // Check if we have valid cached data
+  const hasCachedData = cachedData && (Array.isArray(cachedData.clusters) || Array.isArray(cachedData.coupling_hotspots))
 
-  const fetchData = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await semanticApi.techDebtHeatmap(token, repositoryId)
-      setData(response)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
+  // Show message if no cached data available
+  if (!hasCachedData) {
+    const isOldCache = hasSemanticCache && !cachedData
+    
+    return (
+      <Card className={cn('glass-panel border-border/50', className)}>
+        <CardContent className="p-6">
+          <div className="text-center py-8">
+            <div className="text-3xl mb-3">🔥</div>
+            <h3 className="text-base font-semibold mb-2">Technical Debt Heatmap</h3>
+            {isOldCache ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Tech debt analysis requires a newer analysis.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Re-run the analysis to view technical debt.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Tech debt data not available yet.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Run an analysis for this commit to view technical debt.
+                </p>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
+
+  // Calculate debt score from architecture health (inverse of overall_score)
+  const overallScore = cachedData.overall_score ?? 50
+  const debtScore = 100 - overallScore
+
+  // Build hotspots from coupling_hotspots and outliers
+  const hotspots = buildHotspots(cachedData)
+  
+  // Build cluster health data
+  const clusterHealth = buildClusterHealth(cachedData.clusters || [])
 
   const getDebtColor = (score: number) => {
     if (score <= 20) return 'text-emerald-400'
@@ -69,53 +132,25 @@ export function TechDebtHeatmap({ repositoryId, token, className }: TechDebtHeat
     return 'from-red-500 to-red-600'
   }
 
-  if (loading) {
-    return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            <span className="ml-3 text-muted-foreground">Analyzing tech debt...</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (error) {
-    return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="text-center py-8">
-            <p className="text-red-400 mb-4">{error}</p>
-            <Button onClick={fetchData} variant="outline">Retry</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (!data) return null
-
   return (
     <div className={cn('space-y-6', className)}>
       {/* Debt Score Card */}
       <Card className="glass-panel border-border/50 relative overflow-hidden">
         <div className={cn(
           'absolute inset-0 opacity-5 bg-gradient-to-br',
-          getDebtGradient(data.debt_score)
+          getDebtGradient(debtScore)
         )} />
         <CardContent className="relative p-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold mb-1">Technical Debt</h3>
               <p className="text-sm text-muted-foreground">
-                {data.hotspots.length} hotspots · {data.by_cluster.length} clusters
+                {hotspots.length} hotspots · {clusterHealth.length} clusters
               </p>
             </div>
             <div className="text-right">
-              <div className={cn('text-4xl font-bold', getDebtColor(data.debt_score))}>
-                {data.debt_score}
+              <div className={cn('text-4xl font-bold', getDebtColor(debtScore))}>
+                {debtScore}
               </div>
               <div className="text-sm text-muted-foreground">debt score</div>
             </div>
@@ -125,8 +160,8 @@ export function TechDebtHeatmap({ repositoryId, token, className }: TechDebtHeat
           <div className="mt-4">
             <div className="h-2 rounded-full bg-background/50 overflow-hidden">
               <div 
-                className={cn('h-full rounded-full bg-gradient-to-r', getDebtGradient(data.debt_score))}
-                style={{ width: `${data.debt_score}%` }}
+                className={cn('h-full rounded-full bg-gradient-to-r', getDebtGradient(debtScore))}
+                style={{ width: `${debtScore}%` }}
               />
             </div>
             <div className="flex justify-between mt-1 text-xs text-muted-foreground">
@@ -144,14 +179,14 @@ export function TechDebtHeatmap({ repositoryId, token, className }: TechDebtHeat
           size="sm"
           onClick={() => setView('hotspots')}
         >
-          Hotspots ({data.hotspots.length})
+          Hotspots ({hotspots.length})
         </Button>
         <Button
           variant={view === 'clusters' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setView('clusters')}
         >
-          By Cluster ({data.by_cluster.length})
+          By Cluster ({clusterHealth.length})
         </Button>
       </div>
 
@@ -159,14 +194,68 @@ export function TechDebtHeatmap({ repositoryId, token, className }: TechDebtHeat
       <Card className="glass-panel border-border/50">
         <CardContent className="p-4">
           {view === 'hotspots' ? (
-            <HotspotsView hotspots={data.hotspots} />
+            <HotspotsView hotspots={hotspots} />
           ) : (
-            <ClustersView clusters={data.by_cluster} />
+            <ClustersView clusters={clusterHealth} />
           )}
         </CardContent>
       </Card>
     </div>
   )
+}
+
+interface TechDebtHotspot {
+  file_path: string
+  risk: string
+  suggestion: string
+  bridges_clusters: number
+  cohesion: number | null
+}
+
+function buildHotspots(data: CachedArchitectureData): TechDebtHotspot[] {
+  const hotspots: TechDebtHotspot[] = []
+
+  // Add coupling hotspots as critical/high
+  for (const hotspot of data.coupling_hotspots || []) {
+    hotspots.push({
+      file_path: hotspot.file_path,
+      risk: hotspot.clusters_connected >= 4 ? 'critical' : 'high',
+      suggestion: hotspot.suggestion,
+      bridges_clusters: hotspot.clusters_connected,
+      cohesion: null,
+    })
+  }
+
+  // Add outliers as medium risk (limit to 10)
+  for (const outlier of (data.outliers || []).slice(0, 10)) {
+    if (outlier.nearest_similarity < 0.4) {
+      hotspots.push({
+        file_path: outlier.file_path,
+        risk: 'medium',
+        suggestion: outlier.suggestion,
+        bridges_clusters: 0,
+        cohesion: outlier.nearest_similarity,
+      })
+    }
+  }
+
+  return hotspots
+}
+
+interface ClusterHealthInfo {
+  cluster: string
+  cohesion: number
+  health: string
+  avg_complexity: number
+}
+
+function buildClusterHealth(clusters: ClusterInfo[]): ClusterHealthInfo[] {
+  return clusters.map(c => ({
+    cluster: c.name,
+    cohesion: c.cohesion,
+    health: c.cohesion >= 0.7 ? 'good' : c.cohesion >= 0.5 ? 'moderate' : 'poor',
+    avg_complexity: 0, // Not available in cached data
+  }))
 }
 
 function HotspotsView({ hotspots }: { hotspots: TechDebtHotspot[] }) {
@@ -225,7 +314,7 @@ function HotspotsView({ hotspots }: { hotspots: TechDebtHotspot[] }) {
   )
 }
 
-function ClustersView({ clusters }: { clusters: TechDebtByCluster[] }) {
+function ClustersView({ clusters }: { clusters: ClusterHealthInfo[] }) {
   if (clusters.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">

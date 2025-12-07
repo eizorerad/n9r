@@ -1,16 +1,47 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { semanticApi, ArchitectureHealthResponse, ClusterInfo } from '@/lib/semantic-api'
+
+interface ClusterInfo {
+  id: number
+  name: string
+  file_count: number
+  chunk_count: number
+  cohesion: number
+  top_files: string[]
+  dominant_language: string | null
+  status: string
+}
+
+interface OutlierInfo {
+  file_path: string
+  chunk_name: string | null
+  chunk_type: string | null
+  nearest_similarity: number
+  nearest_file: string | null
+  suggestion: string
+  confidence: number
+  confidence_factors: string[]
+  tier: string
+}
+
+interface CachedArchitectureData {
+  clusters: ClusterInfo[]
+  outliers: OutlierInfo[]
+  overall_score?: number
+  total_chunks?: number
+  total_files?: number
+}
 
 interface ClusterMapProps {
   repositoryId: string
   token: string
   className?: string
+  cachedData?: CachedArchitectureData
+  hasSemanticCache?: boolean
   onClusterClick?: (cluster: ClusterInfo) => void
 }
 
@@ -26,66 +57,57 @@ const statusBgColors: Record<string, string> = {
   scattered: 'bg-red-500/10 border-red-500/30',
 }
 
-export function ClusterMap({ repositoryId, token, className, onClusterClick }: ClusterMapProps) {
-  const [data, setData] = useState<ArchitectureHealthResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function ClusterMap({ className, cachedData, hasSemanticCache = false, onClusterClick }: ClusterMapProps) {
   const [selectedCluster, setSelectedCluster] = useState<ClusterInfo | null>(null)
-
-  useEffect(() => {
-    fetchData()
-  }, [repositoryId, token])
-
-  const fetchData = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await semanticApi.architectureHealth(token, repositoryId)
-      setData(response)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleClusterClick = (cluster: ClusterInfo) => {
     setSelectedCluster(cluster)
     onClusterClick?.(cluster)
   }
 
-  if (loading) {
-    return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            <span className="ml-3 text-muted-foreground">Loading cluster map...</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  // Check if we have valid cached data
+  const hasCachedData = cachedData && Array.isArray(cachedData.clusters)
 
-  if (error) {
+  // Show message if no cached data available
+  if (!hasCachedData) {
+    const isOldCache = hasSemanticCache && !cachedData
+    
     return (
       <Card className={cn('glass-panel border-border/50', className)}>
         <CardContent className="p-6">
           <div className="text-center py-8">
-            <p className="text-red-400 mb-4">{error}</p>
-            <Button onClick={fetchData} variant="outline">Retry</Button>
+            <div className="text-3xl mb-3">🗺️</div>
+            <h3 className="text-base font-semibold mb-2">Cluster Map</h3>
+            {isOldCache ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Cluster visualization requires a newer analysis.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Re-run the analysis to view the cluster map.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Cluster data not available yet.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Run an analysis for this commit to view code clusters.
+                </p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
     )
   }
 
-  if (!data) return null
+  const clusters = cachedData.clusters
+  const outliers = cachedData.outliers || []
 
   // Calculate max values for sizing
-  const maxChunks = Math.max(...data.clusters.map(c => c.chunk_count), 1)
-  const maxFiles = Math.max(...data.clusters.map(c => c.file_count), 1)
+  const maxChunks = Math.max(...clusters.map(c => c.chunk_count), 1)
 
   return (
     <Card className={cn('glass-panel border-border/50', className)}>
@@ -119,14 +141,14 @@ export function ClusterMap({ repositoryId, token, className, onClusterClick }: C
         </div>
 
         {/* Cluster Grid */}
-        {data.clusters.length === 0 ? (
+        {clusters.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No clusters detected</p>
             <p className="text-sm mt-1">Repository may need more code or embeddings</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {data.clusters.map((cluster) => {
+            {clusters.map((cluster) => {
               const sizeRatio = cluster.chunk_count / maxChunks
               const minSize = 80
               const maxSize = 160
@@ -174,7 +196,7 @@ export function ClusterMap({ repositoryId, token, className, onClusterClick }: C
             })}
 
             {/* Outliers indicator */}
-            {data.outliers.length > 0 && (
+            {outliers.length > 0 && (
               <div
                 className={cn(
                   'relative rounded-xl border-2 border-dashed border-amber-500/50',
@@ -188,7 +210,7 @@ export function ClusterMap({ repositoryId, token, className, onClusterClick }: C
                     Outliers
                   </span>
                   <span className="text-xs text-muted-foreground mt-1">
-                    {data.outliers.length} items
+                    {outliers.length} items
                   </span>
                 </div>
               </div>

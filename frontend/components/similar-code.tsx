@@ -1,43 +1,56 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { semanticApi, SimilarCodeGroup } from '@/lib/semantic-api'
+
+interface CachedSimilarCodeData {
+  groups?: Array<{
+    similarity: number
+    suggestion: string
+    chunks: Array<{
+      file: string
+      name: string
+      lines: [number, number]
+      chunk_type: string
+    }>
+  }>
+  total_groups: number
+  potential_loc_reduction: number
+}
 
 interface SimilarCodeProps {
   repositoryId: string
   token: string
   className?: string
+  cachedData?: CachedSimilarCodeData
+  hasSemanticCache?: boolean
 }
 
-export function SimilarCode({ repositoryId, token, className }: SimilarCodeProps) {
-  const [groups, setGroups] = useState<SimilarCodeGroup[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+export function SimilarCode({ className, cachedData, hasSemanticCache = false }: SimilarCodeProps) {
   const [threshold, setThreshold] = useState(0.85)
-  const [potentialLoc, setPotentialLoc] = useState(0)
 
-  useEffect(() => {
-    fetchData()
-  }, [repositoryId, token, threshold])
-
-  const fetchData = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await semanticApi.similarCode(token, repositoryId, threshold, 20)
-      setGroups(response.groups)
-      setPotentialLoc(response.potential_loc_reduction)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
+  // Filter groups by threshold from cached data
+  const { groups, potentialLoc } = useMemo(() => {
+    if (!cachedData || !cachedData.groups) {
+      return { groups: [], potentialLoc: 0 }
     }
-  }
+
+    // Filter groups that meet the threshold
+    const filteredGroups = cachedData.groups.filter(g => g.similarity >= threshold)
+    
+    // Recalculate LOC reduction for filtered groups
+    const loc = filteredGroups.reduce((sum, g) => {
+      const groupLoc = g.chunks.slice(1).reduce((chunkSum, c) => {
+        return chunkSum + (c.lines[1] - c.lines[0])
+      }, 0)
+      return sum + groupLoc
+    }, 0)
+
+    return { groups: filteredGroups, potentialLoc: loc }
+  }, [cachedData, threshold])
 
   const getSimilarityColor = (similarity: number) => {
     if (similarity >= 0.95) return 'text-red-400'
@@ -45,26 +58,40 @@ export function SimilarCode({ repositoryId, token, className }: SimilarCodeProps
     return 'text-amber-400'
   }
 
-  if (loading) {
-    return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            <span className="ml-3 text-muted-foreground">Finding similar code...</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  // Check if similar code data exists in cache
+  // cachedData.groups being undefined means the analysis hasn't computed similar code yet
+  const hasSimilarCodeData = cachedData && Array.isArray(cachedData.groups)
 
-  if (error) {
+  // Show message if no cached data available or similar code wasn't computed
+  if (!hasSimilarCodeData) {
+    // Different message depending on whether semantic cache exists
+    const isOldCache = hasSemanticCache && !cachedData
+    
     return (
       <Card className={cn('glass-panel border-border/50', className)}>
         <CardContent className="p-6">
           <div className="text-center py-8">
-            <p className="text-red-400 mb-4">{error}</p>
-            <Button onClick={fetchData} variant="outline">Retry</Button>
+            <div className="text-3xl mb-3">🔍</div>
+            <h3 className="text-base font-semibold mb-2">Similar Code Detection</h3>
+            {isOldCache ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Similar code detection requires a newer analysis.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Re-run the analysis to enable duplicate detection.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Similar code data not available yet.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Run an analysis for this commit to detect code duplicates.
+                </p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

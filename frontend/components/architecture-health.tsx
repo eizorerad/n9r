@@ -1,12 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useState, useMemo, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { 
-  semanticApi, 
   ArchitectureHealthResponse, 
   ClusterInfo, 
   OutlierInfo,
@@ -24,6 +23,7 @@ interface ArchitectureHealthProps {
   token: string
   className?: string
   cachedData?: CachedArchitectureHealth
+  hasSemanticCache?: boolean
 }
 
 const statusColors: Record<string, string> = {
@@ -48,17 +48,13 @@ function normalizeCachedData(cached: CachedArchitectureHealth | undefined): Arch
   }
 }
 
-function ArchitectureHealthComponent({ repositoryId, token, className, cachedData }: ArchitectureHealthProps) {
-  const [data, setData] = useState<ArchitectureHealthResponse | null>(() => normalizeCachedData(cachedData))
-  const [loading, setLoading] = useState(!cachedData)
-  const [error, setError] = useState<string | null>(null)
+function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache = false }: ArchitectureHealthProps) {
   const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
 
-  // Memoize cachedData string to prevent re-running effect on every parent render
-  const cachedDataString = useMemo(() => JSON.stringify(cachedData), [cachedData])
+  // Normalize cached data
+  const data = useMemo(() => normalizeCachedData(cachedData), [cachedData])
   
   // Memoize derived values to prevent recalculation on every render
-  // Must be before early returns to follow rules of hooks
   const computedValues = useMemo(() => {
     if (!data) return null
     // Handle both 'overall_score' and legacy 'score' field for backward compatibility
@@ -69,34 +65,6 @@ function ArchitectureHealthComponent({ repositoryId, token, className, cachedDat
     
     return { scoreValue, issueCount, hasScore, displayScore }
   }, [data])
-
-  useEffect(() => {
-    // If we have cached data, use it directly
-    if (cachedData) {
-      setData(normalizeCachedData(cachedData))
-      setLoading(false)
-      setError(null)
-      return
-    }
-    
-    // Only fetch from API if no cached data
-    fetchData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repositoryId, token, cachedDataString])
-
-  const fetchData = async () => {
-    setLoading(true)
-    setError(null)
-
-    try {
-      const response = await semanticApi.architectureHealth(token, repositoryId)
-      setData(response)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-emerald-400'
@@ -110,33 +78,40 @@ function ArchitectureHealthComponent({ repositoryId, token, className, cachedDat
     return 'from-red-500 to-red-600'
   }
 
-  if (loading) {
-    return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            <span className="ml-3 text-muted-foreground">Analyzing architecture...</span>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (error) {
+  // Show message if no cached data available
+  if (!data || !computedValues) {
+    const isOldCache = hasSemanticCache && !cachedData
+    
     return (
       <Card className={cn('glass-panel border-border/50', className)}>
         <CardContent className="p-6">
           <div className="text-center py-8">
-            <p className="text-red-400 mb-4">{error}</p>
-            <Button onClick={fetchData} variant="outline">Retry</Button>
+            <div className="text-3xl mb-3">🏗️</div>
+            <h3 className="text-base font-semibold mb-2">Architecture Health</h3>
+            {isOldCache ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Architecture analysis requires a newer analysis.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Re-run the analysis to view architecture health.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Architecture data not available yet.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Run an analysis for this commit to view architecture health.
+                </p>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
     )
   }
-
-  if (!data || !computedValues) return null
   
   const { issueCount, hasScore, displayScore } = computedValues
 
