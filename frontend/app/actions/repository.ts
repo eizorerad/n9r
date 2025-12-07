@@ -91,7 +91,7 @@ export async function updateRepository(repoId: string, formData: FormData) {
     revalidatePath(`/repo/${repoId}`)
     
     return { success: true }
-  } catch (error) {
+  } catch {
     return { error: 'Network error. Please try again.' }
   }
 }
@@ -119,7 +119,7 @@ export async function disconnectRepository(repoId: string) {
     revalidatePath('/dashboard')
     
     return { success: true }
-  } catch (error) {
+  } catch {
     return { error: 'Network error. Please try again.' }
   }
 }
@@ -196,7 +196,7 @@ export async function startAnalysis(repoId: string, formData: FormData) {
     revalidatePath('/dashboard')
     
     return { success: true, analysisId: analysis.id }
-  } catch (error) {
+  } catch {
     return { error: 'Network error. Please try again.' }
   }
 }
