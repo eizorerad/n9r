@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 VALID_EMBEDDINGS_STATUS = frozenset(["none", "pending", "running", "completed", "failed"])
-VALID_SEMANTIC_CACHE_STATUS = frozenset(["none", "pending", "computing", "completed", "failed"])
+VALID_SEMANTIC_CACHE_STATUS = frozenset(["none", "pending", "computing", "generating_insights", "completed", "failed"])
 VALID_AI_SCAN_STATUS = frozenset(["none", "pending", "running", "completed", "failed", "skipped"])
 
 
@@ -47,7 +47,8 @@ EMBEDDINGS_TRANSITIONS: dict[str, set[str]] = {
 SEMANTIC_CACHE_TRANSITIONS: dict[str, set[str]] = {
     "none": {"pending"},
     "pending": {"computing", "failed"},
-    "computing": {"completed", "failed"},
+    "computing": {"generating_insights", "completed", "failed"},
+    "generating_insights": {"completed", "failed"},
     "completed": set(),  # Terminal state - no transitions allowed
     "failed": {"pending"},  # Can retry
 }
@@ -594,13 +595,33 @@ class AnalysisStateService:
             status="computing",
         )
 
+    def start_generating_insights(self, analysis_id: UUID) -> Analysis:
+        """
+        Start generating AI insights for semantic analysis.
+
+        Transition: computing -> generating_insights
+
+        This is called after cluster analysis completes but before
+        the LLM is called to generate recommendations.
+
+        Args:
+            analysis_id: UUID of the analysis
+
+        Returns:
+            Updated Analysis model instance
+        """
+        return self.update_semantic_cache_status(
+            analysis_id=analysis_id,
+            status="generating_insights",
+        )
+
     def complete_semantic_cache(
         self, analysis_id: UUID, cache_data: dict[str, Any]
     ) -> Analysis:
         """
         Mark semantic cache as completed.
 
-        Transition: computing -> completed
+        Transition: computing -> completed OR generating_insights -> completed
 
         Note: In the parallel analysis pipeline, AI Scan is dispatched directly
         from the API endpoint alongside Static Analysis and Embeddings. This

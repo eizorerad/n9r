@@ -64,37 +64,35 @@ class LLMGateway:
     Unified LLM Gateway using LiteLLM.
 
     Supports 100+ LLM providers through a single interface:
-    - OpenAI (gpt-4o, gpt-4o-mini, o1)
-    - Anthropic (claude-3-5-sonnet, claude-sonnet-4)
-    - Google Gemini (gemini-2.0-flash, gemini-pro)
-    - Azure OpenAI
-    - AWS Bedrock
+    - Google Gemini 3 Pro (gemini-3-pro-preview) - 1M context, Nov 2025
+    - Anthropic Claude Sonnet 4.5 via Bedrock - Sep 2025
+    - Azure OpenAI Codex 5.1 Mini (gpt-5.1-codex-mini) - 400K context, Nov 2025
+    - OpenAI (gpt-4o, gpt-5, o1, o3)
     - OpenRouter
     - And many more...
 
     Model naming convention:
+    - gemini/gemini-3-pro-preview
+    - bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0
+    - azure/gpt-5.1-codex-mini
     - openai/gpt-4o
-    - anthropic/claude-3-5-sonnet-20241022
-    - gemini/gemini-2.0-flash-exp
-    - azure/gpt-4o (requires azure config)
-    - bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
-    - openrouter/anthropic/claude-3.5-sonnet
     """
 
-    # Default models for different tasks
+    # Default models for different tasks (updated Dec 2025)
+    # Using LATEST models: Gemini 3 Pro, Claude Sonnet 4.5, Codex 5.1 Mini
     DEFAULT_MODELS = {
-        "chat": "anthropic/claude-3-5-sonnet-20241022",
-        "analysis": "anthropic/claude-3-5-sonnet-20241022",
-        "fast": "openai/gpt-4o-mini",
+        "chat": "gemini/gemini-3-pro-preview",                    # Gemini 3 Pro (1M context, Nov 2025)
+        "analysis": "gemini/gemini-3-pro-preview",                # Gemini 3 Pro for analysis
+        "fast": "azure/gpt-5.1-codex-mini",                       # Azure Codex 5.1 Mini (400K context)
         "embedding": "openai/text-embedding-3-small",
-        "code": "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "code": "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",  # Claude Sonnet 4.5 via Bedrock
     }
 
-    # Fallback chain for reliability
+    # Fallback chain for reliability (newest models first)
     FALLBACK_MODELS = [
-        "openai/gpt-4o",
-        "gemini/gemini-2.0-flash-exp",
-        "anthropic/claude-3-5-sonnet-20241022",
+        "gemini/gemini-3-pro-preview",                            # Gemini 3 Pro (primary)
+        "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0",      # Claude Sonnet 4.5 via AWS Bedrock
+        "azure/gpt-5.1-codex-mini",                               # Azure Codex 5.1 Mini
     ]
 
     # Mapping of model prefixes to environment variable names

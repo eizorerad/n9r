@@ -12,6 +12,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -19,6 +20,15 @@ from sklearn.cluster import HDBSCAN
 from sklearn.metrics.pairwise import cosine_distances
 
 from app.core.config import settings
+from app.schemas.architecture_llm import (
+    ArchitectureSummary,
+    DeadCodeFinding,
+    HotSpotFinding,
+    LLMReadyArchitectureData,
+)
+from app.services.call_graph_analyzer import CallGraphAnalyzer, get_call_graph_analyzer
+from app.services.coverage_analyzer import CoverageAnalyzer
+from app.services.git_analyzer import GitAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -1497,6 +1507,219 @@ class ClusterAnalyzer:
                 "warning": "Insufficient data for clustering (need at least 5 chunks)",
             }
         )
+
+
+    def analyze_for_llm(
+        self,
+        repo_id: str,
+        repo_path: Path,
+    ) -> LLMReadyArchitectureData:
+        """Analyze repository and produce LLM-ready data.
+
+        Integrates CallGraphAnalyzer, GitAnalyzer, and CoverageAnalyzer
+        to produce comprehensive architecture findings optimized for
+        AI/LLM consumption.
+
+        Args:
+            repo_id: Repository ID for vector lookups
+            repo_path: Path to the cloned repository
+
+        Returns:
+            LLMReadyArchitectureData with all findings
+
+        Requirements: 4.1, 5.1
+        """
+        logger.info(f"Starting LLM-ready analysis for repo {repo_id} at {repo_path}")
+
+        # Initialize analyzers
+        call_graph_analyzer = get_call_graph_analyzer()
+        git_analyzer = GitAnalyzer()
+        coverage_analyzer = CoverageAnalyzer()
+
+        # Build call graph and find dead code
+        call_graph = call_graph_analyzer.analyze(repo_path)
+        dead_code = call_graph_analyzer.to_dead_code_findings(call_graph)
+        logger.info(f"Found {len(dead_code)} dead code findings")
+
+        # Analyze git churn
+        churn_data = git_analyzer.analyze(repo_path)
+        logger.info(f"Analyzed churn for {len(churn_data)} files")
+
+        # Parse coverage if available
+        coverage_data = coverage_analyzer.parse_if_exists(repo_path)
+        if coverage_data:
+            logger.info(f"Found coverage data for {len(coverage_data)} files")
+        else:
+            logger.info("No coverage data available")
+
+        # Generate hot spot findings
+        hot_spots = git_analyzer.to_hot_spot_findings(
+            churn_data, coverage_data, threshold=10
+        )
+        logger.info(f"Found {len(hot_spots)} hot spot findings")
+
+        # Calculate total files and functions
+        total_files = len(churn_data) if churn_data else 0
+        total_functions = len(call_graph.nodes) if call_graph.nodes else 0
+
+        # Build summary with health score and main concerns
+        summary = self._generate_architecture_summary(
+            dead_code=dead_code,
+            hot_spots=hot_spots,
+            total_files=total_files,
+            total_functions=total_functions,
+        )
+
+        return LLMReadyArchitectureData(
+            summary=summary,
+            dead_code=dead_code,
+            hot_spots=hot_spots,
+            issues=[],  # Future: coupling, complexity issues
+        )
+
+    def _generate_architecture_summary(
+        self,
+        dead_code: list[DeadCodeFinding],
+        hot_spots: list[HotSpotFinding],
+        total_files: int,
+        total_functions: int,
+    ) -> ArchitectureSummary:
+        """Generate architecture summary with health score and main concerns.
+
+        Calculates health_score based on:
+        - Dead code ratio (40% weight)
+        - Hot spot ratio (40% weight)
+        - Coverage availability (20% weight)
+
+        Generates natural language main_concerns list.
+
+        Args:
+            dead_code: List of dead code findings
+            hot_spots: List of hot spot findings
+            total_files: Total number of files in repository
+            total_functions: Total number of functions in repository
+
+        Returns:
+            ArchitectureSummary with health_score and main_concerns
+
+        Requirements: 4.1
+        """
+        # Calculate health score
+        health_score = self._calculate_llm_health_score(
+            dead_code_count=len(dead_code),
+            hot_spot_count=len(hot_spots),
+            total_files=total_files,
+            total_functions=total_functions,
+        )
+
+        # Generate main concerns
+        main_concerns = self._generate_main_concerns(dead_code, hot_spots)
+
+        return ArchitectureSummary(
+            health_score=health_score,
+            main_concerns=main_concerns,
+            total_files=total_files,
+            total_functions=total_functions,
+            dead_code_count=len(dead_code),
+            hot_spot_count=len(hot_spots),
+        )
+
+    def _calculate_llm_health_score(
+        self,
+        dead_code_count: int,
+        hot_spot_count: int,
+        total_files: int,
+        total_functions: int,
+    ) -> int:
+        """Calculate health score for LLM-ready data.
+
+        Score components:
+        - Dead code penalty (40%): More dead code = lower score
+        - Hot spot penalty (40%): More hot spots = lower score
+        - Base score (20%): Minimum score for having analyzable code
+
+        Args:
+            dead_code_count: Number of dead code findings
+            hot_spot_count: Number of hot spot findings
+            total_files: Total number of files
+            total_functions: Total number of functions
+
+        Returns:
+            Health score 0-100
+        """
+        if total_functions == 0 and total_files == 0:
+            return 0
+
+        # Start with base score
+        score = 100.0
+
+        # Dead code penalty (40% weight)
+        # 0 dead code = 0 penalty, 50%+ dead code = 40 point penalty
+        if total_functions > 0:
+            dead_code_ratio = dead_code_count / total_functions
+            dead_code_penalty = min(40, dead_code_ratio * 80)
+            score -= dead_code_penalty
+
+        # Hot spot penalty (40% weight)
+        # 0 hot spots = 0 penalty, 50%+ hot spots = 40 point penalty
+        if total_files > 0:
+            hot_spot_ratio = hot_spot_count / total_files
+            hot_spot_penalty = min(40, hot_spot_ratio * 80)
+            score -= hot_spot_penalty
+
+        # Ensure minimum score of 0
+        return max(0, min(100, int(score)))
+
+    def _generate_main_concerns(
+        self,
+        dead_code: list[DeadCodeFinding],
+        hot_spots: list[HotSpotFinding],
+    ) -> list[str]:
+        """Generate natural language concerns for LLM context.
+
+        Creates human-readable concern strings based on findings.
+
+        Args:
+            dead_code: List of dead code findings
+            hot_spots: List of hot spot findings
+
+        Returns:
+            List of natural language concern strings
+
+        Requirements: 4.1
+        """
+        concerns: list[str] = []
+
+        # Dead code concern
+        if dead_code:
+            total_lines = sum(d.line_count for d in dead_code)
+            concerns.append(
+                f"{len(dead_code)} unreachable functions ({total_lines} lines of dead code)"
+            )
+
+        # Hot spot concerns
+        if hot_spots:
+            # Find the worst hot spot
+            worst = max(hot_spots, key=lambda h: h.churn_count)
+            concerns.append(
+                f"{worst.file_path} changed {worst.churn_count} times in 90 days"
+            )
+
+            # Count files with low coverage
+            low_coverage_count = sum(
+                1 for h in hot_spots
+                if h.coverage_rate is not None and h.coverage_rate < 0.5
+            )
+            if low_coverage_count > 0:
+                concerns.append(
+                    f"{low_coverage_count} high-churn files have less than 50% test coverage"
+                )
+
+        # No concerns message
+        if not concerns:
+            concerns.append("No significant architecture concerns detected")
+
+        return concerns
 
 
 def get_cluster_analyzer() -> ClusterAnalyzer:

@@ -1,4 +1,0 @@
-# file: /Users/leo/Documents/Projects/n9r/backend/app/core/config.py
-# hypothesis_version: 6.148.5
-
-[6333, 6379, '../.env', './github-app.pem', '.env', '/app/.env', '/tmp', '/v1', '2024-02-15-preview', 'HS256', 'Settings', 'after', 'code_embeddings', 'development', 'gpt-4o', 'ignore', 'localhost', 'localhost:9000', 'minioadmin', 'n9r-dev', 'openai', 'postgresql://', 'production', 'staging', 'us-central1', 'us-east-1', 'utf-8']

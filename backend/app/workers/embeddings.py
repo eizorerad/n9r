@@ -520,6 +520,8 @@ def compute_semantic_cache(
     State is managed through AnalysisStateService with PostgreSQL as the
     single source of truth.
 
+    Also generates Semantic AI Insights using LiteLLM directly (separate from AI Scan).
+
     Note: In the parallel analysis pipeline, AI Scan is dispatched directly
     from the API endpoint alongside Static Analysis and Embeddings. This
     task no longer queues AI scan on completion.
@@ -531,8 +533,8 @@ def compute_semantic_cache(
     Returns:
         dict with semantic cache computation results
 
-    **Feature: parallel-analysis-pipeline**
-    **Validates: Requirements 3.1, 3.2, 3.3, 6.1, 6.2, 6.3**
+    **Feature: parallel-analysis-pipeline, cluster-map-refactoring**
+    **Validates: Requirements 3.1, 3.2, 3.3, 5.1, 5.2, 5.3, 5.4, 6.1, 6.2, 6.3**
     """
     from app.services.analysis_state import AnalysisStateService
     from app.services.cluster_analyzer import get_cluster_analyzer
@@ -552,13 +554,27 @@ def compute_semantic_cache(
         # Convert to cacheable dict
         semantic_cache = health.to_cacheable_dict()
 
-        # Transition semantic_cache_status: computing -> completed (Requirements 3.2)
+        # Transition semantic_cache_status: computing -> generating_insights
+        # This lets the frontend know we're now calling the LLM
+        with _get_db_session() as session:
+            state_service = AnalysisStateService(session, publish_events=True)
+            state_service.start_generating_insights(UUID(analysis_id))
+
+        # Generate Semantic AI Insights BEFORE marking semantic cache as completed
+        # This ensures insights are available when frontend sees completed status
+        # (Requirements 5.1, 5.2, 5.3, 5.4)
+        # This is SEPARATE from AI Scan - uses LiteLLM directly
+        insights_count = _generate_semantic_ai_insights(
+            repository_id=repository_id,
+            analysis_id=analysis_id,
+        )
+
+        # Transition semantic_cache_status: generating_insights -> completed (Requirements 3.2)
+        # IMPORTANT: This must happen AFTER insights are generated to avoid race condition
+        # where frontend fetches insights before they're saved to database
         with _get_db_session() as session:
             state_service = AnalysisStateService(session, publish_events=True)
             state_service.complete_semantic_cache(UUID(analysis_id), semantic_cache)
-
-        # Note: AI Scan dispatch removed for parallel-analysis-pipeline (Requirements 6.3)
-        # AI Scan is now dispatched directly from the API endpoint
 
         logger.info(f"Semantic cache computed for analysis {analysis_id}")
 
@@ -567,6 +583,7 @@ def compute_semantic_cache(
             "analysis_id": analysis_id,
             "status": "completed",
             "clusters_count": len(semantic_cache.get("clusters", [])),
+            "insights_count": insights_count,
         }
 
     except Exception as e:
@@ -585,6 +602,152 @@ def compute_semantic_cache(
             meta={"error": str(e)}
         )
         raise
+
+
+def _generate_semantic_ai_insights(
+    repository_id: str,
+    analysis_id: str,
+) -> int:
+    """Generate Semantic AI Insights using LiteLLM directly.
+
+    This function:
+    1. Gets the commit_sha from the analysis
+    2. Clones the repository at that commit
+    3. Runs analyze_for_llm() to get LLM-ready architecture data
+    4. Calls SemanticAIInsightsService to generate recommendations
+    5. Stores insights in the semantic_ai_insights table
+
+    IMPORTANT: This is SEPARATE from AI Scan (BroadScanAgent).
+    Uses LiteLLM directly via SemanticAIInsightsService.
+
+    Args:
+        repository_id: UUID of the repository
+        analysis_id: UUID of the analysis
+
+    Returns:
+        Number of insights generated
+
+    **Feature: cluster-map-refactoring**
+    **Validates: Requirements 5.1, 5.2, 5.3, 5.4**
+    """
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.core.database import get_sync_session
+    from app.core.encryption import decrypt_token
+    from app.models.analysis import Analysis
+    from app.models.repository import Repository
+    from app.models.semantic_ai_insight import SemanticAIInsight
+    from app.models.user import User
+    from app.services.cluster_analyzer import get_cluster_analyzer
+    from app.services.repo_analyzer import RepoAnalyzer
+    from app.services.semantic_ai_insights import get_semantic_ai_insights_service
+
+    logger.info(f"Generating Semantic AI Insights for analysis {analysis_id}")
+
+    try:
+        # Step 1: Get analysis and repository info
+        with get_sync_session() as db:
+            result = db.execute(
+                select(Analysis).where(Analysis.id == analysis_id)
+            )
+            analysis = result.scalar_one_or_none()
+
+            if not analysis:
+                logger.warning(f"Analysis {analysis_id} not found for AI insights")
+                return 0
+
+            repo_result = db.execute(
+                select(Repository).where(Repository.id == analysis.repository_id)
+            )
+            repository = repo_result.scalar_one_or_none()
+
+            if not repository:
+                logger.warning(f"Repository for analysis {analysis_id} not found")
+                return 0
+
+            # Get owner's access token for private repos
+            access_token = None
+            if repository.owner_id:
+                user_result = db.execute(
+                    select(User).where(User.id == repository.owner_id)
+                )
+                user = user_result.scalar_one_or_none()
+                if user and user.access_token_encrypted:
+                    try:
+                        access_token = decrypt_token(user.access_token_encrypted)
+                    except Exception as e:
+                        logger.warning(f"Could not decrypt access token: {e}")
+
+            commit_sha = analysis.commit_sha
+            repo_url = f"https://github.com/{repository.full_name}"
+
+        # Step 2: Clone repository and run analyze_for_llm
+        with RepoAnalyzer(repo_url, access_token, commit_sha=commit_sha) as analyzer:
+            repo_path = analyzer.clone()
+            logger.info(f"Cloned repository to {repo_path} for AI insights")
+
+            # Run LLM-ready analysis
+            cluster_analyzer = get_cluster_analyzer()
+            architecture_data = cluster_analyzer.analyze_for_llm(
+                repo_id=repository_id,
+                repo_path=Path(repo_path),
+            )
+
+        # Step 2.5: Persist dead code and hot spot findings to PostgreSQL
+        # Requirements: 7.1, 7.2
+        from app.services.architecture_findings_service import get_architecture_findings_service
+        findings_service = get_architecture_findings_service()
+        with get_sync_session() as db:
+            findings_result = findings_service.persist_findings(
+                db=db,
+                repository_id=UUID(repository_id),
+                analysis_id=UUID(analysis_id),
+                architecture_data=architecture_data,
+            )
+            logger.info(
+                f"Persisted {findings_result['dead_code_count']} dead code and "
+                f"{findings_result['hot_spot_count']} hot spot findings"
+            )
+
+        # Step 3: Generate AI insights
+        service = get_semantic_ai_insights_service()
+        insights = run_async(service.generate_insights(
+            architecture_data=architecture_data,
+            repository_id=UUID(repository_id),
+            analysis_id=UUID(analysis_id),
+        ))
+
+        if not insights:
+            logger.info(f"No AI insights generated for analysis {analysis_id}")
+            return 0
+
+        # Step 4: Store insights in database
+        with get_sync_session() as db:
+            for insight_data in insights:
+                insight = SemanticAIInsight(
+                    analysis_id=insight_data["analysis_id"],
+                    repository_id=insight_data["repository_id"],
+                    insight_type=insight_data["insight_type"],
+                    title=insight_data["title"],
+                    description=insight_data["description"],
+                    priority=insight_data["priority"],
+                    affected_files=insight_data["affected_files"],
+                    evidence=insight_data.get("evidence"),
+                    suggested_action=insight_data.get("suggested_action"),
+                )
+                db.add(insight)
+            db.commit()
+
+        logger.info(f"Generated {len(insights)} AI insights for analysis {analysis_id}")
+        return len(insights)
+
+    except Exception as e:
+        # Log error but don't fail the semantic cache task
+        # AI insights are optional - the main semantic cache should still succeed
+        logger.error(f"Failed to generate AI insights for analysis {analysis_id}: {e}")
+        return 0
 
 
 @celery_app.task(name="app.workers.embeddings.update_embeddings")

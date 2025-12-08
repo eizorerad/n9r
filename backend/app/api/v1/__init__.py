@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     ai_scan,
     analyses,
+    architecture,
     auth,
     auto_prs,
     chat,
@@ -25,6 +26,7 @@ router.include_router(users.router, prefix="/users", tags=["users"])
 router.include_router(repositories.router, prefix="/repositories", tags=["repositories"])
 router.include_router(analyses.router, tags=["analyses"])
 router.include_router(ai_scan.router, tags=["ai-scan"])
+router.include_router(architecture.router, tags=["architecture"])
 router.include_router(issues.router, tags=["issues"])
 router.include_router(auto_prs.router, tags=["auto-prs"])
 router.include_router(chat.router, tags=["chat"])

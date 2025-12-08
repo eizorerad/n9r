@@ -11,8 +11,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import BaseModelNoUpdate
 
 if TYPE_CHECKING:
+    from app.models.dead_code import DeadCode
+    from app.models.file_churn import FileChurn
     from app.models.issue import Issue
     from app.models.repository import Repository
+    from app.models.semantic_ai_insight import SemanticAIInsight
 
 
 class Analysis(BaseModelNoUpdate):
@@ -182,6 +185,21 @@ class Analysis(BaseModelNoUpdate):
     )
     issues: Mapped[list["Issue"]] = relationship(
         "Issue",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+    )
+    dead_code_findings: Mapped[list["DeadCode"]] = relationship(
+        "DeadCode",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+    )
+    file_churn_findings: Mapped[list["FileChurn"]] = relationship(
+        "FileChurn",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+    )
+    semantic_ai_insights: Mapped[list["SemanticAIInsight"]] = relationship(
+        "SemanticAIInsight",
         back_populates="analysis",
         cascade="all, delete-orphan",
     )

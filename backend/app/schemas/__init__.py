@@ -14,6 +14,22 @@ from app.schemas.ai_scan import (
     InvestigationStatus,
     RepoOverview,
 )
+from app.schemas.architecture_findings import (
+    ArchitectureFindingsResponse,
+    ArchitectureSummarySchema,
+    DeadCodeFindingSchema,
+    DismissDeadCodeRequest,
+    DismissInsightRequest,
+    HotSpotFindingSchema,
+    SemanticAIInsightSchema,
+)
+from app.schemas.architecture_llm import (
+    ArchitectureIssue,
+    ArchitectureSummary,
+    DeadCodeFinding,
+    HotSpotFinding,
+    LLMReadyArchitectureData,
+)
 from app.schemas.analysis import (
     AnalysisCreate,
     AnalysisDetail,
@@ -74,6 +90,20 @@ __all__ = [
     "InvestigationStatus",
     "FileLocation",
     "RepoOverview",
+    # Architecture Findings (API responses)
+    "ArchitectureFindingsResponse",
+    "ArchitectureSummarySchema",
+    "DeadCodeFindingSchema",
+    "HotSpotFindingSchema",
+    "SemanticAIInsightSchema",
+    "DismissDeadCodeRequest",
+    "DismissInsightRequest",
+    # Architecture LLM (internal dataclasses)
+    "ArchitectureSummary",
+    "DeadCodeFinding",
+    "HotSpotFinding",
+    "ArchitectureIssue",
+    "LLMReadyArchitectureData",
     # Auth
     "AuthCallback",
     "AuthResponse",

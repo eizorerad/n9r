@@ -15,8 +15,10 @@ if TYPE_CHECKING:
     from app.models.analysis import Analysis
     from app.models.auto_pr import AutoPR
     from app.models.chat import ChatThread
+    from app.models.dead_code import DeadCode
     from app.models.issue import Issue
     from app.models.organization import Organization
+    from app.models.semantic_ai_insight import SemanticAIInsight
     from app.models.user import User
 
 
@@ -138,6 +140,16 @@ class Repository(BaseModel):
     )
     chat_threads: Mapped[list["ChatThread"]] = relationship(
         "ChatThread",
+        back_populates="repository",
+        cascade="all, delete-orphan",
+    )
+    dead_code_findings: Mapped[list["DeadCode"]] = relationship(
+        "DeadCode",
+        back_populates="repository",
+        cascade="all, delete-orphan",
+    )
+    semantic_ai_insights: Mapped[list["SemanticAIInsight"]] = relationship(
+        "SemanticAIInsight",
         back_populates="repository",
         cascade="all, delete-orphan",
     )
