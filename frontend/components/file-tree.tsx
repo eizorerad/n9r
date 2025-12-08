@@ -67,7 +67,7 @@ function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading
     if (isDirectory) {
       const newOpenState = !isOpen
       setIsOpen(newOpenState)
-      
+
       // Trigger lazy loading when expanding a directory that hasn't been loaded
       if (newOpenState && !node.isLoaded && onExpand) {
         await onExpand(node.path)
@@ -81,9 +81,8 @@ function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading
       <button
         onClick={handleClick}
         className={cn(
-          'w-full flex items-center gap-1 px-2 py-1 text-sm hover:bg-muted/50 rounded transition-colors text-left group',
-          isSelected && 'bg-muted text-foreground',
-          !isSelected && 'text-muted-foreground'
+          'w-full flex items-center gap-1 px-2 py-1 text-[13px] rounded-sm transition-colors text-left group select-none',
+          isSelected ? 'bg-[#37373d] text-white' : 'text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white'
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         title={node.path}
@@ -196,7 +195,7 @@ export function buildFileTree(paths: string[]): FileNode[] {
         // Navigate into directory
         const dirNode = current[part]
         if (!dirNode.children) dirNode.children = []
-        
+
         // Create lookup for children
         const childLookup: Record<string, FileNode> = {}
         for (const child of dirNode.children) {

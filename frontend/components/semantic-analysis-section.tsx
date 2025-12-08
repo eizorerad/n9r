@@ -93,15 +93,15 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   const [activeTab, setActiveTab] = useState<TabType>('insights')
   const [token, setToken] = useState<string>(initialToken || '')
   const [refreshKey, setRefreshKey] = useState(0)
-  
+
   // Query client for cache invalidation
   const queryClient = useQueryClient()
-  
+
   // Semantic cache state
   const { selectedAnalysisId } = useCommitSelectionStore()
   const [semanticCache, setSemanticCache] = useState<SemanticCacheData | null>(null)
   const [cacheLoading, setCacheLoading] = useState(false)
-  
+
   // Fetch architecture findings for counts in tab headers
   // **Feature: cluster-map-refactoring**
   // **Validates: Requirements 6.1**
@@ -111,7 +111,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     token,
     enabled: !!repositoryId && !!selectedAnalysisId && !!token,
   })
-  
+
   // Refs to prevent redundant operations
   const isRefreshingRef = useRef(false)
   const lastRefreshedCacheStatus = useRef<string | null>(null)
@@ -129,7 +129,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     token,
     enabled: !!token && !!selectedAnalysisId,
   })
-  
+
   // Memoize derived status values to prevent object reference changes from triggering effects
   const derivedStatus = useMemo(() => {
     if (!analysisStatus) return null
@@ -157,13 +157,13 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       search: null,
       duplicates: null,
     }
-    
+
     // AI Insights count from architecture findings
     if (architectureFindings) {
       const { insights, dead_code, hot_spots } = architectureFindings
       counts.insights = insights.length + dead_code.length + hot_spots.length
     }
-    
+
     // Clusters, Issues, and Hotspots from semantic cache
     if (semanticCache?.architecture_health) {
       const { clusters, outliers, coupling_hotspots } = semanticCache.architecture_health
@@ -179,12 +179,12 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
         .length
       counts.hotspots = couplingCount + lowSimilarityOutliers
     }
-    
+
     // Duplicates from semantic cache
     if (semanticCache?.similar_code) {
       counts.duplicates = semanticCache.similar_code.total_groups ?? null
     }
-    
+
     return counts
   }, [architectureFindings, semanticCache])
 
@@ -206,7 +206,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
     isRefreshingRef.current = true
     setCacheLoading(true)
-    
+
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/analyses/${selectedAnalysisId}/semantic`,
@@ -248,10 +248,10 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     // Reset the refs when analysis changes so we can detect new completions
     lastRefreshedCacheStatus.current = null
     lastRefreshedEmbeddingsStatus.current = null
-    
+
     fetchSemanticCache()
   }, [selectedAnalysisId, token, fetchSemanticCache])
-  
+
   // Separate effect for refreshKey to avoid resetting refs on every refresh
   useEffect(() => {
     if (refreshKey > 0 && selectedAnalysisId && token) {
@@ -266,14 +266,14 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
     const isCached = semanticCache?.is_cached || false
     const currentCacheStatus = derivedStatus.semanticCacheStatus
-    
+
     console.log('[SemanticAnalysis] Status check:', {
       currentCacheStatus,
       isCached,
       lastRefreshedCacheStatus: lastRefreshedCacheStatus.current,
       hasSemanticCache: derivedStatus.hasSemanticCache,
     })
-    
+
     // Refresh when semantic cache status becomes completed
     // Key fix: Check if API says it's completed (hasSemanticCache) OR status is completed
     // AND our local cache doesn't reflect that yet
@@ -284,21 +284,21 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     ) {
       console.log('[SemanticAnalysis] Semantic cache completed, refreshing...')
       lastRefreshedCacheStatus.current = currentCacheStatus
-      
+
       // Fetch the semantic cache data
       fetchSemanticCache()
-      
+
       // Invalidate architecture findings query to refetch AI insights
       // This ensures SemanticAIInsights gets fresh data after semantic cache completes
       const queryKey = getArchitectureFindingsQueryKey(repositoryId, selectedAnalysisId)
       console.log('[SemanticAnalysis] Invalidating architecture findings query:', queryKey)
       queryClient.invalidateQueries({ queryKey })
-      
+
       // Also increment refreshKey to force re-render of child components
       setRefreshKey(prev => prev + 1)
       return
     }
-    
+
     // Refresh when embeddings complete (one-time only)
     if (
       derivedStatus.embeddingsStatus === 'completed' &&
@@ -382,17 +382,17 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   }
 
   // Determine if embeddings are in progress from the unified status
-  const isEmbeddingsInProgress = 
-    analysisStatus?.embeddings_status === 'pending' || 
+  const isEmbeddingsInProgress =
+    analysisStatus?.embeddings_status === 'pending' ||
     analysisStatus?.embeddings_status === 'running'
-  
-  const isSemanticCacheComputing = 
+
+  const isSemanticCacheComputing =
     analysisStatus?.semantic_cache_status === 'pending' ||
     analysisStatus?.semantic_cache_status === 'computing' ||
     analysisStatus?.semantic_cache_status === 'generating_insights'
-  
+
   // Check if semantic cache is completed according to API (even if local cache not yet fetched)
-  const isSemanticCacheCompleted = 
+  const isSemanticCacheCompleted =
     analysisStatus?.semantic_cache_status === 'completed' ||
     analysisStatus?.has_semantic_cache === true
 
@@ -407,15 +407,15 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
         </div>
       )
     }
-    
+
     if (isEmbeddingsInProgress || isSemanticCacheComputing) {
       const isGeneratingInsights = analysisStatus?.semantic_cache_status === 'generating_insights'
       const progressMessage = isGeneratingInsights
         ? 'Generating AI insights...'
-        : isSemanticCacheComputing 
+        : isSemanticCacheComputing
           ? 'Computing semantic analysis...'
           : analysisStatus?.embeddings_message || 'Processing embeddings...'
-      
+
       const progressPercent = isGeneratingInsights
         ? 98  // Almost done
         : isSemanticCacheComputing
@@ -472,9 +472,9 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   }
 
   return (
-    <div>
+    <div className="h-full flex flex-col">
       {/* Tab Navigation with counts per Requirements 6.1 */}
-      <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4">
+      <div className="flex-none flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 px-1">
         {tabs.map((tab) => (
           <Button
             key={tab.id}
@@ -490,7 +490,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       </div>
 
       {/* Tab Content */}
-      <div className="min-h-[300px] sm:min-h-[400px]">
+      <div className="flex-1 min-h-0 overflow-y-auto relative">
         {/* AI Insights - First per Requirements 6.1 */}
         {activeTab === 'insights' && (
           <SemanticAIInsights

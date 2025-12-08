@@ -86,7 +86,8 @@ export function CodeEditor({
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       fontSize: 13,
-      fontFamily: 'JetBrains Mono, Fira Code, Monaco, Menlo, monospace',
+      fontFamily: "'Droid Sans Mono', 'monospace', monospace", // VS Code-like font stack
+      fontLigatures: true,
       lineNumbers: 'on',
       renderLineHighlight: 'line',
       automaticLayout: true,
@@ -173,9 +174,9 @@ export function DiffEditor({
   renderSideBySide = true,
   className,
 }: DiffEditorProps) {
-  const detectedLanguage = language || 
-    (modifiedPath ? getLanguageFromPath(modifiedPath) : 
-     originalPath ? getLanguageFromPath(originalPath) : 'plaintext')
+  const detectedLanguage = language ||
+    (modifiedPath ? getLanguageFromPath(modifiedPath) :
+      originalPath ? getLanguageFromPath(originalPath) : 'plaintext')
 
   return (
     <div className={cn('h-full w-full', className)}>

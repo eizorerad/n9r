@@ -5,6 +5,8 @@ import { getRepositories } from '@/lib/data/repositories'
 import { RepositoriesTableServer } from './repositories-table-server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Workbench } from '@/components/layout/workbench'
+import { Sidebar } from '@/components/layout/sidebar'
 
 // Repositories List Component - async Server Component
 async function RepositoriesList() {
@@ -39,43 +41,45 @@ function TableSkeleton() {
 // Main Dashboard Page - Server Component
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#1e1e1e] border-b border-neutral-700/50">
-        <div className="container mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="flex items-center gap-3 group">
-              <img 
-                src="/logo.svg" 
-                alt="Necromancer" 
-                className="w-8 h-8 group-hover:scale-105 transition-transform"
-              />
-              <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
+    <Workbench sidebar={<Sidebar title="REPOSITORIES" />}>
+      <div className="min-h-screen bg-background text-foreground animate-in fade-in duration-500">
+        {/* Header */}
+        <header className="sticky top-0 z-50 bg-background border-b border-border">
+          <div className="container mx-auto px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link href="/dashboard" className="flex items-center gap-3 group">
+                <img
+                  src="/logo.svg"
+                  alt="Necromancer"
+                  className="w-8 h-8 group-hover:scale-105 transition-transform"
+                />
+                <span className="text-lg font-semibold tracking-tight text-foreground">Necromancer</span>
+              </Link>
+              <span className="text-muted-foreground text-lg font-light">/</span>
+              <span className="text-muted-foreground font-mono text-sm">Dashboard</span>
+            </div>
+            <Link href="/dashboard/connect">
+              <Button className="flex items-center gap-2 h-8 px-4 bg-primary hover:bg-primary/90 text-primary-foreground font-mono text-xs border border-primary shadow-none rounded-sm">
+                <Plus className="h-3 w-3" />
+                Connect Repository
+              </Button>
             </Link>
-            <span className="text-neutral-600 text-lg font-light">/</span>
-            <span className="text-neutral-400 font-mono text-sm">Dashboard</span>
           </div>
-          <Link href="/dashboard/connect">
-            <Button className="flex items-center gap-2 h-8 px-4 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono text-xs border border-neutral-600 shadow-none">
-              <Plus className="h-3 w-3" />
-              Connect Repository
-            </Button>
-          </Link>
-        </div>
-      </header>
+        </header>
 
-      {/* Content */}
-      <main className="container mx-auto px-6 py-10">
-        <div className="space-y-10">
-          {/* Repositories Section - Streamed */}
-          <section>
-            <h2 className="text-2xl font-bold tracking-tight mb-6">Repositories</h2>
-            <Suspense fallback={<TableSkeleton />}>
-              <RepositoriesList />
-            </Suspense>
-          </section>
-        </div>
-      </main>
-    </div>
+        {/* Content */}
+        <main className="container mx-auto px-6 py-10">
+          <div className="space-y-10">
+            {/* Repositories Section - Streamed */}
+            <section>
+              <h2 className="text-2xl font-bold tracking-tight mb-6">Repositories</h2>
+              <Suspense fallback={<TableSkeleton />}>
+                <RepositoriesList />
+              </Suspense>
+            </section>
+          </div>
+        </main>
+      </div>
+    </Workbench>
   )
 }

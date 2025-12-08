@@ -73,8 +73,8 @@ export function IssuesList({ issues, className, onIssueClick, onFixClick }: Issu
   const lowIssues = issues.filter(i => i.severity === 'low')
 
   return (
-    <Card className={cn('border-border/50 glass-panel overflow-hidden', className)}>
-      <CardHeader className="py-4 border-b border-border/50 bg-muted/30">
+    <Card className={cn('border-border/50 glass-panel overflow-hidden flex flex-col h-full', className)}>
+      <CardHeader className="py-4 border-b border-border/50 bg-muted/30 flex-none">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium text-muted-foreground">Issues ({issues.length})</CardTitle>
           <div className="flex gap-3 text-xs font-medium">
@@ -100,7 +100,7 @@ export function IssuesList({ issues, className, onIssueClick, onFixClick }: Issu
         </div>
       </CardHeader>
 
-      <div className="divide-y divide-border/50 max-h-[500px] overflow-y-auto">
+      <div className="divide-y divide-border/50 flex-1 min-h-0 overflow-y-auto">
         {issues.map((issue) => {
           const config = severityConfig[issue.severity]
           const Icon = config.icon

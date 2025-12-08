@@ -4,6 +4,7 @@ import { ArrowLeft, GitBranch, RefreshCw, ExternalLink, AlertCircle, Loader2, Br
 import { RunAnalysisButton } from '@/components/run-analysis-button'
 import { SemanticAnalysisSection } from '@/components/semantic-analysis-section'
 import { CommitTimeline } from '@/components/commit-timeline'
+import { RepoTabs } from '@/components/repo-tabs'
 import { VCISectionClient } from '@/components/vci-section-client'
 import { MetricsSectionClient } from '@/components/metrics-section-client'
 import { IssuesSectionClient } from '@/components/issues-section-client'
@@ -97,7 +98,7 @@ async function RepositoryHeader({ id }: { id: string }) {
   }
 
   // Fetch HEAD commit SHA for "Latest" badge comparison
-  const headCommitSha = session?.accessToken 
+  const headCommitSha = session?.accessToken
     ? await getHeadCommitSha(id, session.accessToken, repo.default_branch)
     : null
 
@@ -298,7 +299,7 @@ async function CommitTimelineSectionWrapper({ id }: { id: string }) {
     getRepository(id),
     getLatestAnalysis(id, session.accessToken),
   ])
-  
+
   if (!repo) {
     return <div className="text-muted-foreground text-sm">Repository not found.</div>
   }
@@ -371,19 +372,6 @@ export default async function RepositoryPage({
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#1e1e1e] border-b border-neutral-700/50">
-        <div className="container mx-auto px-4 sm:px-6 py-3">
-          <Link href="/dashboard" className="flex items-center gap-3 group w-fit">
-            <img 
-              src="/logo.svg" 
-              alt="Necromancer" 
-              className="w-8 h-8 group-hover:scale-105 transition-transform"
-            />
-            <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
-          </Link>
-        </div>
-      </header>
 
       {/* Content */}
       <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 max-w-[1600px]">
@@ -395,7 +383,7 @@ export default async function RepositoryPage({
               <RepositoryHeader id={id} />
             </Suspense>
           </div>
-          
+
           {/* Right: Compact Code Health Panel */}
           <div className="lg:w-[320px] xl:w-[360px] flex-shrink-0">
             <Suspense fallback={<div className="h-32 bg-muted/30 rounded-xl animate-pulse" />}>
@@ -404,71 +392,45 @@ export default async function RepositoryPage({
           </div>
         </div>
 
-        {/* Bento Grid Layout */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-          {/* Row 1: Commit Timeline + AI Scan */}
-          {/* Commit Timeline - Left sidebar, 1 column */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-cyan-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Commit Timeline</h2>
-            </div>
-            <div className="max-h-[400px] xl:max-h-[500px] overflow-y-auto">
-              <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
-                <CommitTimelineSectionWrapper id={id} />
-              </Suspense>
-            </div>
-          </section>
+        {/* Tabs Layout */}
+        <div className="flex-1 min-h-0 bg-[#1e1e1e] rounded-lg overflow-hidden border border-[#2b2b2b] shadow-sm">
+          <RepoTabs
+            aiScanContent={
+              <div className="h-full p-4 overflow-hidden">
+                <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
+                  <AIInsightsSection id={id} />
+                </Suspense>
+              </div>
+            }
+            semanticAnalysisContent={
+              <div className="h-full p-4 overflow-hidden">
+                <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
+                  <SemanticAnalysisSectionWrapper id={id} />
+                </Suspense>
+              </div>
+            }
+            staticAnalysisContent={
+              <div className="h-full p-4 overflow-y-auto flex flex-col gap-6">
+                {/* Issues Section */}
+                <div className="bg-card/50 border border-border/50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold mb-4 px-1">Issues</h3>
+                  <div className="max-h-[400px] overflow-y-auto">
+                    <Suspense fallback={<IssuesSkeleton />}>
+                      <IssuesSection id={id} />
+                    </Suspense>
+                  </div>
+                </div>
 
-          {/* AI Scan - Takes 3 columns on xl */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-pink-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                AI Scan
-              </h2>
-            </div>
-            <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
-              <AIInsightsSection id={id} />
-            </Suspense>
-          </section>
-
-          {/* Row 2: Semantic Analysis - Full width */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-4">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-purple-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Semantic Analysis</h2>
-            </div>
-            <Suspense fallback={<div className="h-48 bg-muted/30 rounded-lg animate-pulse" />}>
-              <SemanticAnalysisSectionWrapper id={id} />
-            </Suspense>
-          </section>
-
-          {/* Row 3: Issues + Static Analysis */}
-          {/* Issues - Takes 1 column */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-amber-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Issues</h2>
-            </div>
-            <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
-              <Suspense fallback={<IssuesSkeleton />}>
-                <IssuesSection id={id} />
-              </Suspense>
-            </div>
-          </section>
-
-          {/* Static Analysis - Takes 3 columns */}
-          <section className="glass-panel border border-border/50 rounded-xl p-3 sm:p-4 md:col-span-2 xl:col-span-3">
-            <div className="flex items-center gap-2 mb-2 sm:mb-3">
-              <span className="w-2 h-2 rounded-full bg-blue-500/80" />
-              <h2 className="text-sm sm:text-base font-semibold tracking-tight">Static Analysis</h2>
-            </div>
-            <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
-              <MetricsSection id={id} />
-            </Suspense>
-          </section>
+                {/* Metrics Section */}
+                <div className="bg-card/50 border border-border/50 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold mb-4 px-1">Metrics</h3>
+                  <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
+                    <MetricsSection id={id} />
+                  </Suspense>
+                </div>
+              </div>
+            }
+          />
         </div>
       </main>
     </div>

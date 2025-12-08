@@ -326,7 +326,7 @@ function ScanInProgress() {
  */
 export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
   const { selectedAnalysisId } = useCommitSelectionStore()
-  
+
   // Use unified status hook for AI scan status (Requirements 3.3)
   // This automatically syncs progress to the global progress store
   const { data: fullStatus, refetch: refetchStatus } = useAnalysisStatusWithStore({
@@ -334,12 +334,12 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     repositoryId,
     token,
   })
-  
+
   // Local state for scan results (issues, etc.)
   const [scanData, setScanData] = useState<AIScanCacheResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  
+
   // Refs
   const isMountedRef = useRef(true)
 
@@ -362,11 +362,11 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     const fetchResults = async () => {
       setLoading(true)
       setError(null)
-      
+
       try {
         const results = await getAIScanResults(selectedAnalysisId, token)
         if (!isMountedRef.current) return
-        
+
         setScanData(results)
       } catch (err) {
         if (!isMountedRef.current) return
@@ -494,9 +494,9 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
 
   // Show results (Requirement 6.2)
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col h-full space-y-3">
       {/* Header with stats */}
-      <div className="flex items-center justify-between px-3 pt-2">
+      <div className="flex-none flex items-center justify-between px-3 pt-2">
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-primary" />
           <span className="text-xs font-medium">
@@ -514,7 +514,7 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
       </div>
 
       {/* Severity summary */}
-      <div className="flex gap-2 px-3">
+      <div className="flex-none flex gap-2 px-3 flex-wrap">
         {(['critical', 'high', 'medium', 'low'] as const).map((severity) => {
           const count = scanData.issues.filter((i) => i.severity === severity).length
           if (count === 0) return null
@@ -536,8 +536,8 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
         })}
       </div>
 
-      {/* Issues list */}
-      <div className="max-h-[400px] overflow-y-auto">
+      {/* Issues list - Adaptive height */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <IssuesBySeverity issues={scanData.issues} />
       </div>
     </div>
