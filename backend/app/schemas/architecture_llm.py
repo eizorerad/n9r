@@ -46,6 +46,7 @@ class DeadCodeFinding:
     evidence: str  # "Never called from any entry point"
     suggested_action: str  # "Safe to remove - no callers found"
     last_modified: str | None = None  # "January 2024" or None
+    impact_score: float = 0.0  # Dead Code Impact Score (0-100)
 
 
 @dataclass
@@ -64,6 +65,7 @@ class HotSpotFinding:
     unique_authors: int
     risk_factors: list[str]  # ["47 changes in 90 days", "0% test coverage"]
     suggested_action: str  # "Add tests before next modification"
+    risk_score: float = 0.0  # Hot Spot Risk Score (0-100)
 
 
 @dataclass

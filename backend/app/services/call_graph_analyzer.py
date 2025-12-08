@@ -25,6 +25,21 @@ from app.schemas.architecture_llm import DeadCodeFinding
 
 logger = logging.getLogger(__name__)
 
+# Known API router file patterns where functions are HTTP endpoints
+API_FILE_PATTERNS = [
+    re.compile(r"api/v\d+/[^/]+\.py$"),  # api/v1/*.py, api/v2/*.py
+    re.compile(r"routes?/[^/]+\.py$"),    # routes/*.py, route/*.py
+    re.compile(r"endpoints?/[^/]+\.py$"), # endpoints/*.py, endpoint/*.py
+    re.compile(r"views?/[^/]+\.py$"),     # views/*.py, view/*.py (Django)
+]
+
+# Known worker/task file patterns where functions are Celery tasks
+WORKER_FILE_PATTERNS = [
+    re.compile(r"workers?/[^/]+\.py$"),   # workers/*.py, worker/*.py
+    re.compile(r"tasks?/[^/]+\.py$"),     # tasks/*.py, task/*.py
+    re.compile(r"celery_tasks?\.py$"),    # celery_tasks.py, celery_task.py
+]
+
 # Try to import tree-sitter and language bindings
 try:
     from tree_sitter import Language, Node, Parser
@@ -322,6 +337,53 @@ def is_entry_point_file(file_path: str) -> bool:
     return False
 
 
+def is_api_endpoint_file(file_path: str) -> bool:
+    """Check if a file path indicates functions are likely API endpoints.
+
+    API file patterns:
+    - api/v1/*.py, api/v2/*.py (versioned API routes)
+    - routes/*.py (route modules)
+    - endpoints/*.py (endpoint modules)
+    - views/*.py (Django views)
+
+    Args:
+        file_path: Relative file path
+
+    Returns:
+        True if functions in this file are likely HTTP endpoints
+    """
+    if not file_path:
+        return False
+
+    for pattern in API_FILE_PATTERNS:
+        if pattern.search(file_path):
+            return True
+    return False
+
+
+def is_worker_file(file_path: str) -> bool:
+    """Check if a file path indicates functions are likely Celery tasks.
+
+    Worker file patterns:
+    - workers/*.py (worker modules)
+    - tasks/*.py (task modules)
+    - celery_tasks.py (Celery task files)
+
+    Args:
+        file_path: Relative file path
+
+    Returns:
+        True if functions in this file are likely Celery tasks
+    """
+    if not file_path:
+        return False
+
+    for pattern in WORKER_FILE_PATTERNS:
+        if pattern.search(file_path):
+            return True
+    return False
+
+
 def is_decorator_entry_point(decorator_name: str) -> bool:
     """Check if a decorator marks a function as an entry point.
 
@@ -530,12 +592,18 @@ class CallGraphAnalyzer:
 
         Detects entry points via:
         1. Function name patterns (test_*, *_handler, etc.)
-        2. File path patterns (test files, migrations, etc.)
+        2. File path patterns (test files, migrations, API routes, workers)
         3. Decorator patterns (@app.get, @pytest.fixture, etc.)
         4. Callback name patterns (*_callback, *_strategy, etc.)
+        5. API endpoint files with router decorators
+        6. Worker files with Celery task decorators
         """
         # Check if entire file is an entry point file (tests, migrations, etc.)
         file_is_entry_point = is_entry_point_file(file_path)
+
+        # Check if file is likely API endpoints or workers (decorated functions are entry points)
+        file_is_api = is_api_endpoint_file(file_path)
+        file_is_worker = is_worker_file(file_path)
 
         def get_text(node: "Node") -> str:
             return code[node.start_byte : node.end_byte]
@@ -636,6 +704,15 @@ class CallGraphAnalyzer:
                             break
                         parent = parent.parent
 
+                    # Check if function has any decorator (in API/worker files, decorated functions are entry points)
+                    has_any_decorator = len(decorators) > 0
+
+                    # In API endpoint files, decorated async functions are likely HTTP handlers
+                    is_api_endpoint = file_is_api and has_any_decorator and not name.startswith("_")
+
+                    # In worker files, decorated functions are likely Celery tasks
+                    is_worker_task = file_is_worker and has_any_decorator and not name.startswith("_")
+
                     # Determine if this is an entry point
                     is_entry = (
                         file_is_entry_point  # All functions in test/migration files
@@ -644,6 +721,8 @@ class CallGraphAnalyzer:
                         or is_async_generator_name(name)  # Async generators (SSE)
                         or has_entry_point_decorator(decorators)  # Decorator match
                         or (is_class_method and is_public_method)  # Public class methods
+                        or is_api_endpoint  # Decorated functions in API files
+                        or is_worker_task  # Decorated functions in worker files
                     )
 
                     call_graph.nodes[node_id] = CallGraphNode(
@@ -681,9 +760,15 @@ class CallGraphAnalyzer:
         2. File path patterns (test files, etc.)
         3. Export statements (exported functions are entry points)
         4. Callback name patterns (*_callback, *_strategy, etc.)
+        5. Separate export default statements: export default FunctionName
+        6. React HOC patterns: memo(Component), forwardRef(Component)
         """
         # Check if entire file is an entry point file (tests, etc.)
         file_is_entry_point = is_entry_point_file(file_path)
+
+        # Track functions that are exported via separate "export default X" statements
+        # or used in HOC patterns like memo(X), forwardRef(X)
+        exported_names: set[str] = set()
 
         def get_text(node: "Node") -> str:
             return code[node.start_byte : node.end_byte]
@@ -699,6 +784,63 @@ class CallGraphAnalyzer:
                 if grandparent and grandparent.type == "export_statement":
                     return True
             return False
+
+        def find_exported_names(node: "Node") -> None:
+            """Pre-scan to find all exported function names.
+
+            Handles:
+            - export default FunctionName
+            - export { FunctionName }
+            - export const X = memo(FunctionName)
+            - export const X = forwardRef(FunctionName)
+            """
+            # export default FunctionName (separate statement)
+            if node.type == "export_statement":
+                for child in node.children:
+                    # export default identifier
+                    if child.type == "identifier":
+                        exported_names.add(get_text(child))
+                    # export default expression (like memo(Component))
+                    elif child.type == "call_expression":
+                        # Check for HOC patterns: memo(X), forwardRef(X)
+                        func_node = child.child_by_field_name("function")
+                        if func_node and func_node.type == "identifier":
+                            func_name = get_text(func_node)
+                            # React HOC functions
+                            if func_name in ("memo", "forwardRef", "lazy", "createContext"):
+                                args_node = child.child_by_field_name("arguments")
+                                if args_node:
+                                    for arg in args_node.children:
+                                        if arg.type == "identifier":
+                                            exported_names.add(get_text(arg))
+                                        elif arg.type == "call_expression":
+                                            # memo(forwardRef(Component))
+                                            inner_args = arg.child_by_field_name("arguments")
+                                            if inner_args:
+                                                for inner_arg in inner_args.children:
+                                                    if inner_arg.type == "identifier":
+                                                        exported_names.add(get_text(inner_arg))
+
+            # Check for HOC patterns in variable declarations
+            # export const X = memo(Component, ...)
+            if node.type == "variable_declarator":
+                value_node = node.child_by_field_name("value")
+                if value_node and value_node.type == "call_expression":
+                    func_node = value_node.child_by_field_name("function")
+                    if func_node and func_node.type == "identifier":
+                        func_name = get_text(func_node)
+                        if func_name in ("memo", "forwardRef", "lazy", "connect", "withRouter"):
+                            args_node = value_node.child_by_field_name("arguments")
+                            if args_node:
+                                for arg in args_node.children:
+                                    if arg.type == "identifier":
+                                        exported_names.add(get_text(arg))
+
+            for child in node.children:
+                find_exported_names(child)
+
+        # First pass: find all exported names
+        find_exported_names(root)
 
         def visit(node: "Node") -> None:
             name = None
@@ -731,12 +873,16 @@ class CallGraphAnalyzer:
             if name:
                 node_id = f"{file_path}:{name}"
 
+                # Check if this function is exported via separate statement or HOC
+                is_exported_separately = name in exported_names
+
                 # Determine if this is an entry point
                 is_entry = (
                     file_is_entry_point  # All functions in test files
                     or is_entry_point_by_name(name)  # Name pattern match
                     or is_callback_by_name(name)  # Callback pattern match
                     or exported  # Exported functions are entry points
+                    or is_exported_separately  # Exported via separate statement or HOC
                 )
 
                 call_graph.nodes[node_id] = CallGraphNode(
@@ -1141,18 +1287,30 @@ class CallGraphAnalyzer:
 
         visit(root)
 
-    def to_dead_code_findings(self, call_graph: CallGraph) -> list[DeadCodeFinding]:
+    def to_dead_code_findings(
+        self,
+        call_graph: CallGraph,
+        days_since_modified_map: dict[str, int] | None = None,
+        complexity_map: dict[str, float] | None = None,
+    ) -> list[DeadCodeFinding]:
         """Convert unreachable nodes to DeadCodeFinding objects.
 
         Generates natural language evidence strings and suggested actions
-        for each dead code finding.
+        for each dead code finding. Calculates impact_score using ScoringService.
 
         Args:
             call_graph: The analyzed call graph
+            days_since_modified_map: Optional dict mapping file paths to days since last modified
+            complexity_map: Optional dict mapping file paths to complexity scores (0-100)
 
         Returns:
-            List of DeadCodeFinding objects for unreachable functions
+            List of DeadCodeFinding objects for unreachable functions, sorted by impact_score descending
+
+        Requirements: 1.1, 1.6
         """
+        from app.services.scoring import get_scoring_service
+
+        scoring_service = get_scoring_service()
         unreachable = call_graph.get_unreachable()
         findings = []
 
@@ -1165,6 +1323,23 @@ class CallGraphAnalyzer:
             # Generate suggested action
             suggested_action = f"Safe to remove - no callers found. This will reduce codebase by {line_count} lines."
 
+            # Get optional data for scoring
+            days_since_modified = None
+            if days_since_modified_map and node.file_path in days_since_modified_map:
+                days_since_modified = days_since_modified_map[node.file_path]
+
+            complexity = None
+            if complexity_map and node.file_path in complexity_map:
+                complexity = complexity_map[node.file_path]
+
+            # Calculate impact score using ScoringService
+            impact_score = scoring_service.calculate_dead_code_impact_score(
+                line_count=line_count,
+                file_path=node.file_path,
+                days_since_modified=days_since_modified,
+                complexity=complexity,
+            )
+
             finding = DeadCodeFinding(
                 file_path=node.file_path,
                 function_name=node.name,
@@ -1175,8 +1350,12 @@ class CallGraphAnalyzer:
                 evidence=evidence,
                 suggested_action=suggested_action,
                 last_modified=None,  # Could be populated from git history
+                impact_score=impact_score,
             )
             findings.append(finding)
+
+        # Sort findings by impact_score descending (highest impact first)
+        findings.sort(key=lambda f: f.impact_score, reverse=True)
 
         return findings
 

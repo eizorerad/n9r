@@ -31,6 +31,7 @@ class DeadCodeFindingSchema(BaseSchema):
     confidence: float = Field(..., ge=0.0, le=1.0, description="1.0 = call-graph proven")
     evidence: str
     suggested_action: str
+    impact_score: float = Field(0.0, ge=0.0, le=100.0, description="Dead Code Impact Score 0-100")
     is_dismissed: bool
     dismissed_at: datetime | None = None
     created_at: datetime
@@ -51,6 +52,7 @@ class HotSpotFindingSchema(BaseSchema):
     unique_authors: int = Field(..., ge=0, description="Number of unique authors")
     risk_factors: list[str] = Field(default_factory=list, description="List of risk factors")
     suggested_action: str | None = None
+    risk_score: float = Field(0.0, ge=0.0, le=100.0, description="Hot Spot Risk Score 0-100")
     created_at: datetime
 
 

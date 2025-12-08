@@ -218,7 +218,8 @@ class GitAnalyzer:
         """Convert high-churn files to HotSpotFinding objects.
 
         Filters files with changes_90d > threshold and generates
-        natural language risk factors and suggested actions.
+        natural language risk factors and suggested actions. Calculates
+        risk_score using ScoringService.
 
         Args:
             churn_data: Dictionary of file paths to FileChurn objects
@@ -226,10 +227,13 @@ class GitAnalyzer:
             threshold: Minimum changes in 90 days to be considered a hot spot (default 10)
 
         Returns:
-            List of HotSpotFinding objects for high-churn files
+            List of HotSpotFinding objects for high-churn files, sorted by risk_score descending
 
-        Requirements: 2.3, 2.4
+        Requirements: 2.1, 2.3, 2.4, 2.6
         """
+        from app.services.scoring import get_scoring_service
+
+        scoring_service = get_scoring_service()
         findings: list[HotSpotFinding] = []
 
         for file_path, churn in churn_data.items():
@@ -248,6 +252,14 @@ class GitAnalyzer:
             # Generate suggested action
             suggested_action = self._generate_suggested_action(churn, coverage_rate)
 
+            # Calculate risk score using ScoringService
+            risk_score = scoring_service.calculate_hot_spot_risk_score(
+                changes_90d=churn.changes_90d,
+                coverage_rate=coverage_rate,
+                file_path=file_path,
+                unique_authors=churn.unique_authors,
+            )
+
             finding = HotSpotFinding(
                 file_path=file_path,
                 churn_count=churn.changes_90d,
@@ -255,11 +267,12 @@ class GitAnalyzer:
                 unique_authors=churn.unique_authors,
                 risk_factors=risk_factors,
                 suggested_action=suggested_action,
+                risk_score=risk_score,
             )
             findings.append(finding)
 
-        # Sort by churn count descending
-        findings.sort(key=lambda f: f.churn_count, reverse=True)
+        # Sort by risk_score descending (highest risk first)
+        findings.sort(key=lambda f: f.risk_score, reverse=True)
 
         return findings
 

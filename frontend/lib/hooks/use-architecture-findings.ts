@@ -37,6 +37,7 @@ export interface DeadCodeFinding {
   is_dismissed: boolean;
   dismissed_at: string | null;
   created_at: string;
+  impact_score: number;
 }
 
 export interface HotSpotFinding {
@@ -48,6 +49,7 @@ export interface HotSpotFinding {
   risk_factors: string[];
   suggested_action: string | null;
   created_at: string;
+  risk_score: number;
 }
 
 export interface SemanticAIInsight {

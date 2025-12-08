@@ -15,6 +15,7 @@ from uuid import UUID
 from app.schemas.architecture_llm import (
     LLMReadyArchitectureData,
 )
+from app.services.scoring import get_scoring_service
 
 logger = logging.getLogger(__name__)
 
@@ -169,15 +170,64 @@ class SemanticAIInsightsService:
     def _build_insights_prompt(self, data: LLMReadyArchitectureData) -> str:
         """Build prompt with architecture data for LLM.
 
+        Uses ScoringService.select_llm_samples() to select the most impactful
+        findings for LLM analysis. The selection algorithm:
+        1. Takes top 50% from highest-scoring findings
+        2. Fills remaining 50% with diversity sampling from different directories
+        3. Falls back to next highest scores if diversity exhausted
+
         Args:
             data: LLM-ready architecture data
 
         Returns:
             Formatted prompt string
+
+        Requirements: 4.1, 4.2, 4.3, 4.5
         """
-        # Convert dataclasses to dicts for JSON serialization
-        dead_code_list = [asdict(d) for d in data.dead_code[:15]]  # Limit to top 15
-        hot_spots_list = [asdict(h) for h in data.hot_spots[:15]]  # Limit to top 15
+        scoring_service = get_scoring_service()
+
+        # Convert dataclasses to dicts for scoring and JSON serialization
+        dead_code_dicts = [asdict(d) for d in data.dead_code]
+        hot_spots_dicts = [asdict(h) for h in data.hot_spots]
+
+        # Use score-based selection for dead code findings
+        # The impact_score field is already calculated by CallGraphAnalyzer
+        selected_dead_code = scoring_service.select_llm_samples(
+            findings=dead_code_dicts,
+            limit=15,
+            score_key="impact_score",
+            file_path_key="file_path",
+        )
+
+        # Use score-based selection for hot spot findings
+        # The risk_score field is already calculated by GitAnalyzer
+        selected_hot_spots = scoring_service.select_llm_samples(
+            findings=hot_spots_dicts,
+            limit=15,
+            score_key="risk_score",
+            file_path_key="file_path",
+        )
+
+        # Log selected findings and their scores for transparency
+        if selected_dead_code:
+            dead_code_scores = [
+                f"{f.get('function_name', 'unknown')}:{f.get('impact_score', 0):.1f}"
+                for f in selected_dead_code[:5]  # Log top 5
+            ]
+            logger.info(
+                f"LLM dead code selection: {len(selected_dead_code)} findings "
+                f"(top scores: {', '.join(dead_code_scores)})"
+            )
+
+        if selected_hot_spots:
+            hot_spot_scores = [
+                f"{f.get('file_path', 'unknown').split('/')[-1]}:{f.get('risk_score', 0):.1f}"
+                for f in selected_hot_spots[:5]  # Log top 5
+            ]
+            logger.info(
+                f"LLM hot spot selection: {len(selected_hot_spots)} findings "
+                f"(top scores: {', '.join(hot_spot_scores)})"
+            )
 
         return f"""Analyze this codebase and generate prioritized recommendations.
 
@@ -189,11 +239,11 @@ class SemanticAIInsightsService:
 - Hot Spot Count: {data.summary.hot_spot_count}
 - Main Concerns: {data.summary.main_concerns}
 
-## Dead Code Findings ({len(data.dead_code)} total, showing top {len(dead_code_list)})
-{json.dumps(dead_code_list, indent=2)}
+## Dead Code Findings ({len(data.dead_code)} total, showing top {len(selected_dead_code)} by impact score)
+{json.dumps(selected_dead_code, indent=2)}
 
-## Hot Spot Findings ({len(data.hot_spots)} total, showing top {len(hot_spots_list)})
-{json.dumps(hot_spots_list, indent=2)}
+## Hot Spot Findings ({len(data.hot_spots)} total, showing top {len(selected_hot_spots)} by risk score)
+{json.dumps(selected_hot_spots, indent=2)}
 
 Generate 3-5 prioritized recommendations based on these findings.
 Focus on the most impactful issues that developers should address first.

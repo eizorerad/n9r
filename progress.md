@@ -267,3 +267,28 @@ Implemented Semantic AI Insights feature transforming raw architecture metrics i
 Fixed multiple progress tracking issues: (1) JSON repair with multi-strategy fallback for malformed LLM responses, (2) Race condition fix by generating insights BEFORE marking semantic cache complete, (3) New `generating_insights` status in state machine with database migration, (4) Semantic cache tracked as separate task in progress panel with proper polling, (5) Frontend data sync fixes for immediate results without page refresh.
 
 Frontend displays AI insights first in semantic analysis panel with collapse/expand (5 items default), optional force-directed graph visualization, and proper progress tracking showing "Generating AI insights..." during LLM call.
+
+
+# 08-dec-2025 - Transparent Scoring Formula
+
+## Files Created
+- `backend/app/services/scoring.py` - ScoringService with DCI, HSR, AHS formulas, LLM sample selection, color coding
+- `backend/alembic/versions/011_add_scoring_columns.py` - Migration adding impact_score to dead_code, risk_score to file_churn
+- `backend/tests/test_scoring_service.py` - Property tests for all scoring formulas (7 properties)
+- `frontend/components/scoring-formula-dialog.tsx` - Dialog explaining all scoring formulas with weights
+- `frontend/__tests__/components/semantic-ai-insights-sorting.test.ts` - Tests for sorting functionality
+
+## Files Modified
+- `backend/app/schemas/architecture_llm.py` - Added impact_score to DeadCodeFinding, risk_score to HotSpotFinding
+- `backend/app/schemas/architecture_findings.py` - Added impact_score/risk_score fields to API schemas
+- `backend/app/models/dead_code.py` - Added impact_score column
+- `backend/app/models/file_churn.py` - Added risk_score column
+- `backend/app/services/call_graph_analyzer.py` - Integrated ScoringService, sorted findings by impact_score
+- `backend/app/services/git_analyzer.py` - Integrated ScoringService, sorted findings by risk_score
+- `backend/app/services/semantic_ai_insights.py` - Uses select_llm_samples() for score-based + diversity sampling
+- `backend/app/api/v1/architecture.py` - Uses ScoringService for health score calculation
+- `frontend/components/semantic-ai-insights.tsx` - Added score badges, sort toggle (score/type/file), info icon with formula dialog
+- `frontend/lib/hooks/use-architecture-findings.ts` - Added impact_score/risk_score to types
+
+## What Was Done
+Implemented transparent, explainable scoring formulas for all architecture findings. Dead Code Impact Score (DCI) uses weighted formula: Size×0.40 + Location×0.30 + Recency×0.20 + Complexity×0.10. Hot Spot Risk Score (HSR) uses: Churn×0.30 + Coverage×0.30 + Location×0.20 + Volatility×0.20. Architecture Health Score (AHS) calculates penalties capped at 40/30/20 for dead code/hot spots/outliers. LLM sample selection takes top 50% by score + 50% diversity sampling from different directories. Frontend displays color-coded score badges (green/amber/red), sort toggle with 3 options, and info dialog explaining all formulas. Property-based tests validate 7 correctness properties.

@@ -75,6 +75,11 @@ class DeadCode(BaseModelNoUpdate):
         String(500),
         nullable=False,
     )
+    impact_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        server_default="0.0",
+    )
     is_dismissed: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

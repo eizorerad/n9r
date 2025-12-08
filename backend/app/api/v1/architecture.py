@@ -28,6 +28,7 @@ from app.schemas.architecture_findings import (
     HotSpotFindingSchema,
     SemanticAIInsightSchema,
 )
+from app.services.scoring import get_scoring_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -137,11 +138,39 @@ async def get_architecture_findings(
     insights_result = await db.execute(insights_query)
     insights = insights_result.scalars().all()
 
-    # Calculate health score and main concerns
+    # Extract totals from analysis metrics and semantic_cache for health score calculation
+    # Requirements: 3.1, 3.2, 3.3, 3.4
+    metrics = analysis.metrics or {}
+    semantic_cache = analysis.semantic_cache or {}
+
+    # Get total_files from metrics or semantic_cache
+    total_files = metrics.get("total_files", 0) or semantic_cache.get("total_files", 0)
+    if total_files == 0:
+        # Fallback: use count of unique files from hot spots
+        total_files = len({hs.file_path for hs in hot_spot_findings}) or 1
+
+    # Get total_chunks from semantic_cache
+    total_chunks = semantic_cache.get("total_chunks", 0)
+    if total_chunks == 0:
+        # Fallback: use vectors_count from analysis
+        total_chunks = analysis.vectors_count or 1
+
+    # Estimate total_functions - use total_chunks as proxy or estimate from files
+    # Each file typically has ~5 functions on average
+    total_functions = total_chunks if total_chunks > 0 else max(total_files * 5, 1)
+
+    # Get outlier count from semantic_cache
+    outliers = semantic_cache.get("outliers", [])
+    outlier_count = len(outliers) if isinstance(outliers, list) else 0
+
+    # Calculate health score using penalty-based formula
     health_score = _calculate_health_score(
         dead_code_count=len(dead_code_findings),
         hot_spot_count=len(hot_spot_findings),
-        insights_count=len(insights),
+        outlier_count=outlier_count,
+        total_functions=total_functions,
+        total_files=total_files,
+        total_chunks=total_chunks,
     )
     main_concerns = _generate_main_concerns(
         dead_code_findings=dead_code_findings,
@@ -324,25 +353,32 @@ async def dismiss_insight(
 def _calculate_health_score(
     dead_code_count: int,
     hot_spot_count: int,
-    insights_count: int,
+    outlier_count: int,
+    total_functions: int,
+    total_files: int,
+    total_chunks: int,
 ) -> int:
-    """Calculate architecture health score (0-100).
+    """Calculate architecture health score (0-100) using penalty-based formula.
 
-    Higher score = healthier architecture.
-    Deductions based on findings count.
+    Uses ScoringService.calculate_architecture_health_score() with the formula:
+    AHS = 100 - (Dead Code Penalty + Hot Spot Penalty + Outlier Penalty)
+
+    Where:
+    - Dead Code Penalty = min(40, (dead_code_count / total_functions) × 80)
+    - Hot Spot Penalty = min(30, (hot_spot_count / total_files) × 60)
+    - Outlier Penalty = min(20, (outlier_count / total_chunks) × 40)
+
+    Requirements: 3.1, 3.2, 3.3, 3.4
     """
-    score = 100
-
-    # Deduct for dead code (max 30 points)
-    score -= min(dead_code_count * 3, 30)
-
-    # Deduct for hot spots (max 30 points)
-    score -= min(hot_spot_count * 5, 30)
-
-    # Deduct for high-priority insights (max 20 points)
-    score -= min(insights_count * 4, 20)
-
-    return max(0, score)
+    scoring_service = get_scoring_service()
+    return scoring_service.calculate_architecture_health_score(
+        dead_code_count=dead_code_count,
+        total_functions=total_functions,
+        hot_spot_count=hot_spot_count,
+        total_files=total_files,
+        outlier_count=outlier_count,
+        total_chunks=total_chunks,
+    )
 
 
 def _generate_main_concerns(

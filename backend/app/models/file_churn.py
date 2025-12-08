@@ -64,6 +64,11 @@ class FileChurn(BaseModelNoUpdate):
         String(500),
         nullable=True,
     )
+    risk_score: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        server_default="0.0",
+    )
 
     # Relationships
     analysis: Mapped["Analysis"] = relationship(
