@@ -254,15 +254,17 @@ export function useArchitectureFindings(options: UseArchitectureFindingsOptions)
     queryKey,
     queryFn: () => fetchArchitectureFindings(token, repositoryId, analysisId, includeDismissed),
     enabled: isEnabled,
-    // Cache for 5 minutes - findings don't change frequently
-    staleTime: 5 * 60 * 1000,
-    // Keep in cache for 30 minutes
-    gcTime: 30 * 60 * 1000,
+    // Cache for 1 minute - insights may be generated after initial fetch
+    staleTime: 1 * 60 * 1000,
+    // Keep in cache for 10 minutes
+    gcTime: 10 * 60 * 1000,
     // Retry on failure
     retry: 2,
     retryDelay: 1000,
     // Always refetch on mount to ensure fresh data after analysis completes
     refetchOnMount: true,
+    // Refetch when window regains focus
+    refetchOnWindowFocus: true,
   });
 }
 

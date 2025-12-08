@@ -57,7 +57,7 @@ function getFileColor(name: string): string {
 }
 
 function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading }: FileTreeItemProps) {
-  const [isOpen, setIsOpen] = useState(level < 1) // Only auto-expand root level for lazy loading
+  const [isOpen, setIsOpen] = useState(false) // Start all directories closed to ensure data loads on first expand
   const isSelected = selectedPath === node.path
   const isDirectory = node.type === 'directory'
   const isCurrentlyLoading = isLoading?.(node.path) ?? false

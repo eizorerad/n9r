@@ -260,29 +260,34 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   }, [refreshKey, selectedAnalysisId, token, fetchSemanticCache])
 
   // Refresh semantic cache when status changes to completed
-  // This effect handles the transition from "computing" to "completed"
+  // This effect handles the transition from "computing"/"generating_insights" to "completed"
   useEffect(() => {
     if (!derivedStatus || isRefreshingRef.current) return
 
     const isCached = semanticCache?.is_cached || false
     const currentCacheStatus = derivedStatus.semanticCacheStatus
+    const previousStatus = lastRefreshedCacheStatus.current
 
     console.log('[SemanticAnalysis] Status check:', {
       currentCacheStatus,
+      previousStatus,
       isCached,
-      lastRefreshedCacheStatus: lastRefreshedCacheStatus.current,
       hasSemanticCache: derivedStatus.hasSemanticCache,
     })
 
     // Refresh when semantic cache status becomes completed
-    // Key fix: Check if API says it's completed (hasSemanticCache) OR status is completed
-    // AND our local cache doesn't reflect that yet
-    if (
-      (currentCacheStatus === 'completed' || derivedStatus.hasSemanticCache) &&
-      !isCached &&
-      lastRefreshedCacheStatus.current !== currentCacheStatus
-    ) {
-      console.log('[SemanticAnalysis] Semantic cache completed, refreshing...')
+    // Key fix: Detect transition TO completed from any non-completed state
+    // This ensures we catch the generating_insights -> completed transition
+    const isNowCompleted = currentCacheStatus === 'completed' || derivedStatus.hasSemanticCache
+    const wasNotCompleted = previousStatus !== 'completed'
+    const statusChanged = previousStatus !== currentCacheStatus
+
+    if (isNowCompleted && (wasNotCompleted || statusChanged)) {
+      console.log('[SemanticAnalysis] Semantic cache completed, refreshing...', {
+        previousStatus,
+        currentCacheStatus,
+        isCached,
+      })
       lastRefreshedCacheStatus.current = currentCacheStatus
 
       // Fetch the semantic cache data

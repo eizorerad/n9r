@@ -1,6 +1,6 @@
 "use client"
 
-import { Files, Search, GitGraph, Bug, Blocks, User, Settings } from "lucide-react"
+import { Files, Search, GitBranch, Bug, Blocks, User, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
 

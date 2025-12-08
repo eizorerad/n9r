@@ -74,21 +74,23 @@ function SemanticAIInsightsComponent({ repositoryId, analysisId, token, classNam
     tokenLength: token?.length,
   })
 
-  const { data, isLoading, error, status, fetchStatus } = useArchitectureFindings({
+  const { data, isLoading, error, status, fetchStatus, dataUpdatedAt } = useArchitectureFindings({
     repositoryId,
     analysisId,
     token,
   })
 
-  // Debug: Log query state
+  // Debug: Log query state with more detail
   console.log('[SemanticAIInsights] Query:', {
     status,        // 'pending' | 'error' | 'success'
     fetchStatus,   // 'fetching' | 'paused' | 'idle'
     isLoading,
     hasData: !!data,
-    insightsCount: data?.insights?.length,
-    deadCodeCount: data?.dead_code?.length,
-    hotSpotsCount: data?.hot_spots?.length,
+    insightsCount: data?.insights?.length ?? 0,
+    deadCodeCount: data?.dead_code?.length ?? 0,
+    hotSpotsCount: data?.hot_spots?.length ?? 0,
+    healthScore: data?.summary?.health_score,
+    dataUpdatedAt: dataUpdatedAt ? new Date(dataUpdatedAt).toISOString() : null,
     error: error?.message,
   })
 

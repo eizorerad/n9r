@@ -7,7 +7,7 @@ import { useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   MessageSquare,
-  GitPullRequest,
+
   FileCode,
   X,
   PanelLeftClose,
@@ -52,17 +52,7 @@ const CodeEditor = dynamic(
   }
 )
 
-const DiffEditor = dynamic(
-  () => import('@/components/code-editor').then(mod => mod.DiffEditor),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-full w-full flex items-center justify-center bg-[#1e1e1e]">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-)
+
 
 interface Tab {
   path: string
@@ -185,7 +175,7 @@ export function IDEClient({ id, token }: IDEClientProps) {
 
   const [showChat, setShowChat] = useState(false)
   const [showFileTree, setShowFileTree] = useState(true)
-  const [showDiff, setShowDiff] = useState(false)
+
   const [selectedBranch, setSelectedBranch] = useState<string>('')
 
   // Global commit selection state
@@ -475,20 +465,6 @@ export function IDEClient({ id, token }: IDEClientProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowDiff(!showDiff)}
-              disabled={!activeTabData}
-              className={cn(
-                "h-6 px-2 text-xs hover:bg-[#3c3c3c] text-[#cccccc]",
-                showDiff && "bg-[#3c3c3c] text-white"
-              )}
-              title="Toggle Diff View"
-            >
-              <GitPullRequest className="h-3.5 w-3.5 mr-1.5" />
-              Diff
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
               onClick={() => setShowChat(!showChat)}
               className={cn(
                 "h-6 px-2 text-xs hover:bg-[#3c3c3c] text-[#cccccc]",
@@ -511,21 +487,12 @@ export function IDEClient({ id, token }: IDEClientProps) {
           ) : contentError ? (
             <ErrorDisplay error={contentError} onRetry={refetchContent} title="Failed to load file" />
           ) : activeTab && fileContent ? (
-            showDiff ? (
-              <DiffEditor
-                original=""
-                modified={fileContent.content}
-                language={fileContent.language || getLanguageFromPath(activeTab)}
-                className="bg-[#1e1e1e]"
-              />
-            ) : (
-              <CodeEditor
-                value={fileContent.content}
-                language={fileContent.language || getLanguageFromPath(activeTab)}
-                readOnly
-                className="bg-[#1e1e1e]"
-              />
-            )
+            <CodeEditor
+              value={fileContent.content}
+              language={fileContent.language || getLanguageFromPath(activeTab)}
+              readOnly
+              className="bg-[#1e1e1e]"
+            />
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-[#555555]">
               <div className="mb-4">

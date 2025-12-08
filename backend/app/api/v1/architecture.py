@@ -138,6 +138,11 @@ async def get_architecture_findings(
     insights_result = await db.execute(insights_query)
     insights = insights_result.scalars().all()
 
+    logger.info(
+        f"Architecture findings for analysis {analysis.id}: "
+        f"dead_code={len(dead_code_findings)}, hot_spots={len(hot_spot_findings)}, insights={len(insights)}"
+    )
+
     # Extract totals from analysis metrics and semantic_cache for health score calculation
     # Requirements: 3.1, 3.2, 3.3, 3.4
     metrics = analysis.metrics or {}
@@ -196,6 +201,7 @@ async def get_architecture_findings(
                 confidence=dc.confidence,
                 evidence=dc.evidence,
                 suggested_action=dc.suggested_action,
+                impact_score=dc.impact_score,
                 is_dismissed=dc.is_dismissed,
                 dismissed_at=dc.dismissed_at,
                 created_at=dc.created_at,
@@ -211,6 +217,7 @@ async def get_architecture_findings(
                 unique_authors=hs.unique_authors,
                 risk_factors=hs.risk_factors or [],
                 suggested_action=hs.suggested_action,
+                risk_score=hs.risk_score,
                 created_at=hs.created_at,
             )
             for hs in hot_spot_findings
