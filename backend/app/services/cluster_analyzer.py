@@ -1319,22 +1319,37 @@ class ClusterAnalyzer:
         # Find files in multiple clusters
         hotspots = []
         for file_path, clusters in file_clusters.items():
-            if len(clusters) >= 3:  # Bridges 3+ clusters
+            if len(clusters) >= 2:  # Bridges 2+ clusters (god file indicator)
                 # Use real cluster names if available, fallback to generic IDs
                 if cluster_id_to_name:
                     names = [cluster_id_to_name.get(c, f"cluster_{c}") for c in sorted(clusters)]
                 else:
                     names = [f"cluster_{c}" for c in sorted(clusters)]
 
+                # Severity-based suggestion
+                cluster_count = len(clusters)
+                if cluster_count >= 4:
+                    suggestion = "Critical: Split this file — it spans too many concerns"
+                elif cluster_count >= 3:
+                    suggestion = "Consider splitting — this file has multiple responsibilities"
+                else:
+                    suggestion = "Review coupling — this file bridges different modules"
+
                 hotspots.append(CouplingHotspot(
                     file_path=file_path,
-                    clusters_connected=len(clusters),
+                    clusters_connected=cluster_count,
                     cluster_names=names,
-                    suggestion="Consider splitting — this file has too many responsibilities",
+                    suggestion=suggestion,
                 ))
 
         # Sort by clusters connected
         hotspots.sort(key=lambda h: h.clusters_connected, reverse=True)
+
+        logger.info(
+            f"Coupling hotspots: {len(hotspots)} files bridge 2+ clusters "
+            f"(from {len(file_clusters)} total files)"
+        )
+
         return hotspots[:10]  # Limit to top 10
 
     def _calculate_overall_score(

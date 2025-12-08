@@ -74,13 +74,14 @@ def outlier_info_cache(draw) -> dict:
 @st.composite
 def coupling_hotspot_cache(draw) -> dict:
     """Generate a valid CouplingHotspotCache dict."""
+    clusters_connected = draw(st.integers(min_value=2, max_value=10))
     return {
         "file_path": draw(valid_file_path()),
-        "clusters_connected": draw(st.integers(min_value=3, max_value=10)),
+        "clusters_connected": clusters_connected,
         "cluster_names": draw(st.lists(
             st.from_regex(r"[a-z][a-z0-9_]*", fullmatch=True).filter(lambda s: 2 <= len(s) <= 15),
-            min_size=3,
-            max_size=10
+            min_size=clusters_connected,  # Must match clusters_connected
+            max_size=clusters_connected
         )),
         "suggestion": draw(st.text(min_size=5, max_size=100)),
     }

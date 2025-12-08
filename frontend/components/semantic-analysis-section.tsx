@@ -78,12 +78,12 @@ interface SemanticAnalysisSectionProps {
 type TabType = 'insights' | 'clusters' | 'issues' | 'hotspots' | 'search' | 'duplicates'
 
 // Reordered tabs per Requirements 6.1:
-// Semantic AI Insights (first), Clusters, Issues, Hotspots
+// Semantic AI Insights (first), Clusters, Outliers, Tech Debt
 const tabs: { id: TabType; label: string; description: string }[] = [
   { id: 'insights', label: 'AI Insights', description: 'AI-powered recommendations' },
   { id: 'clusters', label: 'Clusters', description: 'Visual code organization' },
-  { id: 'issues', label: 'Issues', description: 'Architecture outliers' },
-  { id: 'hotspots', label: 'Hotspots', description: 'Technical debt heatmap' },
+  { id: 'issues', label: 'Outliers', description: 'Misplaced/orphaned code' },
+  { id: 'hotspots', label: 'Tech Debt', description: 'Coupling & debt hotspots' },
   { id: 'search', label: 'Search', description: 'Semantic code search' },
   { id: 'duplicates', label: 'Duplicates', description: 'Similar code patterns' },
 ]
@@ -162,14 +162,22 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     if (architectureFindings) {
       const { insights, dead_code, hot_spots } = architectureFindings
       counts.insights = insights.length + dead_code.length + hot_spots.length
-      counts.hotspots = hot_spots.length
     }
     
-    // Clusters and Issues from semantic cache
+    // Clusters, Issues, and Hotspots from semantic cache
     if (semanticCache?.architecture_health) {
       const { clusters, outliers, coupling_hotspots } = semanticCache.architecture_health
       counts.clusters = clusters?.length ?? null
-      counts.issues = (outliers?.length ?? 0) + (coupling_hotspots?.length ?? 0)
+      counts.issues = outliers?.length ?? null
+      // Tech Debt tab shows TechDebtHeatmap which combines:
+      // - coupling_hotspots (files bridging clusters)
+      // - low-similarity outliers (nearest_similarity < 0.4, max 10)
+      const couplingCount = coupling_hotspots?.length ?? 0
+      const lowSimilarityOutliers = (outliers ?? [])
+        .filter(o => o.nearest_similarity < 0.4)
+        .slice(0, 10)
+        .length
+      counts.hotspots = couplingCount + lowSimilarityOutliers
     }
     
     // Duplicates from semantic cache

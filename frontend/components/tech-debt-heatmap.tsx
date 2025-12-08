@@ -179,7 +179,7 @@ export function TechDebtHeatmap({ className, cachedData, hasSemanticCache = fals
           size="sm"
           onClick={() => setView('hotspots')}
         >
-          Hotspots ({hotspots.length})
+          Debt Hotspots ({hotspots.length})
         </Button>
         <Button
           variant={view === 'clusters' ? 'default' : 'outline'}

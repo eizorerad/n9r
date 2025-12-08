@@ -244,7 +244,7 @@ Focus on the most impactful issues that developers should address first.
                 insight = {
                     "repository_id": repository_id,
                     "analysis_id": analysis_id,
-                    "insight_type": rec.get("insight_type", "architecture"),
+                    "insight_type": self._normalize_insight_type(rec.get("insight_type", "architecture")),
                     "title": rec.get("title", ""),
                     "description": rec.get("description", ""),
                     "priority": self._normalize_priority(rec.get("priority", "medium")),
@@ -405,7 +405,7 @@ Focus on the most impactful issues that developers should address first.
                 insight = {
                     "repository_id": repository_id,
                     "analysis_id": analysis_id,
-                    "insight_type": insight_type,
+                    "insight_type": self._normalize_insight_type(insight_type),
                     "title": title,
                     "description": description,
                     "priority": self._normalize_priority(priority),
@@ -470,6 +470,33 @@ Focus on the most impactful issues that developers should address first.
         elif priority_lower in ("low", "minor", "trivial"):
             return "low"
         return "medium"
+
+    def _normalize_insight_type(self, insight_type: str) -> str:
+        """Normalize insight_type to valid enum value.
+
+        The database constraint only allows: 'dead_code', 'hot_spot', 'architecture'.
+        Map any other LLM-generated types to the closest valid value.
+
+        Args:
+            insight_type: Insight type string from LLM
+
+        Returns:
+            Normalized insight_type: 'dead_code', 'hot_spot', or 'architecture'
+        """
+        type_lower = insight_type.lower().strip().replace("-", "_").replace(" ", "_")
+
+        # Direct matches
+        if type_lower in ("dead_code", "deadcode", "unused_code", "unreachable_code"):
+            return "dead_code"
+        elif type_lower in ("hot_spot", "hotspot", "churn", "high_churn", "code_churn"):
+            return "hot_spot"
+        elif type_lower in ("architecture", "architectural", "design", "structure"):
+            return "architecture"
+
+        # Map other common LLM-generated types to architecture (catch-all)
+        # These are valid concerns but don't fit dead_code or hot_spot
+        logger.debug(f"Mapping unknown insight_type '{insight_type}' to 'architecture'")
+        return "architecture"
 
 
 def get_semantic_ai_insights_service() -> SemanticAIInsightsService:

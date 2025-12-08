@@ -192,18 +192,21 @@ function SemanticAIInsightsContent({
   const [isExpanded, setIsExpanded] = useState(false)
 
   // Combine all items into a single list for slicing
+  // Order: insights → hot_spots (churn) → dead_code
+  // Hot spots (git churn analysis) shown before dead code because
+  // call-graph dead code detection has more false positives
   const allItems = useMemo(() => {
     const items: Array<{
       type: 'insight' | 'dead_code' | 'hot_spot'
       data: SemanticAIInsight | DeadCodeFinding | HotSpotFinding
     }> = []
     
-    // Add insights first (highest priority)
+    // Add insights first (highest priority - LLM recommendations)
     insights.forEach(insight => items.push({ type: 'insight', data: insight }))
-    // Then dead code
-    dead_code.forEach(finding => items.push({ type: 'dead_code', data: finding }))
-    // Then hot spots
+    // Then hot spots (git churn - more reliable signal)
     hot_spots.forEach(finding => items.push({ type: 'hot_spot', data: finding }))
+    // Then dead code (call-graph analysis - may have false positives)
+    dead_code.forEach(finding => items.push({ type: 'dead_code', data: finding }))
     
     return items
   }, [insights, dead_code, hot_spots])

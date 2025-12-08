@@ -59,11 +59,13 @@ function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache =
     if (!data) return null
     // Handle both 'overall_score' and legacy 'score' field for backward compatibility
     const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
-    const issueCount = data.outliers.length + data.coupling_hotspots.length
+    // Issues tab shows only outliers, Hotspots tab shows coupling_hotspots
+    const outlierCount = data.outliers.length
+    const hotspotCount = data.coupling_hotspots.length
     const hasScore = typeof scoreValue === 'number'
     const displayScore = hasScore ? scoreValue : 0
     
-    return { scoreValue, issueCount, hasScore, displayScore }
+    return { scoreValue, outlierCount, hotspotCount, hasScore, displayScore }
   }, [data])
 
   const getScoreColor = (score: number) => {
@@ -113,7 +115,7 @@ function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache =
     )
   }
   
-  const { issueCount, hasScore, displayScore } = computedValues
+  const { outlierCount, hotspotCount, hasScore, displayScore } = computedValues
 
   return (
     <div className={cn('space-y-6', className)}>
@@ -177,14 +179,14 @@ function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache =
           size="sm"
           onClick={() => setActiveTab('issues')}
         >
-          Issues ({issueCount})
+          Issues ({outlierCount})
         </Button>
         <Button
           variant={activeTab === 'hotspots' ? 'default' : 'outline'}
           size="sm"
           onClick={() => setActiveTab('hotspots')}
         >
-          Hotspots ({data.coupling_hotspots.length})
+          Coupling ({data.coupling_hotspots.length})
         </Button>
       </div>
 
