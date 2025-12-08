@@ -29,7 +29,7 @@ export interface AnalysisFullStatus {
   vectors_count: number;
 
   // Semantic cache status
-  semantic_cache_status: "none" | "pending" | "computing" | "completed" | "failed";
+  semantic_cache_status: "none" | "pending" | "computing" | "generating_insights" | "completed" | "failed";
   has_semantic_cache: boolean;
 
   // AI Scan status (Requirements 3.3)
@@ -130,10 +130,12 @@ function getPollingInterval(data: AnalysisFullStatus | undefined): number | fals
 
   // Fast polling during active processing (2s)
   // Includes AI scan running state (Requirements 4.4)
+  // Includes generating_insights status for semantic cache LLM phase
   if (
     data.analysis_status === "running" ||
     data.embeddings_status === "running" ||
     data.semantic_cache_status === "computing" ||
+    data.semantic_cache_status === "generating_insights" ||
     data.ai_scan_status === "running"
   ) {
     return 2000;
@@ -288,10 +290,11 @@ export function useAnalysisStatusWithStore(
 
     // Dynamic import to avoid SSR issues
     import("@/lib/stores/analysis-progress-store").then(
-      ({ useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId, getAIScanTaskId }) => {
+      ({ useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId, getSemanticCacheTaskId, getAIScanTaskId }) => {
         const store = useAnalysisProgressStore.getState();
         const analysisTaskId = getAnalysisTaskId(repositoryId);
         const embeddingsTaskId = getEmbeddingsTaskId(repositoryId);
+        const semanticCacheTaskId = getSemanticCacheTaskId(repositoryId);
         const aiScanTaskId = getAIScanTaskId(repositoryId);
 
         const data = result.data!;
@@ -367,6 +370,69 @@ export function useAnalysisStatusWithStore(
             // Remove failed task after delay
             setTimeout(() => {
               store.removeTask(embeddingsTaskId);
+            }, 5000);
+          }
+        }
+
+        // Sync semantic cache task (tracks computing and generating_insights phases)
+        // This is separate from embeddings - it runs after embeddings complete
+        const isSemanticCacheActive = 
+          data.semantic_cache_status === "pending" ||
+          data.semantic_cache_status === "computing" ||
+          data.semantic_cache_status === "generating_insights";
+        
+        if (isSemanticCacheActive) {
+          const semanticProgress = 
+            data.semantic_cache_status === "pending" ? 0 :
+            data.semantic_cache_status === "computing" ? 50 :
+            data.semantic_cache_status === "generating_insights" ? 90 : 0;
+          
+          const semanticMessage = 
+            data.semantic_cache_status === "pending" ? "Waiting to compute semantic analysis..." :
+            data.semantic_cache_status === "computing" ? "Computing clusters and outliers..." :
+            data.semantic_cache_status === "generating_insights" ? "Generating AI insights..." : null;
+
+          if (store.hasTask(semanticCacheTaskId)) {
+            store.updateTask(semanticCacheTaskId, {
+              status: "running",
+              progress: semanticProgress,
+              stage: data.semantic_cache_status,
+              message: semanticMessage,
+            });
+          } else {
+            // Add semantic cache task if it doesn't exist
+            store.addTask({
+              id: semanticCacheTaskId,
+              type: "semantic_cache",
+              repositoryId,
+              status: "running",
+              progress: semanticProgress,
+              stage: data.semantic_cache_status,
+              message: semanticMessage,
+            });
+          }
+        } else if (data.semantic_cache_status === "completed") {
+          if (store.hasTask(semanticCacheTaskId)) {
+            store.updateTask(semanticCacheTaskId, {
+              status: "completed",
+              progress: 100,
+              stage: "completed",
+              message: "Semantic analysis complete",
+            });
+            // Remove completed task after delay
+            setTimeout(() => {
+              store.removeTask(semanticCacheTaskId);
+            }, 3000);
+          }
+        } else if (data.semantic_cache_status === "failed") {
+          if (store.hasTask(semanticCacheTaskId)) {
+            store.updateTask(semanticCacheTaskId, {
+              status: "failed",
+              message: "Semantic analysis failed",
+            });
+            // Remove failed task after delay
+            setTimeout(() => {
+              store.removeTask(semanticCacheTaskId);
             }, 5000);
           }
         }

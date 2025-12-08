@@ -56,51 +56,60 @@ export default function Home() {
         <div className="relative z-10 container mx-auto px-4">
           <div className="inline-flex items-center gap-2 bg-background/50 backdrop-blur-sm border border-primary/20 text-primary px-4 py-2 rounded-full text-sm mb-8 shadow-sm">
             <Zap className="w-4 h-4" />
-            AI-Powered Code Quality Platform
+            Immortal Code Architecture
           </div>
           <h1 className="text-5xl md:text-7xl font-bold mb-6 text-foreground drop-shadow-md">
-            AI Code Detox &<br />Auto-Healing Platform
+            Grant Eternal Life<br />to Your Codebase
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-12 drop-shadow-sm">
-            Automatically clean up AI-generated and legacy code, keeping your software
-            projects architecturally healthy and maintainable.
+            Transform vibe-coded corpses into undying, maintainable masterpieces.
+            No code stays dead forever.
           </p>
 
-          {/* Input Panel */}
-          <div className="max-w-2xl mx-auto bg-background/60 backdrop-blur-md p-2 rounded-xl border border-border/50 shadow-2xl">
-            <form onSubmit={handleAnalyze} className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
+          {/* Simple Input Panel */}
+          <div className="max-w-xl mx-auto rounded-lg overflow-hidden shadow-2xl border border-neutral-700/50">
+            {/* Title Bar with Traffic Lights */}
+            <div className="bg-[#3a3a3c] px-4 py-3 flex items-center">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-[#ff5f57]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#febc2e]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#28c840]"></div>
+              </div>
+            </div>
+            
+            {/* Content Area */}
+            <div className="bg-[#2d2d2d] px-6 py-6">
+              <label className="block text-neutral-300 text-sm mb-4">
+                Enter GitHub Repository URL:
+              </label>
+              <form onSubmit={handleAnalyze} className="flex items-center gap-3">
                 <Input
                   type="text"
-                  placeholder="https://github.com/owner/repo"
+                  placeholder="https://github.com/username/repo"
                   value={repoUrl}
                   onChange={(e) => setRepoUrl(e.target.value)}
-                  className="pl-10 h-12 bg-background/50 border-border/50 focus:ring-primary/20 text-lg"
+                  className="flex-1 h-10 px-3 bg-[#1e1e1e] border border-neutral-600 rounded text-neutral-300 font-mono text-sm placeholder:text-neutral-500 focus:ring-0 focus:border-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
-              </div>
-              <Button
-                type="submit"
-                size="lg"
-                className="h-12 px-8 text-lg font-semibold shadow-lg shadow-primary/20"
-                disabled={isLoading || !repoUrl.trim()}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    Redirecting...
-                  </>
-                ) : (
-                  <>
-                    Analyze Now
-                    <ArrowRight className="ml-2 w-5 h-5" />
-                  </>
-                )}
-              </Button>
-            </form>
-            <p className="text-xs text-muted-foreground mt-3 text-center">
-              Try popular repos like <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => setRepoUrl("https://github.com/facebook/react")}>facebook/react</span> or <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => setRepoUrl("https://github.com/vercel/next.js")}>vercel/next.js</span>
-            </p>
+                <Button
+                  type="submit"
+                  onClick={handleAnalyze}
+                  className="h-10 px-4 bg-[#3a3a3c] hover:bg-[#4a4a4c] text-neutral-200 text-sm border border-neutral-600 rounded shadow-none"
+                  disabled={isLoading || !repoUrl.trim()}
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      Analyze Code
+                      <Github className="ml-2 h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </form>
+            </div>
           </div>
         </div>
       </section>
@@ -109,23 +118,26 @@ export default function Home() {
 
 
 
-      {/* Footer */}
-      <footer className="border-t border-border/50 py-4 shrink-0 bg-background/80 backdrop-blur-md z-50">
+      {/* Footer - IDE Status Bar Style */}
+      <footer className="bg-[#1e1e1e] border-t border-neutral-700/50 py-2 shrink-0 z-50">
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded flex items-center justify-center text-xs font-bold shadow-sm">
-              n9
-            </div>
-            <span className="text-muted-foreground text-xs">© 2025 n9r. All rights reserved.</span>
+          <div className="flex items-center gap-3">
+            <img src="/logo.svg" alt="Necromancer" className="w-5 h-5 opacity-70" />
+            <span className="text-neutral-500 text-xs font-mono">© 2025 Necromancer</span>
+            <span className="text-neutral-600 text-xs">|</span>
+            <span className="text-neutral-500 text-xs font-mono">v1.0.0</span>
           </div>
-          <div className="flex items-center gap-6 text-xs text-muted-foreground">
-            <Link href="/privacy" className="hover:text-foreground transition-colors">
+          <div className="flex items-center gap-4 text-xs font-mono">
+            <Link href="/privacy" className="text-neutral-500 hover:text-neutral-300 transition-colors">
               Privacy
             </Link>
-            <Link href="/terms" className="hover:text-foreground transition-colors">
+            <span className="text-neutral-600">|</span>
+            <Link href="/terms" className="text-neutral-500 hover:text-neutral-300 transition-colors">
               Terms
             </Link>
-            <Link href="https://github.com/n9r" className="hover:text-foreground transition-colors">
+            <span className="text-neutral-600">|</span>
+            <Link href="https://github.com/eizorerad/n9r" className="text-neutral-500 hover:text-neutral-300 transition-colors flex items-center gap-1">
+              <Github className="w-3 h-3" />
               GitHub
             </Link>
           </div>

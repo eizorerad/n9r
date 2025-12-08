@@ -372,13 +372,15 @@ export default async function RepositoryPage({
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="sticky top-0 z-50 glass-header border-b border-border/40">
-        <div className="container mx-auto px-4 sm:px-6 py-3 sm:py-4">
+      <header className="sticky top-0 z-50 bg-[#1e1e1e] border-b border-neutral-700/50">
+        <div className="container mx-auto px-4 sm:px-6 py-3">
           <Link href="/dashboard" className="flex items-center gap-3 group w-fit">
-            <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
-              n9
-            </div>
-            <span className="text-xl font-bold tracking-tight">n9r</span>
+            <img 
+              src="/logo.svg" 
+              alt="Necromancer" 
+              className="w-8 h-8 group-hover:scale-105 transition-transform"
+            />
+            <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
           </Link>
         </div>
       </header>

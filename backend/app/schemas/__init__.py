@@ -14,6 +14,12 @@ from app.schemas.ai_scan import (
     InvestigationStatus,
     RepoOverview,
 )
+from app.schemas.analysis import (
+    AnalysisCreate,
+    AnalysisDetail,
+    AnalysisResponse,
+    AnalysisSummary,
+)
 from app.schemas.architecture_findings import (
     ArchitectureFindingsResponse,
     ArchitectureSummarySchema,
@@ -29,12 +35,6 @@ from app.schemas.architecture_llm import (
     DeadCodeFinding,
     HotSpotFinding,
     LLMReadyArchitectureData,
-)
-from app.schemas.analysis import (
-    AnalysisCreate,
-    AnalysisDetail,
-    AnalysisResponse,
-    AnalysisSummary,
 )
 from app.schemas.auth import (
     AuthCallback,

@@ -9,7 +9,7 @@ Requirements: 7.1, 7.3
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,7 +24,6 @@ from app.schemas.architecture_llm import (
     HotSpotFinding,
     LLMReadyArchitectureData,
 )
-
 
 # =============================================================================
 # Custom Strategies for Architecture Findings
@@ -128,7 +127,7 @@ class TestDatabasePersistenceRoundTrip:
             obj.id = uuid.uuid4()
             obj.is_dismissed = False
             obj.dismissed_at = None
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
             persisted_dead_codes.append(obj)
             return obj
 
@@ -212,7 +211,7 @@ class TestDatabasePersistenceRoundTrip:
             for k, v in kwargs.items():
                 setattr(obj, k, v)
             obj.id = uuid.uuid4()
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
             persisted_file_churns.append(obj)
             return obj
 
@@ -387,7 +386,7 @@ class TestDismissalStateChange:
 
         # Simulate the dismiss operation (as done in the API endpoint)
         dead_code.is_dismissed = True
-        dead_code.dismissed_at = datetime.now(timezone.utc)
+        dead_code.dismissed_at = datetime.now(UTC)
 
         # Post-condition: Property 14 - is_dismissed SHALL be True
         assert dead_code.is_dismissed is True
@@ -436,7 +435,7 @@ class TestDismissalStateChange:
 
         # Perform dismiss operation
         dead_code.is_dismissed = True
-        dead_code.dismissed_at = datetime.now(timezone.utc)
+        dead_code.dismissed_at = datetime.now(UTC)
 
         # Property: All other fields remain unchanged
         assert dead_code.id == original_id
@@ -471,7 +470,7 @@ class TestDismissalStateChange:
 
         # First dismissal
         dead_code.is_dismissed = True
-        first_dismissed_at = datetime.now(timezone.utc)
+        first_dismissed_at = datetime.now(UTC)
         dead_code.dismissed_at = first_dismissed_at
 
         assert dead_code.is_dismissed is True
@@ -515,7 +514,7 @@ class TestDismissalStateChange:
         # Dismiss only the target finding
         target = dead_codes[dismiss_index]
         target.is_dismissed = True
-        target.dismissed_at = datetime.now(timezone.utc)
+        target.dismissed_at = datetime.now(UTC)
 
         # Property: Only the target is dismissed
         for i, dc in enumerate(dead_codes):

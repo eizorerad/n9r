@@ -217,18 +217,18 @@ Focus on the most impactful issues that developers should address first.
         """
         # Log the raw content for debugging
         logger.debug(f"Raw LLM response (first 500 chars): {content[:500]}")
-        
+
         try:
             # Try to repair common JSON issues before parsing
             repaired_content = self._repair_json(content)
             logger.debug(f"Repaired content (first 500 chars): {repaired_content[:500]}")
-            
+
             parsed = json.loads(repaired_content)
             # Handle null, non-dict, or missing recommendations key
             if not isinstance(parsed, dict):
                 logger.warning(f"Parsed content is not a dict: {type(parsed)}")
                 return []
-            
+
             recommendations = parsed.get("recommendations", [])
             if not recommendations:
                 logger.warning("No 'recommendations' key found in parsed JSON")
@@ -295,26 +295,23 @@ Focus on the most impactful issues that developers should address first.
         result = []
         in_string = False
         escaped = False
-        last_quote_pos = -1
-        
+
         for i, char in enumerate(content):
             if escaped:
                 escaped = False
                 result.append(char)
                 continue
-                
+
             if char == '\\':
                 escaped = True
                 result.append(char)
                 continue
-                
+
             if char == '"':
                 in_string = not in_string
-                if in_string:
-                    last_quote_pos = len(result)
                 result.append(char)
                 continue
-            
+
             # If we're in a string and hit a newline, check if it's valid
             if in_string and char == '\n':
                 # Look ahead to see if this looks like the start of a new JSON key
@@ -326,13 +323,13 @@ Focus on the most impactful issues that developers should address first.
                     in_string = False
                     result.append(char)
                     continue
-            
+
             result.append(char)
-        
+
         # If we ended inside a string, close it
         if in_string:
             result.append('"')
-        
+
         content = ''.join(result)
 
         # Try to close unclosed brackets/braces
@@ -431,7 +428,7 @@ Focus on the most impactful issues that developers should address first.
                 try:
                     title = match.group(1).strip()
                     description = match.group(2).strip()
-                    
+
                     if title and description:
                         insight = {
                             "repository_id": repository_id,

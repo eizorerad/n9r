@@ -157,60 +157,140 @@ function PlaygroundContent() {
       <div className="flex-1 overflow-y-auto pt-20">
         <main className="container max-w-5xl mx-auto px-4 py-8 md:py-12">
           <div className="text-center mb-12 space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/5 border border-primary/10 text-primary text-sm font-medium">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 text-sm font-mono">
               <Activity className="h-4 w-4" />
-              Live Code Analysis
+              Live Code Resurrection
             </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              Code Health Playground
+              Code Resurrection Chamber
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Scan any public GitHub repository and get a VCI score instantly.
+              Scan any public GitHub repository and discover its immortality score.
               No sign-up required.
             </p>
           </div>
 
-          {/* Input Section */}
-          <Card className="glass-panel border-border/50 mb-8 max-w-3xl mx-auto shadow-lg shadow-primary/5">
-            <CardContent className="pt-6">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    type="text"
-                    value={repoUrl}
-                    onChange={(e) => setRepoUrl(e.target.value)}
-                    placeholder="https://github.com/owner/repo"
-                    className="pl-9 h-12 bg-background/50 border-border/50 focus:ring-primary/20"
-                    onKeyDown={(e) => e.key === "Enter" && handleScan()}
-                  />
-                </div>
-                <Button
-                  onClick={() => handleScan()}
-                  disabled={isLoading || !repoUrl.trim()}
-                  className="h-12 px-8 bg-[#008236] hover:bg-[#008236]/90 text-white shadow-lg shadow-[#008236]/20 font-medium"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Scanning...
-                    </>
-                  ) : (
-                    "Analyze Repository"
-                  )}
-                </Button>
+          {/* IDE-Style Input Section */}
+          <div className="mb-8 max-w-3xl mx-auto rounded-lg overflow-hidden shadow-2xl border border-neutral-700/50">
+            {/* Title Bar */}
+            <div className="bg-[#323233] px-4 py-2 flex items-center gap-2 border-b border-neutral-700/50">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-[#ff5f57]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#febc2e]"></div>
+                <div className="w-3 h-3 rounded-full bg-[#28c840]"></div>
               </div>
+              <div className="flex-1 text-center">
+                <span className="text-neutral-400 text-xs font-mono">necromancer — playground</span>
+              </div>
+              <div className="w-12"></div>
+            </div>
+            
+            {/* Tab Bar */}
+            <div className="bg-[#252526] flex items-center border-b border-neutral-700/30">
+              <div className="px-4 py-2 bg-[#1e1e1e] border-r border-neutral-700/30 flex items-center gap-2">
+                <Search className="w-3.5 h-3.5 text-neutral-400" />
+                <span className="text-neutral-300 text-xs font-mono">scan.ts</span>
+                <span className="text-neutral-500 text-xs ml-2">×</span>
+              </div>
+            </div>
+            
+            {/* Editor Area */}
+            <div className="bg-[#1e1e1e] p-4">
+              {/* Line Numbers + Code */}
+              <div className="flex items-start gap-4">
+                <div className="flex flex-col text-right text-neutral-600 text-sm font-mono select-none">
+                  <span>1</span>
+                  <span>2</span>
+                  <span>3</span>
+                  <span>4</span>
+                </div>
+                <div className="flex-1 font-mono text-sm">
+                  <div className="text-neutral-500 mb-1">
+                    <span className="text-[#c586c0]">import</span> <span className="text-neutral-400">{"{"}</span> <span className="text-[#9cdcfe]">resurrect</span> <span className="text-neutral-400">{"}"}</span> <span className="text-[#c586c0]">from</span> <span className="text-[#ce9178]">&quot;necromancer&quot;</span><span className="text-neutral-400">;</span>
+                  </div>
+                  <div className="text-neutral-500 mb-1">&nbsp;</div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[#569cd6]">const</span>
+                    <span className="text-[#9cdcfe]">target</span>
+                    <span className="text-neutral-400">=</span>
+                    <span className="text-[#ce9178]">&quot;</span>
+                    <Input
+                      type="text"
+                      value={repoUrl}
+                      onChange={(e) => setRepoUrl(e.target.value)}
+                      placeholder="https://github.com/owner/repo"
+                      className="flex-1 h-6 px-1 py-0 bg-transparent border-0 border-b border-neutral-600 rounded-none text-[#ce9178] font-mono text-sm placeholder:text-neutral-600 focus:ring-0 focus:border-neutral-400 focus-visible:ring-0 focus-visible:ring-offset-0"
+                      onKeyDown={(e) => e.key === "Enter" && handleScan()}
+                    />
+                    <span className="text-[#ce9178]">&quot;</span>
+                    <span className="text-neutral-400">;</span>
+                  </div>
+                  <div className="text-neutral-500">
+                    <span className="text-[#569cd6]">await</span> <span className="text-[#dcdcaa]">resurrect</span><span className="text-neutral-400">(</span><span className="text-[#9cdcfe]">target</span><span className="text-neutral-400">);</span> <span className="text-[#6a9955]">{"// Bring code back to life"}</span>
+                  </div>
+                </div>
+              </div>
+              
               {error && (
-                <div className="mt-4 flex items-center gap-2 text-destructive text-sm bg-destructive/10 p-3 rounded-md border border-destructive/20">
+                <div className="mt-4 flex items-center gap-2 text-red-400 text-xs font-mono bg-red-500/10 p-3 rounded border border-red-500/20">
                   <AlertCircle className="h-4 w-4" />
                   {error}
                 </div>
               )}
-              <p className="text-xs text-muted-foreground mt-4 text-center">
-                Try popular repos like <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => { setRepoUrl("https://github.com/facebook/react"); handleScan("https://github.com/facebook/react"); }}>facebook/react</span> or <span className="font-mono text-primary cursor-pointer hover:underline" onClick={() => { setRepoUrl("https://github.com/vercel/next.js"); handleScan("https://github.com/vercel/next.js"); }}>vercel/next.js</span>
-              </p>
-            </CardContent>
-          </Card>
+              
+              {/* Action Bar */}
+              <div className="mt-4 pt-4 border-t border-neutral-700/30 flex items-center justify-between">
+                <div className="flex items-center gap-3 text-xs text-neutral-500 font-mono">
+                  <span 
+                    className="cursor-pointer hover:text-neutral-300 transition-colors" 
+                    onClick={() => { setRepoUrl("https://github.com/facebook/react"); handleScan("https://github.com/facebook/react"); }}
+                  >
+                    facebook/react
+                  </span>
+                  <span className="text-neutral-600">|</span>
+                  <span 
+                    className="cursor-pointer hover:text-neutral-300 transition-colors" 
+                    onClick={() => { setRepoUrl("https://github.com/vercel/next.js"); handleScan("https://github.com/vercel/next.js"); }}
+                  >
+                    vercel/next.js
+                  </span>
+                </div>
+                <Button
+                  onClick={() => handleScan()}
+                  disabled={isLoading || !repoUrl.trim()}
+                  size="sm"
+                  className="h-8 px-4 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono text-xs border border-neutral-600 shadow-none"
+                >
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      Resurrecting...
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-[#89d185] mr-1">▶</span>
+                      Run Resurrection
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+            
+            {/* Status Bar */}
+            <div className="bg-[#252526] px-4 py-1 flex items-center justify-between text-xs text-neutral-400 border-t border-neutral-700/30">
+              <div className="flex items-center gap-4">
+                <span className="flex items-center gap-1">
+                  <Search className="w-3 h-3" />
+                  scan
+                </span>
+                <span>UTF-8</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span>TypeScript</span>
+                <span>Necromancer v1.0</span>
+              </div>
+            </div>
+          </div>
 
           {/* Progress */}
           {result && (result.status === "pending" || result.status === "running") && (
@@ -487,23 +567,23 @@ function PlaygroundContent() {
                   <div className="text-center space-y-6">
                     <div className="space-y-2">
                       <h3 className="text-2xl font-bold">
-                        Want to fix these issues automatically?
+                        Ready to grant eternal life to your code?
                       </h3>
                       <p className="text-muted-foreground max-w-lg mx-auto">
-                        Sign up for n9r to get AI-powered auto-healing PRs, deep architectural analysis, and continuous monitoring.
+                        Sign up for Necromancer to get AI-powered resurrection PRs, deep architectural analysis, and continuous code immortality monitoring.
                       </p>
                     </div>
                     <Link href="/login">
-                      <Button className="h-12 px-8 text-lg bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all hover:scale-105">
-                        Get Started Free
+                      <Button className="h-12 px-8 text-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono border border-neutral-600 shadow-none transition-all hover:scale-105">
+                        Begin Resurrection
                       </Button>
                     </Link>
 
-                    <div className="mt-12 relative w-full max-w-4xl mx-auto rounded-xl overflow-hidden shadow-2xl border border-border/50 group">
+                    <div className="mt-12 relative w-full max-w-4xl mx-auto rounded-xl overflow-hidden shadow-2xl border border-neutral-700/50 group">
                       <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent z-10 pointer-events-none" />
                       <Image
                         src="/Screenshot_3123.png"
-                        alt="n9r Dashboard Preview"
+                        alt="Necromancer Dashboard Preview"
                         width={1200}
                         height={800}
                         className="w-full h-auto transform group-hover:scale-[1.02] transition-transform duration-700"

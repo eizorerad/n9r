@@ -1,9 +1,23 @@
 'use client'
 
 import { useState } from 'react'
+import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+
+// Dynamic import for ClusterGraph to optimize bundle size
+const ClusterGraph = dynamic(
+  () => import('./cluster-graph').then(mod => ({ default: mod.ClusterGraph })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-[400px]">
+        <div className="text-muted-foreground">Loading graph...</div>
+      </div>
+    ),
+  }
+)
 
 interface ClusterInfo {
   id: number
@@ -45,24 +59,19 @@ interface ClusterMapProps {
   onClusterClick?: (cluster: ClusterInfo) => void
 }
 
-const statusColors: Record<string, string> = {
-  healthy: 'bg-emerald-500',
-  moderate: 'bg-amber-500',
-  scattered: 'bg-red-500',
-}
-
-const statusBgColors: Record<string, string> = {
-  healthy: 'bg-emerald-500/10 border-emerald-500/30',
-  moderate: 'bg-amber-500/10 border-amber-500/30',
-  scattered: 'bg-red-500/10 border-red-500/30',
-}
-
 export function ClusterMap({ className, cachedData, hasSemanticCache = false, onClusterClick }: ClusterMapProps) {
   const [selectedCluster, setSelectedCluster] = useState<ClusterInfo | null>(null)
 
   const handleClusterClick = (cluster: ClusterInfo) => {
     setSelectedCluster(cluster)
     onClusterClick?.(cluster)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleGraphNodeClick = (node: any) => {
+    if (node.type === 'cluster' && node.data) {
+      handleClusterClick(node.data as ClusterInfo)
+    }
   }
 
   // Check if we have valid cached data
@@ -106,9 +115,6 @@ export function ClusterMap({ className, cachedData, hasSemanticCache = false, on
   const clusters = cachedData.clusters
   const outliers = cachedData.outliers || []
 
-  // Calculate max values for sizing
-  const maxChunks = Math.max(...clusters.map(c => c.chunk_count), 1)
-
   return (
     <Card className={cn('glass-panel border-border/50', className)}>
       <CardContent className="p-6">
@@ -140,81 +146,20 @@ export function ClusterMap({ className, cachedData, hasSemanticCache = false, on
           </div>
         </div>
 
-        {/* Cluster Grid */}
+        {/* Graph View */}
         {clusters.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <p>No clusters detected</p>
             <p className="text-sm mt-1">Repository may need more code or embeddings</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {clusters.map((cluster) => {
-              const sizeRatio = cluster.chunk_count / maxChunks
-              const minSize = 80
-              const maxSize = 160
-              const size = minSize + (maxSize - minSize) * sizeRatio
-
-              return (
-                <div
-                  key={cluster.id}
-                  className={cn(
-                    'relative rounded-xl border-2 cursor-pointer transition-all',
-                    'hover:scale-105 hover:shadow-lg',
-                    statusBgColors[cluster.status] || statusBgColors.moderate,
-                    selectedCluster?.id === cluster.id && 'ring-2 ring-primary'
-                  )}
-                  style={{ 
-                    minHeight: size,
-                    aspectRatio: '1',
-                  }}
-                  onClick={() => handleClusterClick(cluster)}
-                >
-                  {/* Status indicator */}
-                  <div className={cn(
-                    'absolute top-2 right-2 w-3 h-3 rounded-full',
-                    statusColors[cluster.status] || statusColors.moderate
-                  )} />
-
-                  {/* Content */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center">
-                    <span className="font-medium text-sm truncate max-w-full">
-                      {cluster.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground mt-1">
-                      {cluster.file_count} files
-                    </span>
-                    <span className={cn(
-                      'text-lg font-bold mt-2',
-                      cluster.cohesion >= 0.7 ? 'text-emerald-400' : 
-                      cluster.cohesion >= 0.5 ? 'text-amber-400' : 'text-red-400'
-                    )}>
-                      {Math.round(cluster.cohesion * 100)}%
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Outliers indicator */}
-            {outliers.length > 0 && (
-              <div
-                className={cn(
-                  'relative rounded-xl border-2 border-dashed border-amber-500/50',
-                  'bg-amber-500/5 cursor-pointer transition-all hover:bg-amber-500/10'
-                )}
-                style={{ minHeight: 80, aspectRatio: '1' }}
-              >
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center">
-                  <span className="text-amber-400 text-2xl">⚠</span>
-                  <span className="font-medium text-sm text-amber-400">
-                    Outliers
-                  </span>
-                  <span className="text-xs text-muted-foreground mt-1">
-                    {outliers.length} items
-                  </span>
-                </div>
-              </div>
-            )}
+          <div className="rounded-lg border border-border/50 bg-background/30 overflow-hidden">
+            <ClusterGraph
+              clusters={clusters}
+              outliers={outliers}
+              onNodeClick={handleGraphNodeClick}
+              height={400}
+            />
           </div>
         )}
 

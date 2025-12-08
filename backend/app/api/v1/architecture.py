@@ -9,12 +9,11 @@ Requirements: 6.1, 6.2, 7.3, 7.4
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.models.analysis import Analysis
@@ -26,8 +25,6 @@ from app.schemas.architecture_findings import (
     ArchitectureFindingsResponse,
     ArchitectureSummarySchema,
     DeadCodeFindingSchema,
-    DismissDeadCodeRequest,
-    DismissInsightRequest,
     HotSpotFindingSchema,
     SemanticAIInsightSchema,
 )
@@ -119,7 +116,7 @@ async def get_architecture_findings(
     # Query dead code findings
     dead_code_query = select(DeadCode).where(DeadCode.analysis_id == analysis.id)
     if not include_dismissed:
-        dead_code_query = dead_code_query.where(DeadCode.is_dismissed == False)
+        dead_code_query = dead_code_query.where(DeadCode.is_dismissed.is_(False))
     dead_code_result = await db.execute(dead_code_query)
     dead_code_findings = dead_code_result.scalars().all()
 
@@ -136,7 +133,7 @@ async def get_architecture_findings(
         SemanticAIInsight.analysis_id == analysis.id
     )
     if not include_dismissed:
-        insights_query = insights_query.where(SemanticAIInsight.is_dismissed == False)
+        insights_query = insights_query.where(SemanticAIInsight.is_dismissed.is_(False))
     insights_result = await db.execute(insights_query)
     insights = insights_result.scalars().all()
 
@@ -255,7 +252,7 @@ async def dismiss_dead_code(
 
     # Update dismissal state
     dead_code.is_dismissed = True
-    dead_code.dismissed_at = datetime.now(timezone.utc)
+    dead_code.dismissed_at = datetime.now(UTC)
     await db.commit()
 
     logger.info(f"Dead code finding {dead_code_id} dismissed by user {user.id}")
@@ -312,7 +309,7 @@ async def dismiss_insight(
 
     # Update dismissal state
     insight.is_dismissed = True
-    insight.dismissed_at = datetime.now(timezone.utc)
+    insight.dismissed_at = datetime.now(UTC)
     await db.commit()
 
     logger.info(f"Insight {insight_id} dismissed by user {user.id}")

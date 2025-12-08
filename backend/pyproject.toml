@@ -67,6 +67,7 @@ ignore = [
     "E402",   # Module level import not at top of file
     "B904",   # Within except clause, raise with from
     "B017",   # Do not assert blind exception
+    "B008",   # Function call in default argument (FastAPI Query/Depends pattern)
 ]
 
 [tool.mypy]

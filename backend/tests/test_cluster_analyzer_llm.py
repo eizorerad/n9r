@@ -12,13 +12,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from app.schemas.architecture_llm import (
-    ArchitectureSummary,
     DeadCodeFinding,
     HotSpotFinding,
-    LLMReadyArchitectureData,
 )
 from app.services.cluster_analyzer import ClusterAnalyzer
-
 
 # =============================================================================
 # Custom Strategies for Architecture Data Generation

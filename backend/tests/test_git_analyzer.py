@@ -10,16 +10,13 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from app.schemas.architecture_llm import HotSpotFinding
 from app.services.git_analyzer import FileChurn, GitAnalyzer
-
 
 # =============================================================================
 # Custom Strategies for FileChurn Generation
@@ -42,7 +39,7 @@ def valid_file_churn(draw) -> FileChurn:
 
     # Generate a last_modified date within the last 90 days
     days_ago = draw(st.integers(min_value=0, max_value=90))
-    last_modified = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    last_modified = datetime.now(UTC) - timedelta(days=days_ago)
 
     return FileChurn(
         file_path=file_path,

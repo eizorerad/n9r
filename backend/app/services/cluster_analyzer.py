@@ -26,7 +26,7 @@ from app.schemas.architecture_llm import (
     HotSpotFinding,
     LLMReadyArchitectureData,
 )
-from app.services.call_graph_analyzer import CallGraphAnalyzer, get_call_graph_analyzer
+from app.services.call_graph_analyzer import get_call_graph_analyzer
 from app.services.coverage_analyzer import CoverageAnalyzer
 from app.services.git_analyzer import GitAnalyzer
 

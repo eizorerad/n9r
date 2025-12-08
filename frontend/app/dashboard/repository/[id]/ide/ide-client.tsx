@@ -326,12 +326,14 @@ export function IDEClient({ id, token }: IDEClientProps) {
         <div className="h-4 w-px bg-border" />
 
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded flex items-center justify-center font-bold text-xs shadow-sm">
-            n9
-          </div>
-          <span className="font-medium text-sm">Web IDE</span>
+          <img 
+            src="/logo.svg" 
+            alt="Necromancer" 
+            className="w-6 h-6"
+          />
+          <span className="font-medium text-sm text-neutral-200">Web IDE</span>
           {repository && (
-            <span className="text-muted-foreground text-sm">
+            <span className="text-neutral-400 text-sm font-mono">
               — {repository.full_name}
             </span>
           )}

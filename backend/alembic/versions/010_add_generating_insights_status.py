@@ -22,7 +22,7 @@ def upgrade() -> None:
     """Add generating_insights to semantic_cache_status CHECK constraint."""
     # Drop the old constraint
     op.drop_constraint("ck_analyses_semantic_cache_status", "analyses", type_="check")
-    
+
     # Create new constraint with generating_insights included
     op.create_check_constraint(
         "ck_analyses_semantic_cache_status",
@@ -35,7 +35,7 @@ def downgrade() -> None:
     """Remove generating_insights from semantic_cache_status CHECK constraint."""
     # Drop the new constraint
     op.drop_constraint("ck_analyses_semantic_cache_status", "analyses", type_="check")
-    
+
     # Restore original constraint (without generating_insights)
     op.create_check_constraint(
         "ck_analyses_semantic_cache_status",

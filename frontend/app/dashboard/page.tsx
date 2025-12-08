@@ -41,21 +41,23 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="sticky top-0 z-50 glass-header border-b border-border/40">
-        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-[#1e1e1e] border-b border-neutral-700/50">
+        <div className="container mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="flex items-center gap-3 group">
-              <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
-                n9
-              </div>
-              <span className="text-xl font-bold tracking-tight">n9r</span>
+              <img 
+                src="/logo.svg" 
+                alt="Necromancer" 
+                className="w-8 h-8 group-hover:scale-105 transition-transform"
+              />
+              <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
             </Link>
-            <span className="text-muted-foreground/50 text-xl font-light">/</span>
-            <span className="text-muted-foreground font-medium">Dashboard</span>
+            <span className="text-neutral-600 text-lg font-light">/</span>
+            <span className="text-neutral-400 font-mono text-sm">Dashboard</span>
           </div>
           <Link href="/dashboard/connect">
-            <Button className="flex items-center gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all bg-primary hover:bg-primary/90 text-primary-foreground">
-              <Plus className="h-4 w-4" />
+            <Button className="flex items-center gap-2 h-8 px-4 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono text-xs border border-neutral-600 shadow-none">
+              <Plus className="h-3 w-3" />
               Connect Repository
             </Button>
           </Link>
@@ -77,4 +79,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-

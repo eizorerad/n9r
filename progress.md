@@ -222,3 +222,48 @@ Integrated AI Scan into the unified analysis pipeline architecture with PostgreS
 
 ## What Was Done
 Transformed sequential analysis pipeline (Analysis → Embeddings → Semantic Cache → AI Scan) into fully parallel execution where Static Analysis, Embeddings, and AI Scan all start simultaneously. Each track clones the repository independently using the same commit_sha. Semantic Cache still chains from Embeddings completion. New progress calculation uses 33% weight per track, capped at 95% until all tracks reach terminal states. Partial failures handled gracefully (e.g., VCI + AI insights without semantic if Embeddings fails). Reduces total analysis time by 50-60%.
+
+
+# 08-dec-2025 - Semantic AI Insights Feature & Progress Tracking Fixes
+
+## Files Created
+- `backend/alembic/versions/009_add_architecture_findings.py` - Migration for dead_code, file_churn, semantic_ai_insights tables
+- `backend/alembic/versions/010_add_generating_insights_status.py` - Migration adding `generating_insights` to semantic_cache_status CHECK constraint
+- `backend/app/models/dead_code.py` - DeadCode SQLAlchemy model with dismissal support
+- `backend/app/models/file_churn.py` - FileChurn SQLAlchemy model for hot spots
+- `backend/app/models/semantic_ai_insight.py` - SemanticAIInsight model for AI recommendations
+- `backend/app/schemas/architecture_llm.py` - LLM-ready dataclasses (ArchitectureSummary, DeadCodeFinding, HotSpotFinding, LLMReadyArchitectureData)
+- `backend/app/schemas/architecture_findings.py` - API response schemas for architecture findings
+- `backend/app/services/call_graph_analyzer.py` - AST-based call graph for dead code detection (Python/JS/TS)
+- `backend/app/services/git_analyzer.py` - Git history analysis for code churn metrics
+- `backend/app/services/coverage_analyzer.py` - Cobertura XML coverage parsing
+- `backend/app/services/semantic_ai_insights.py` - LiteLLM-based insight generation with JSON repair
+- `backend/app/services/architecture_findings_service.py` - Service for persisting findings to PostgreSQL
+- `backend/app/api/v1/architecture.py` - Architecture findings API endpoints
+- `backend/tests/test_call_graph_analyzer.py` - Property tests for call graph analysis
+- `backend/tests/test_git_analyzer.py` - Property tests for git churn analysis
+- `backend/tests/test_coverage_analyzer.py` - Property tests for coverage parsing
+- `backend/tests/test_semantic_ai_insights.py` - Property tests for AI insight generation
+- `backend/tests/test_architecture_findings_api.py` - API integration tests
+- `frontend/lib/hooks/use-architecture-findings.ts` - TanStack Query hook for architecture findings
+- `frontend/components/semantic-ai-insights.tsx` - AI insights display with collapse/expand
+- `frontend/components/cluster-graph.tsx` - Force-directed graph visualization (optional)
+- `docs/fix_progress/08-dec-2025-fix.md` - Detailed fix documentation
+
+## Files Modified
+- `backend/app/services/cluster_analyzer.py` - Added `analyze_for_llm()` method for LLM-ready data generation
+- `backend/app/services/analysis_state.py` - Added `generating_insights` status, `start_generating_insights()` method, updated state transitions
+- `backend/app/workers/embeddings.py` - Integrated SemanticAIInsightsService, reordered to generate insights BEFORE marking complete
+- `backend/app/models/analysis.py` - Added relationships to new finding tables
+- `frontend/lib/hooks/use-analysis-status.ts` - Added `generating_insights` to polling, added semantic cache task sync
+- `frontend/lib/stores/analysis-progress-store.ts` - Added `semantic_cache` task type and helper
+- `frontend/components/analysis-progress-overlay.tsx` - Added semantic cache task display with amber icon
+- `frontend/components/semantic-analysis-section.tsx` - Reordered tabs (AI Insights first), added data sync fixes, query invalidation
+- `frontend/components/cluster-map.tsx` - Added graph view toggle
+
+## What Was Done
+Implemented Semantic AI Insights feature transforming raw architecture metrics into actionable recommendations. Backend includes: CallGraphAnalyzer for AST-based dead code detection, GitAnalyzer for code churn metrics, CoverageAnalyzer for test coverage integration, and SemanticAIInsightsService using LiteLLM directly (separate from AI Scan). All findings persisted to PostgreSQL as SSOT.
+
+Fixed multiple progress tracking issues: (1) JSON repair with multi-strategy fallback for malformed LLM responses, (2) Race condition fix by generating insights BEFORE marking semantic cache complete, (3) New `generating_insights` status in state machine with database migration, (4) Semantic cache tracked as separate task in progress panel with proper polling, (5) Frontend data sync fixes for immediate results without page refresh.
+
+Frontend displays AI insights first in semantic analysis panel with collapse/expand (5 items default), optional force-directed graph visualization, and proper progress tracking showing "Generating AI insights..." during LLM call.

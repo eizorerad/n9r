@@ -89,20 +89,22 @@ export default function ConnectRepositoryPage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
-      <header className="sticky top-0 z-50 glass-header border-b border-border/40">
-        <div className="container mx-auto px-6 py-4">
+      <header className="sticky top-0 z-50 bg-[#1e1e1e] border-b border-neutral-700/50">
+        <div className="container mx-auto px-6 py-3">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="p-2 hover:bg-muted rounded-lg transition-colors text-muted-foreground hover:text-foreground">
+            <Link href="/dashboard" className="p-2 hover:bg-neutral-800 rounded-lg transition-colors text-neutral-400 hover:text-neutral-200">
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-xl flex items-center justify-center font-bold text-sm shadow-lg shadow-primary/20">
-                n9
-              </div>
-              <span className="text-xl font-bold tracking-tight">n9r</span>
+              <img 
+                src="/logo.svg" 
+                alt="Necromancer" 
+                className="w-8 h-8"
+              />
+              <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
             </div>
-            <span className="text-muted-foreground/50 text-xl font-light">/</span>
-            <span className="text-muted-foreground font-medium">Connect Repository</span>
+            <span className="text-neutral-600 text-lg font-light">/</span>
+            <span className="text-neutral-400 font-mono text-sm">Connect Repository</span>
           </div>
         </div>
       </header>
@@ -113,7 +115,7 @@ export default function ConnectRepositoryPage() {
           <CardHeader>
             <CardTitle>Connect a Repository</CardTitle>
             <CardDescription>
-              Select a repository from your GitHub account to connect with n9r.
+              Select a repository from your GitHub account to connect with Necromancer.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -251,7 +253,7 @@ export default function ConnectRepositoryPage() {
                   <Button
                     type="submit"
                     disabled={pending || repos.length === 0}
-                    className="flex-1 bg-[#008236] hover:bg-[#008236]/90 text-white shadow-lg shadow-[#008236]/20"
+                    className="flex-1 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono border border-neutral-600 shadow-none"
                   >
                     {pending ? (
                       <>

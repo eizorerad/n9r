@@ -24,6 +24,9 @@ const STAGE_LABELS: Record<string, string> = {
   embedding: 'Generating embeddings...',
   storing: 'Storing vectors...',
   indexing: 'Storing vectors in Qdrant...',
+  // Semantic cache stages
+  computing: 'Computing clusters and outliers...',
+  generating_insights: 'Generating AI insights...',
   // AI Scan stages
   pending: 'Waiting to start...',
   generating_view: 'Generating repository view...',
@@ -46,6 +49,9 @@ function TaskIcon({ task }: { task: ProgressTask }) {
       "h-4 w-4",
       isWaiting ? "text-muted-foreground" : "text-purple-500 animate-pulse"
     )} />
+  }
+  if (task.type === 'semantic_cache') {
+    return <Brain className="h-4 w-4 text-amber-500 animate-pulse" />
   }
   if (task.type === 'ai_scan') {
     return <Brain className="h-4 w-4 text-emerald-500 animate-pulse" />
@@ -73,7 +79,9 @@ function TaskItem({ task }: { task: ProgressTask }) {
             ? 'Code Analysis' 
             : task.type === 'ai_scan' 
               ? 'AI Scan' 
-              : 'Semantic Embeddings'}
+              : task.type === 'semantic_cache'
+                ? 'Semantic Analysis'
+                : 'Semantic Embeddings'}
         </span>
         {isActive && (
           <span className="text-xs text-muted-foreground">

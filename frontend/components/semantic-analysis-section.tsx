@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { SemanticAIInsights } from '@/components/semantic-ai-insights'
 import { SemanticSearch } from '@/components/semantic-search'
 import { ArchitectureHealth } from '@/components/architecture-health'
 import { ClusterMap } from '@/components/cluster-map'
@@ -10,6 +12,7 @@ import { SimilarCode } from '@/components/similar-code'
 import { TechDebtHeatmap } from '@/components/tech-debt-heatmap'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 import { useAnalysisStatusWithStore } from '@/lib/hooks/use-analysis-status'
+import { useArchitectureFindings, getArchitectureFindingsQueryKey } from '@/lib/hooks/use-architecture-findings'
 import { Loader2 } from 'lucide-react'
 
 interface SemanticCacheData {
@@ -72,25 +75,42 @@ interface SemanticAnalysisSectionProps {
   token?: string
 }
 
-type TabType = 'search' | 'architecture' | 'clusters' | 'duplicates' | 'debt'
+type TabType = 'insights' | 'clusters' | 'issues' | 'hotspots' | 'search' | 'duplicates'
 
+// Reordered tabs per Requirements 6.1:
+// Semantic AI Insights (first), Clusters, Issues, Hotspots
 const tabs: { id: TabType; label: string; description: string }[] = [
-  { id: 'architecture', label: 'Architecture Health', description: 'Cluster analysis & outliers' },
-  { id: 'search', label: 'Semantic Search', description: 'Search code with natural language' },
-  { id: 'clusters', label: 'Cluster Map', description: 'Visual code organization' },
-  { id: 'duplicates', label: 'Similar Code', description: 'Find potential duplicates' },
-  { id: 'debt', label: 'Tech Debt', description: 'Technical debt heatmap' },
+  { id: 'insights', label: 'AI Insights', description: 'AI-powered recommendations' },
+  { id: 'clusters', label: 'Clusters', description: 'Visual code organization' },
+  { id: 'issues', label: 'Issues', description: 'Architecture outliers' },
+  { id: 'hotspots', label: 'Hotspots', description: 'Technical debt heatmap' },
+  { id: 'search', label: 'Search', description: 'Semantic code search' },
+  { id: 'duplicates', label: 'Duplicates', description: 'Similar code patterns' },
 ]
 
 export function SemanticAnalysisSection({ repositoryId, token: initialToken }: SemanticAnalysisSectionProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('architecture')
+  // Default to 'insights' tab per Requirements 6.1
+  const [activeTab, setActiveTab] = useState<TabType>('insights')
   const [token, setToken] = useState<string>(initialToken || '')
   const [refreshKey, setRefreshKey] = useState(0)
+  
+  // Query client for cache invalidation
+  const queryClient = useQueryClient()
   
   // Semantic cache state
   const { selectedAnalysisId } = useCommitSelectionStore()
   const [semanticCache, setSemanticCache] = useState<SemanticCacheData | null>(null)
   const [cacheLoading, setCacheLoading] = useState(false)
+  
+  // Fetch architecture findings for counts in tab headers
+  // **Feature: cluster-map-refactoring**
+  // **Validates: Requirements 6.1**
+  const { data: architectureFindings } = useArchitectureFindings({
+    repositoryId,
+    analysisId: selectedAnalysisId,
+    token,
+    enabled: !!repositoryId && !!selectedAnalysisId && !!token,
+  })
   
   // Refs to prevent redundant operations
   const isRefreshingRef = useRef(false)
@@ -125,6 +145,40 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     analysisStatus?.embeddings_status,
     analysisStatus?.vectors_count,
   ])
+
+  // Compute counts for tab headers per Requirements 6.1
+  // IMPORTANT: This must be at the top level, not after conditional returns (Rules of Hooks)
+  const tabCounts = useMemo(() => {
+    const counts: Record<TabType, number | null> = {
+      insights: null,
+      clusters: null,
+      issues: null,
+      hotspots: null,
+      search: null,
+      duplicates: null,
+    }
+    
+    // AI Insights count from architecture findings
+    if (architectureFindings) {
+      const { insights, dead_code, hot_spots } = architectureFindings
+      counts.insights = insights.length + dead_code.length + hot_spots.length
+      counts.hotspots = hot_spots.length
+    }
+    
+    // Clusters and Issues from semantic cache
+    if (semanticCache?.architecture_health) {
+      const { clusters, outliers, coupling_hotspots } = semanticCache.architecture_health
+      counts.clusters = clusters?.length ?? null
+      counts.issues = (outliers?.length ?? 0) + (coupling_hotspots?.length ?? 0)
+    }
+    
+    // Duplicates from semantic cache
+    if (semanticCache?.similar_code) {
+      counts.duplicates = semanticCache.similar_code.total_groups ?? null
+    }
+    
+    return counts
+  }, [architectureFindings, semanticCache])
 
   // Try to get token from localStorage as fallback
   useEffect(() => {
@@ -183,25 +237,57 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       return
     }
 
+    // Reset the refs when analysis changes so we can detect new completions
+    lastRefreshedCacheStatus.current = null
+    lastRefreshedEmbeddingsStatus.current = null
+    
     fetchSemanticCache()
-  }, [selectedAnalysisId, token, refreshKey, fetchSemanticCache])
+  }, [selectedAnalysisId, token, fetchSemanticCache])
+  
+  // Separate effect for refreshKey to avoid resetting refs on every refresh
+  useEffect(() => {
+    if (refreshKey > 0 && selectedAnalysisId && token) {
+      fetchSemanticCache()
+    }
+  }, [refreshKey, selectedAnalysisId, token, fetchSemanticCache])
 
   // Refresh semantic cache when status changes to completed
-  // Only refresh once per status change to avoid glitching
+  // This effect handles the transition from "computing" to "completed"
   useEffect(() => {
     if (!derivedStatus || isRefreshingRef.current) return
 
     const isCached = semanticCache?.is_cached || false
+    const currentCacheStatus = derivedStatus.semanticCacheStatus
     
-    // Refresh when semantic cache status becomes completed (one-time only)
+    console.log('[SemanticAnalysis] Status check:', {
+      currentCacheStatus,
+      isCached,
+      lastRefreshedCacheStatus: lastRefreshedCacheStatus.current,
+      hasSemanticCache: derivedStatus.hasSemanticCache,
+    })
+    
+    // Refresh when semantic cache status becomes completed
+    // Key fix: Check if API says it's completed (hasSemanticCache) OR status is completed
+    // AND our local cache doesn't reflect that yet
     if (
-      derivedStatus.semanticCacheStatus === 'completed' &&
+      (currentCacheStatus === 'completed' || derivedStatus.hasSemanticCache) &&
       !isCached &&
-      lastRefreshedCacheStatus.current !== 'completed'
+      lastRefreshedCacheStatus.current !== currentCacheStatus
     ) {
       console.log('[SemanticAnalysis] Semantic cache completed, refreshing...')
-      lastRefreshedCacheStatus.current = 'completed'
+      lastRefreshedCacheStatus.current = currentCacheStatus
+      
+      // Fetch the semantic cache data
       fetchSemanticCache()
+      
+      // Invalidate architecture findings query to refetch AI insights
+      // This ensures SemanticAIInsights gets fresh data after semantic cache completes
+      const queryKey = getArchitectureFindingsQueryKey(repositoryId, selectedAnalysisId)
+      console.log('[SemanticAnalysis] Invalidating architecture findings query:', queryKey)
+      queryClient.invalidateQueries({ queryKey })
+      
+      // Also increment refreshKey to force re-render of child components
+      setRefreshKey(prev => prev + 1)
       return
     }
     
@@ -218,10 +304,14 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     }
   }, [
     derivedStatus?.semanticCacheStatus,
+    derivedStatus?.hasSemanticCache,
     derivedStatus?.embeddingsStatus,
     derivedStatus?.vectorsCount,
     semanticCache?.is_cached,
     fetchSemanticCache,
+    queryClient,
+    repositoryId,
+    selectedAnalysisId,
   ])
 
   if (!token) {
@@ -290,18 +380,39 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   
   const isSemanticCacheComputing = 
     analysisStatus?.semantic_cache_status === 'pending' ||
-    analysisStatus?.semantic_cache_status === 'computing'
+    analysisStatus?.semantic_cache_status === 'computing' ||
+    analysisStatus?.semantic_cache_status === 'generating_insights'
+  
+  // Check if semantic cache is completed according to API (even if local cache not yet fetched)
+  const isSemanticCacheCompleted = 
+    analysisStatus?.semantic_cache_status === 'completed' ||
+    analysisStatus?.has_semantic_cache === true
 
   // Show progress if cache is missing and processing is in progress
   if (semanticCache && !semanticCache.is_cached) {
+    // If API says it's completed but local cache doesn't have it yet, show loading
+    if (isSemanticCacheCompleted) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <span className="ml-3 text-muted-foreground">Loading semantic analysis...</span>
+        </div>
+      )
+    }
+    
     if (isEmbeddingsInProgress || isSemanticCacheComputing) {
-      const progressMessage = isSemanticCacheComputing 
-        ? 'Computing semantic analysis...'
-        : analysisStatus?.embeddings_message || 'Processing embeddings...'
+      const isGeneratingInsights = analysisStatus?.semantic_cache_status === 'generating_insights'
+      const progressMessage = isGeneratingInsights
+        ? 'Generating AI insights...'
+        : isSemanticCacheComputing 
+          ? 'Computing semantic analysis...'
+          : analysisStatus?.embeddings_message || 'Processing embeddings...'
       
-      const progressPercent = isSemanticCacheComputing
-        ? 95  // Semantic cache is near the end
-        : analysisStatus?.embeddings_progress || 0
+      const progressPercent = isGeneratingInsights
+        ? 98  // Almost done
+        : isSemanticCacheComputing
+          ? 90  // Semantic cache computing
+          : analysisStatus?.embeddings_progress || 0
 
       return (
         <Card className="glass-panel border-border/50">
@@ -343,9 +454,18 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     )
   }
 
+  // Helper to format tab label with count
+  const getTabLabel = (tab: typeof tabs[0]) => {
+    const count = tabCounts[tab.id]
+    if (count !== null && count !== undefined) {
+      return `${tab.label} (${count})`
+    }
+    return tab.label
+  }
+
   return (
     <div>
-      {/* Tab Navigation */}
+      {/* Tab Navigation with counts per Requirements 6.1 */}
       <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4">
         {tabs.map((tab) => (
           <Button
@@ -355,7 +475,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
             onClick={() => setActiveTab(tab.id)}
             className="flex flex-col items-start h-auto py-1.5 sm:py-2 px-2 sm:px-4 text-xs sm:text-sm"
           >
-            <span className="font-medium">{tab.label}</span>
+            <span className="font-medium">{getTabLabel(tab)}</span>
             <span className="text-[10px] sm:text-xs opacity-70 hidden sm:block">{tab.description}</span>
           </Button>
         ))}
@@ -363,22 +483,16 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
       {/* Tab Content */}
       <div className="min-h-[300px] sm:min-h-[400px]">
-        {activeTab === 'search' && (
-          <SemanticSearch
-            key={`search-${refreshKey}`}
+        {/* AI Insights - First per Requirements 6.1 */}
+        {activeTab === 'insights' && (
+          <SemanticAIInsights
+            key={`insights-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
+            analysisId={selectedAnalysisId}
             token={token}
           />
         )}
-        {activeTab === 'architecture' && (
-          <ArchitectureHealth
-            key={`arch-${refreshKey}-${selectedAnalysisId}`}
-            repositoryId={repositoryId}
-            token={token}
-            cachedData={semanticCache?.architecture_health || undefined}
-            hasSemanticCache={semanticCache?.is_cached || false}
-          />
-        )}
+        {/* Clusters - Second */}
         {activeTab === 'clusters' && (
           <ClusterMap
             key={`clusters-${refreshKey}-${selectedAnalysisId}`}
@@ -388,21 +502,41 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
             hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}
+        {/* Issues (Architecture Health/Outliers) - Third */}
+        {activeTab === 'issues' && (
+          <ArchitectureHealth
+            key={`arch-${refreshKey}-${selectedAnalysisId}`}
+            repositoryId={repositoryId}
+            token={token}
+            cachedData={semanticCache?.architecture_health || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
+          />
+        )}
+        {/* Hotspots (Tech Debt) - Fourth */}
+        {activeTab === 'hotspots' && (
+          <TechDebtHeatmap
+            key={`debt-${refreshKey}-${selectedAnalysisId}`}
+            repositoryId={repositoryId}
+            token={token}
+            cachedData={semanticCache?.architecture_health || undefined}
+            hasSemanticCache={semanticCache?.is_cached || false}
+          />
+        )}
+        {/* Search */}
+        {activeTab === 'search' && (
+          <SemanticSearch
+            key={`search-${refreshKey}`}
+            repositoryId={repositoryId}
+            token={token}
+          />
+        )}
+        {/* Duplicates */}
         {activeTab === 'duplicates' && (
           <SimilarCode
             key={`similar-${refreshKey}-${selectedAnalysisId}`}
             repositoryId={repositoryId}
             token={token}
             cachedData={semanticCache?.similar_code || undefined}
-            hasSemanticCache={semanticCache?.is_cached || false}
-          />
-        )}
-        {activeTab === 'debt' && (
-          <TechDebtHeatmap
-            key={`debt-${refreshKey}-${selectedAnalysisId}`}
-            repositoryId={repositoryId}
-            token={token}
-            cachedData={semanticCache?.architecture_health || undefined}
             hasSemanticCache={semanticCache?.is_cached || false}
           />
         )}

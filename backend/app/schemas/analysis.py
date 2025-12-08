@@ -206,6 +206,7 @@ class SemanticCacheStatus(str, Enum):
     NONE = "none"
     PENDING = "pending"
     COMPUTING = "computing"
+    GENERATING_INSIGHTS = "generating_insights"
     COMPLETED = "completed"
     FAILED = "failed"
 

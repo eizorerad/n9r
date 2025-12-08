@@ -23,7 +23,6 @@ from app.services.call_graph_analyzer import (
     is_entry_point,
 )
 
-
 # =============================================================================
 # Custom Strategies for Python Function Generation
 # =============================================================================
@@ -236,7 +235,7 @@ class TestCallGraphNodeCompletenessProperties:
             call_graph = analyzer.analyze(repo_path)
 
             # Verify each expected function has a corresponding node
-            for func_name, expected_start, expected_end in expected_functions:
+            for func_name, _expected_start, _expected_end in expected_functions:
                 node_id = f"test_module.py:{func_name}"
 
                 # Property 1: Node exists

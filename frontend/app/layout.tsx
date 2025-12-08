@@ -15,10 +15,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "n9r - AI Code Detox & Auto-Healing Platform",
+  title: "Necromancer - Immortal Code Architecture",
   description:
-    "Automatically clean up AI-generated and legacy code, keeping software projects architecturally healthy.",
-  keywords: ["code quality", "AI", "refactoring", "tech debt", "auto-healing"],
+    "Grant eternal life to your codebase. Transform vibe-coded corpses into undying, maintainable masterpieces.",
+  keywords: ["code quality", "AI", "refactoring", "tech debt", "vibe coding", "LLM code cleanup"],
 };
 
 export default function RootLayout({

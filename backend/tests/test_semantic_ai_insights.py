@@ -22,7 +22,6 @@ from app.schemas.architecture_llm import (
 )
 from app.services.semantic_ai_insights import SemanticAIInsightsService
 
-
 # =============================================================================
 # Custom Strategies for Insight Generation
 # =============================================================================
@@ -39,7 +38,7 @@ def valid_insight_json(draw) -> str:
     action_words = ["Delete", "the", "function", "after", "confirming", "no", "callers", "exist"]
 
     recommendations = []
-    for i in range(num_recommendations):
+    for _i in range(num_recommendations):
         insight_type = draw(st.sampled_from(["dead_code", "hot_spot", "architecture"]))
         # Generate title by picking random words
         num_title_words = draw(st.integers(min_value=3, max_value=6))
@@ -317,7 +316,7 @@ class TestAIRecommendationsHumanReadableProperties:
         Property: When there are no findings, the service should return empty insights
         without calling the LLM.
         """
-        service = SemanticAIInsightsService()
+        _service = SemanticAIInsightsService()
 
         # Create data with no findings
         summary = ArchitectureSummary(

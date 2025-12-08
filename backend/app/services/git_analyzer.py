@@ -8,8 +8,8 @@ Requirements: 2.1, 2.2, 2.3, 2.4
 
 import logging
 import subprocess
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.schemas.architecture_llm import HotSpotFinding
@@ -74,14 +74,14 @@ class GitAnalyzer:
 
         try:
             # Get git log with numstat format for the last N days
-            since_date = datetime.now(timezone.utc) - timedelta(days=days)
+            since_date = datetime.now(UTC) - timedelta(days=days)
             since_str = since_date.strftime("%Y-%m-%d")
 
             # Parse 90-day data
             churn_data = self._parse_git_log(repo_path, since_str, days)
 
             # Also calculate 30-day metrics
-            since_30d = datetime.now(timezone.utc) - timedelta(days=30)
+            since_30d = datetime.now(UTC) - timedelta(days=30)
             since_30d_str = since_30d.strftime("%Y-%m-%d")
             churn_30d = self._parse_git_log(repo_path, since_30d_str, 30)
 
