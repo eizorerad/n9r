@@ -633,7 +633,7 @@ Please investigate this issue using the available tools and determine if it's a 
                     fallback=False,
                 )
 
-                content = response.get("content", "")
+                content = response.get("content") or ""
 
                 # Check for finish_investigation call
                 finish_result = self._parse_finish_call(content)

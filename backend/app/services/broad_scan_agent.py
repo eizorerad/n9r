@@ -510,8 +510,8 @@ class BroadScanAgent:
             tokens_used = usage.get("total_tokens", 0)
             cost_usd = response.get("cost", 0.0)
 
-            # Parse the response
-            content = response.get("content", "")
+            # Parse the response - handle None content explicitly
+            content = response.get("content") or ""
             repo_overview, candidates = self._parse_response(content, model)
 
             logger.info(

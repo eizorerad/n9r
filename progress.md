@@ -292,3 +292,89 @@ Frontend displays AI insights first in semantic analysis panel with collapse/exp
 
 ## What Was Done
 Implemented transparent, explainable scoring formulas for all architecture findings. Dead Code Impact Score (DCI) uses weighted formula: Size×0.40 + Location×0.30 + Recency×0.20 + Complexity×0.10. Hot Spot Risk Score (HSR) uses: Churn×0.30 + Coverage×0.30 + Location×0.20 + Volatility×0.20. Architecture Health Score (AHS) calculates penalties capped at 40/30/20 for dead code/hot spots/outliers. LLM sample selection takes top 50% by score + 50% diversity sampling from different directories. Frontend displays color-coded score badges (green/amber/red), sort toggle with 3 options, and info dialog explaining all formulas. Property-based tests validate 7 correctness properties.
+
+
+# 09-dec-2025 - Call Graph Analyzer Refactoring
+
+## Files Modified
+- `backend/app/services/call_graph_analyzer.py` - Major refactoring with AnalyzerConfig dataclass, multi-candidate linking, file-specific indexing, configurable patterns
+
+## Files Created
+- None (all changes in existing test file)
+
+## Tests Added
+- Property tests for multi-candidate bidirectional linking (Property 1)
+- Property tests for same-file priority inclusion (Property 2)
+- Property tests for config pattern merge is additive (Property 3)
+- Property tests for custom entry point detection (Property 4)
+- Property tests for directory exclusion completeness (Property 5)
+- Property tests for config round-trip consistency (Property 6)
+
+## What Was Done
+Refactored CallGraphAnalyzer to fix critical bugs and improve performance:
+
+1. **Multi-File Same-Name Function Resolution**: Fixed first-match ambiguity bug where function calls were linked to only the first arbitrary match. Now links to ALL candidate functions across files, reducing false positive dead code warnings.
+
+2. **Performance Optimization**: Pre-built file-specific function indexes in `_extract_python_calls` and `_extract_js_calls`. Reduced complexity from O(N*M) to O(F*M) where F = functions per file.
+
+3. **AnalyzerConfig Dataclass**: Replaced hardcoded module-level patterns with structured configuration. Supports entry point patterns (names, decorators, files), callback patterns, async generator patterns, API/worker file patterns, and directory exclusions. Includes compiled regex caching for performance.
+
+4. **Repo-Level Config**: Added support for `.n9r/call_graph.yaml` files allowing repositories to extend default patterns with custom framework detection (additive merge, not replacement).
+
+5. **Expanded Default Exclusions**: Added comprehensive directory exclusions (node_modules, .venv, __pycache__, dist, .next, .git, coverage, etc.) to prevent generated code from polluting dead code detection.
+
+6. **YAML Serialization**: Implemented `to_yaml()` and `from_yaml()` methods for config persistence with round-trip consistency.
+
+All 42 existing tests continue to pass. 6 new property-based tests validate correctness properties.
+
+
+# 08-09-dec-2025 - IDE UI Refinements & Bug Fixes
+
+## Files Created
+- `frontend/app/dashboard/repository/loading.tsx` - Dark themed loading skeleton for repository routes
+- `frontend/app/dashboard/(overview)/page.tsx` - Dashboard overview page moved to Route Group
+- `frontend/app/dashboard/(overview)/loading.tsx` - Dashboard-specific loading skeleton
+- `frontend/app/dashboard/(overview)/repositories-table-server.tsx` - Moved within route group
+
+## Files Modified
+- `frontend/components/file-tree.tsx` - Fixed explorer expansion bug (directories now start closed)
+- `frontend/components/layout/activity-bar.tsx` - Replaced GitGraph with GitBranch for standard Source Control icon
+- `frontend/components/analysis-progress-overlay.tsx` - Removed all colored icons, using muted-foreground for consistency
+- `frontend/components/vci-score-card-compact.tsx` - Simplified: removed timeline chart, color-coded grades, trend indicators; added max-width constraint
+- `frontend/app/dashboard/repository/[id]/page.tsx` - Made Code Health panel fixed position (top-right corner)
+
+## What Was Done
+
+### Explorer Bug Fix
+Fixed file explorer "double-click" bug where folders appeared open but empty on first click. Root cause: directories at level < 1 initialized with `isOpen = true` before children were loaded. First click was actually closing them. Fix: all directories now start closed (`useState(false)`), so first click opens AND triggers data load.
+
+### Loading Skeleton Consistency
+Created dedicated dark-themed loading skeleton for repository routes to prevent blue-toned dashboard skeleton from appearing during navigation. Used Next.js Route Groups `(overview)` to isolate dashboard and repository loading states.
+
+### Visual Consistency (Remove Colors)
+1. **Progress Overlay**: All task icons changed from colored variants (green, red, purple, amber, emerald, blue) to neutral `text-muted-foreground`. Removed colored backgrounds for completed/failed states.
+2. **Code Health Panel**: Removed colored grade badges, timeline chart, and trend indicators. Now displays only numeric score with neutral gray styling. Added `max-w-[160px]` for compact size and fixed positioning in top-right corner.
+
+### Icon Updates
+- Activity Bar: Replaced GitGraph with GitBranch for standard Source Control icon (matching VS Code convention)
+
+
+
+# 09-dec-2025 - IDE UI Refactoring (VS Code Style)
+
+## What Was Done
+Complete UI overhaul to VS Code-style dark theme layout:
+
+1. **VS Code Layout**: Three-panel design with left sidebar (file explorer), center (Monaco editor with tabs), right panel (chat). Dark theme (#1e1e1e background, #252526 sidebars).
+
+2. **File Explorer Fixes**: Fixed "double-click" bug where folders started expanded. Folders now start closed with lazy loading on expand. Branch selector integrated in explorer header.
+
+3. **Route Groups & Loading**: Created dark-themed loading skeletons matching VS Code aesthetic. Proper route group organization for dashboard pages.
+
+4. **Icon Cleanup**: Removed colored icons from progress overlay and Code Health panel. Neutral gray styling throughout. Replaced GitGraph with GitBranch icon for consistency.
+
+5. **Code Health Panel**: Fixed position top-right with max-w-[160px]. Compact display of VCI score and analysis status.
+
+6. **Commit Timeline**: Integrated in sidebar with branch selector. Shows historical commits with VCI scores and analysis status badges.
+
+7. **Analysis Folders Concept**: Analysis results organized by type (AI Scan, Semantic, Static) accessible from the interface.

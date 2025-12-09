@@ -140,8 +140,16 @@ class SemanticAIInsightsService:
 
                 total_cost += response.get("cost", 0)
 
-                # Parse response
-                content = response.get("content", "{}")
+                # Parse response - handle None content explicitly
+                content = response.get("content")
+                if content is None:
+                    logger.warning(
+                        f"LLM returned None content on attempt {attempt + 1}"
+                    )
+                    if attempt == max_retries:
+                        return []
+                    continue
+
                 insights = self._parse_insights(content, repository_id, analysis_id)
 
                 if insights or attempt == max_retries:

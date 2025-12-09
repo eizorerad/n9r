@@ -34,11 +34,11 @@ export default function RepositoryLoading() {
 
                 {/* Editor Code Area */}
                 <div className="flex-1 p-8 space-y-4 overflow-hidden">
-                    {[...Array(12)].map((_, i) => (
+                    {[30, 55, 45, 70, 35, 60, 40, 65, 50, 38, 58, 42].map((width, i) => (
                         <div
                             key={i}
                             className="h-4 bg-[#2b2b2b] rounded animate-pulse"
-                            style={{ width: `${Math.random() * 40 + 30}%`, opacity: 1 - (i * 0.05) }}
+                            style={{ width: `${width}%`, opacity: 1 - (i * 0.05) }}
                         />
                     ))}
                 </div>

@@ -20,10 +20,486 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 from app.schemas.architecture_llm import DeadCodeFinding
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# AnalyzerConfig Dataclass
+# =============================================================================
+
+
+@dataclass
+class AnalyzerConfig:
+    """Configuration for call graph analysis.
+
+    Patterns are loaded from:
+    1. Built-in defaults (common frameworks)
+    2. Repo-level config: .n9r/call_graph.yaml (optional, extends defaults)
+
+    Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 5.8
+    """
+
+    # Entry point patterns (regex strings)
+    entry_point_name_patterns: list[str] = field(default_factory=list)
+    entry_point_decorator_patterns: list[str] = field(default_factory=list)
+    entry_point_file_patterns: list[str] = field(default_factory=list)
+    callback_name_patterns: list[str] = field(default_factory=list)
+    async_generator_patterns: list[str] = field(default_factory=list)
+
+    # API and worker file patterns
+    api_file_patterns: list[str] = field(default_factory=list)
+    worker_file_patterns: list[str] = field(default_factory=list)
+
+    # Directory exclusions
+    exclude_dirs: set[str] = field(default_factory=set)
+
+    # Compiled patterns (internal, not serialized)
+    _compiled: bool = field(default=False, repr=False)
+    _name_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _decorator_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _file_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _callback_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _async_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _api_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+    _worker_patterns: list[re.Pattern[str]] = field(default_factory=list, repr=False)
+
+    @classmethod
+    def load_defaults(cls) -> "AnalyzerConfig":
+        """Load default configuration with common framework patterns.
+
+        Returns:
+            AnalyzerConfig with built-in defaults for common frameworks
+            (FastAPI, Celery, Pytest, Pydantic, React, etc.)
+
+        Requirements: 3.1, 4.1-4.7
+        """
+        config = cls(
+            # Entry point name patterns
+            entry_point_name_patterns=[
+                r"^main$",
+                r"^__init__$",
+                r"^test_",
+                r"_handler$",
+                r"_route$",
+                r"_endpoint$",
+                r"_view$",
+                r"^__[a-z_]+__$",  # Python dunder methods
+            ],
+            # Decorator patterns that mark functions as entry points
+            entry_point_decorator_patterns=[
+                # FastAPI/Starlette route decorators
+                r"^(app|router)\.(get|post|put|patch|delete|options|head|trace|websocket)$",
+                r"^(get|post|put|patch|delete|options|head)$",
+                # Celery task decorators
+                r"^(celery_app|celery|app)\.(task|shared_task)$",
+                r"^(task|shared_task)$",
+                # Pytest decorators
+                r"^pytest\.(fixture|mark\..+)$",
+                r"^fixture$",
+                # Pydantic validators
+                r"^(model_validator|field_validator|validator|root_validator)$",
+                r"^(computed_field|field_serializer)$",
+                # SQLAlchemy event listeners
+                r"^(event\.listens_for|listens_for)$",
+                # Click CLI commands
+                r"^(click\.)?(command|group|option|argument)$",
+                # Flask decorators
+                r"^(app|blueprint)\.(route|before_request|after_request|errorhandler)$",
+                # Django decorators
+                r"^(login_required|permission_required|require_http_methods)$",
+                # General callback/event patterns
+                r"^(on_event|event_handler|callback|subscriber)$",
+                # Hypothesis strategies
+                r"^(given|composite|example)$",
+                # Property decorators
+                r"^(property|staticmethod|classmethod|abstractmethod)$",
+                # Dataclass/attrs
+                r"^(dataclass|attrs|define)$",
+                # Contextlib
+                r"^(contextmanager|asynccontextmanager)$",
+                # Caching decorators
+                r"^(cache|lru_cache|cached_property)$",
+                # Async decorators
+                r"^(asyncio\.coroutine|coroutine)$",
+            ],
+            # File path patterns where all functions are entry points
+            entry_point_file_patterns=[
+                r"test_[^/]+\.py$",
+                r"[^/]+_test\.py$",
+                r"conftest\.py$",
+                r"alembic/versions/",
+                r"migrations/",
+                r"__main__\.py$",
+                r"cli\.py$",
+                r"commands?\.py$",
+                r"scripts/[^/]+\.py$",
+            ],
+            # Callback name patterns
+            callback_name_patterns=[
+                r"^on_[a-z_]+$",
+                r"^on[A-Z]",
+                r"^handle_[a-z_]+$",
+                r"^handle[A-Z]",
+                r"_callback$",
+                r"_hook$",
+                r"_listener$",
+                r"_factory$",
+                r"_strategy$",
+                r"^toggle[A-Z]",
+                r"^format[A-Z]",
+                r"^get[A-Z].*Color$",
+                r"^render[A-Z]",
+                r"^use[A-Z]",
+            ],
+            # Async generator patterns
+            async_generator_patterns=[
+                r"^subscribe_",
+                r"^stream_",
+                r"_stream$",
+                r"_generator$",
+            ],
+            # API file patterns
+            api_file_patterns=[
+                r"api/v\d+/[^/]+\.py$",
+                r"routes?/[^/]+\.py$",
+                r"endpoints?/[^/]+\.py$",
+                r"views?/[^/]+\.py$",
+            ],
+            # Worker file patterns
+            worker_file_patterns=[
+                r"workers?/[^/]+\.py$",
+                r"tasks?/[^/]+\.py$",
+                r"celery_tasks?\.py$",
+            ],
+            # Expanded default directory exclusions
+            exclude_dirs={
+                # Package managers
+                "node_modules",
+                # Python virtual envs
+                ".venv",
+                "venv",
+                "env",
+                ".env",
+                # Python caches
+                "__pycache__",
+                ".mypy_cache",
+                ".pytest_cache",
+                ".ruff_cache",
+                # Build outputs
+                "dist",
+                "build",
+                "_build",
+                "target",
+                # Framework-specific
+                ".next",
+                ".nuxt",
+                ".output",
+                # VCS
+                ".git",
+                ".hg",
+                ".svn",
+                # Test coverage
+                "coverage",
+                "htmlcov",
+                ".coverage",
+                # Other
+                ".tox",
+                "vendor",
+                ".eggs",
+            },
+        )
+        config.compile_patterns()
+        return config
+
+    @classmethod
+    def load_for_repo(cls, repo_path: Path) -> "AnalyzerConfig":
+        """Load configuration for a specific repository.
+
+        Loads defaults first, then merges patterns from .n9r/call_graph.yaml
+        if it exists in the repository.
+
+        Args:
+            repo_path: Path to the repository root
+
+        Returns:
+            AnalyzerConfig with defaults merged with repo-specific patterns
+
+        Requirements: 3.2, 3.3
+        """
+        # Start with defaults
+        config = cls.load_defaults()
+
+        # Check for repo-level config
+        config_path = repo_path / ".n9r" / "call_graph.yaml"
+        if config_path.exists():
+            config._merge_from_file(config_path)
+
+        return config
+
+    def _merge_from_file(self, config_path: Path) -> None:
+        """Merge patterns from a YAML config file.
+
+        Extends (not replaces) the existing pattern lists.
+        Handles invalid YAML gracefully with fallback to current state.
+
+        Args:
+            config_path: Path to the YAML config file
+
+        Requirements: 3.2, 3.3, 3.4
+        """
+        try:
+            content = config_path.read_text(encoding="utf-8")
+            data = yaml.safe_load(content)
+
+            if not isinstance(data, dict):
+                logger.warning(
+                    f"Invalid config format in {config_path}: expected dict, got {type(data).__name__}"
+                )
+                return
+
+            # Merge entry point name patterns (additive)
+            if "entry_point_names" in data and isinstance(data["entry_point_names"], list):
+                for pattern in data["entry_point_names"]:
+                    if isinstance(pattern, str) and pattern not in self.entry_point_name_patterns:
+                        self.entry_point_name_patterns.append(pattern)
+
+            # Merge entry point decorator patterns (additive)
+            if "entry_point_decorators" in data and isinstance(data["entry_point_decorators"], list):
+                for pattern in data["entry_point_decorators"]:
+                    if isinstance(pattern, str) and pattern not in self.entry_point_decorator_patterns:
+                        self.entry_point_decorator_patterns.append(pattern)
+
+            # Merge entry point file patterns (additive)
+            if "entry_point_files" in data and isinstance(data["entry_point_files"], list):
+                for pattern in data["entry_point_files"]:
+                    if isinstance(pattern, str) and pattern not in self.entry_point_file_patterns:
+                        self.entry_point_file_patterns.append(pattern)
+
+            # Merge callback name patterns (additive)
+            if "callback_names" in data and isinstance(data["callback_names"], list):
+                for pattern in data["callback_names"]:
+                    if isinstance(pattern, str) and pattern not in self.callback_name_patterns:
+                        self.callback_name_patterns.append(pattern)
+
+            # Merge async generator patterns (additive)
+            if "async_generator_patterns" in data and isinstance(data["async_generator_patterns"], list):
+                for pattern in data["async_generator_patterns"]:
+                    if isinstance(pattern, str) and pattern not in self.async_generator_patterns:
+                        self.async_generator_patterns.append(pattern)
+
+            # Merge API file patterns (additive)
+            if "api_file_patterns" in data and isinstance(data["api_file_patterns"], list):
+                for pattern in data["api_file_patterns"]:
+                    if isinstance(pattern, str) and pattern not in self.api_file_patterns:
+                        self.api_file_patterns.append(pattern)
+
+            # Merge worker file patterns (additive)
+            if "worker_file_patterns" in data and isinstance(data["worker_file_patterns"], list):
+                for pattern in data["worker_file_patterns"]:
+                    if isinstance(pattern, str) and pattern not in self.worker_file_patterns:
+                        self.worker_file_patterns.append(pattern)
+
+            # Merge exclude directories (additive)
+            if "exclude_dirs" in data and isinstance(data["exclude_dirs"], list):
+                for dir_name in data["exclude_dirs"]:
+                    if isinstance(dir_name, str):
+                        self.exclude_dirs.add(dir_name)
+
+            # Recompile patterns after merge
+            self.compile_patterns()
+
+            logger.info(f"Merged config from {config_path}")
+
+        except yaml.YAMLError as e:
+            logger.warning(f"Invalid YAML in {config_path}: {e}. Using defaults.")
+        except Exception as e:
+            logger.warning(f"Failed to load config from {config_path}: {e}. Using defaults.")
+
+    def compile_patterns(self) -> None:
+        """Compile all regex strings into re.Pattern objects.
+
+        Stores compiled patterns in private _compiled fields for performance.
+        Invalid patterns are logged and skipped.
+
+        Requirements: 3.5
+        """
+        self._name_patterns = self._compile_pattern_list(self.entry_point_name_patterns)
+        self._decorator_patterns = self._compile_pattern_list(self.entry_point_decorator_patterns)
+        self._file_patterns = self._compile_pattern_list(self.entry_point_file_patterns)
+        self._callback_patterns = self._compile_pattern_list(self.callback_name_patterns)
+        self._async_patterns = self._compile_pattern_list(self.async_generator_patterns)
+        self._api_patterns = self._compile_pattern_list(self.api_file_patterns)
+        self._worker_patterns = self._compile_pattern_list(self.worker_file_patterns)
+        self._compiled = True
+
+    def _compile_pattern_list(self, patterns: list[str]) -> list[re.Pattern[str]]:
+        """Compile a list of regex strings into Pattern objects."""
+        compiled = []
+        for pattern in patterns:
+            try:
+                compiled.append(re.compile(pattern))
+            except re.error as e:
+                logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+        return compiled
+
+    def is_entry_point_by_name(self, name: str) -> bool:
+        """Check if a function name matches entry point patterns.
+
+        Args:
+            name: Function name to check
+
+        Returns:
+            True if the name matches an entry point pattern
+        """
+        if not name or not self._compiled:
+            return False
+        return any(p.search(name) for p in self._name_patterns)
+
+    def is_decorator_entry_point(self, decorator: str) -> bool:
+        """Check if a decorator marks a function as an entry point.
+
+        Args:
+            decorator: Full decorator name (e.g., "app.get", "pytest.fixture")
+
+        Returns:
+            True if this decorator marks the function as an entry point
+        """
+        if not decorator or not self._compiled:
+            return False
+        return any(p.search(decorator) for p in self._decorator_patterns)
+
+    def is_entry_point_file(self, file_path: str) -> bool:
+        """Check if a file path indicates all functions are entry points.
+
+        Args:
+            file_path: Relative file path
+
+        Returns:
+            True if all functions in this file should be considered entry points
+        """
+        if not file_path or not self._compiled:
+            return False
+        return any(p.search(file_path) for p in self._file_patterns)
+
+    def is_callback_by_name(self, name: str) -> bool:
+        """Check if a function name suggests it's used as a callback.
+
+        Args:
+            name: Function name to check
+
+        Returns:
+            True if the name matches a callback pattern
+        """
+        if not name or not self._compiled:
+            return False
+        return any(p.search(name) for p in self._callback_patterns)
+
+    def is_async_generator_name(self, name: str) -> bool:
+        """Check if a function name suggests it's an async generator/stream.
+
+        Args:
+            name: Function name to check
+
+        Returns:
+            True if the name matches an async generator pattern
+        """
+        if not name or not self._compiled:
+            return False
+        return any(p.search(name) for p in self._async_patterns)
+
+    def is_api_endpoint_file(self, file_path: str) -> bool:
+        """Check if a file path indicates functions are likely API endpoints.
+
+        Args:
+            file_path: Relative file path
+
+        Returns:
+            True if functions in this file are likely HTTP endpoints
+        """
+        if not file_path or not self._compiled:
+            return False
+        return any(p.search(file_path) for p in self._api_patterns)
+
+    def is_worker_file(self, file_path: str) -> bool:
+        """Check if a file path indicates functions are likely Celery tasks.
+
+        Args:
+            file_path: Relative file path
+
+        Returns:
+            True if functions in this file are likely Celery tasks
+        """
+        if not file_path or not self._compiled:
+            return False
+        return any(p.search(file_path) for p in self._worker_patterns)
+
+    def should_exclude_dir(self, dir_name: str) -> bool:
+        """Check if a directory should be excluded from analysis.
+
+        Args:
+            dir_name: Directory name to check
+
+        Returns:
+            True if the directory should be excluded
+        """
+        return dir_name in self.exclude_dirs
+
+    def to_yaml(self) -> str:
+        """Serialize config to YAML format.
+
+        Excludes compiled patterns (internal state).
+
+        Returns:
+            YAML string representation of the config
+
+        Requirements: 5.7
+        """
+        data: dict[str, Any] = {
+            "entry_point_names": self.entry_point_name_patterns,
+            "entry_point_decorators": self.entry_point_decorator_patterns,
+            "entry_point_files": self.entry_point_file_patterns,
+            "callback_names": self.callback_name_patterns,
+            "async_generator_patterns": self.async_generator_patterns,
+            "api_file_patterns": self.api_file_patterns,
+            "worker_file_patterns": self.worker_file_patterns,
+            "exclude_dirs": sorted(self.exclude_dirs),
+        }
+        return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    @classmethod
+    def from_yaml(cls, yaml_str: str) -> "AnalyzerConfig":
+        """Deserialize YAML string to AnalyzerConfig.
+
+        Args:
+            yaml_str: YAML string representation
+
+        Returns:
+            AnalyzerConfig object
+
+        Requirements: 5.8
+        """
+        data = yaml.safe_load(yaml_str)
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid YAML format: expected dict, got {type(data).__name__}")
+
+        config = cls(
+            entry_point_name_patterns=data.get("entry_point_names", []),
+            entry_point_decorator_patterns=data.get("entry_point_decorators", []),
+            entry_point_file_patterns=data.get("entry_point_files", []),
+            callback_name_patterns=data.get("callback_names", []),
+            async_generator_patterns=data.get("async_generator_patterns", []),
+            api_file_patterns=data.get("api_file_patterns", []),
+            worker_file_patterns=data.get("worker_file_patterns", []),
+            exclude_dirs=set(data.get("exclude_dirs", [])),
+        )
+        config.compile_patterns()
+        return config
 
 # Known API router file patterns where functions are HTTP endpoints
 API_FILE_PATTERNS = [
@@ -428,11 +904,18 @@ class CallGraphAnalyzer:
 
     IMPORTANT: Parsers are initialized lazily on first use, not at import time.
     This is required for compatibility with Celery's prefork pool on macOS.
+
+    Args:
+        config: Optional AnalyzerConfig. If not provided, will be loaded via
+                load_for_repo() when analyze() is called.
+
+    Requirements: 3.1
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: AnalyzerConfig | None = None) -> None:
         self.parsers: dict[str, Parser] = {}
         self._initialized = False
+        self._config = config
 
     def _ensure_parsers(self) -> None:
         """Initialize Tree-sitter parsers lazily on first use."""
@@ -497,6 +980,10 @@ class CallGraphAnalyzer:
         """
         self._ensure_parsers()
 
+        # Load config if not provided (Requirements: 3.1)
+        if self._config is None:
+            self._config = AnalyzerConfig.load_for_repo(repo_path)
+
         call_graph = CallGraph()
 
         if not TREE_SITTER_AVAILABLE:
@@ -534,29 +1021,28 @@ class CallGraphAnalyzer:
         return call_graph
 
     def _find_source_files(self, repo_path: Path) -> list[Path]:
-        """Find all Python and JS/TS source files in repository."""
+        """Find all Python and JS/TS source files in repository.
+
+        Uses config.should_exclude_dir() to filter out directories.
+
+        Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7
+        """
         source_files = []
         extensions = {".py", ".js", ".jsx", ".ts", ".tsx"}
 
         for ext in extensions:
             source_files.extend(repo_path.rglob(f"*{ext}"))
 
-        # Filter out common non-source directories
+        # Filter out excluded directories using config
         filtered = []
-        exclude_patterns = {
-            "node_modules",
-            ".venv",
-            "venv",
-            "__pycache__",
-            ".git",
-            "dist",
-            "build",
-            ".next",
-        }
-
         for f in source_files:
-            parts = set(f.parts)
-            if not parts.intersection(exclude_patterns):
+            # Check if any part of the path is in exclude_dirs
+            should_exclude = False
+            for part in f.parts:
+                if self._config and self._config.should_exclude_dir(part):
+                    should_exclude = True
+                    break
+            if not should_exclude:
                 filtered.append(f)
 
         return filtered
@@ -597,13 +1083,18 @@ class CallGraphAnalyzer:
         4. Callback name patterns (*_callback, *_strategy, etc.)
         5. API endpoint files with router decorators
         6. Worker files with Celery task decorators
+
+        Requirements: 3.5
         """
+        # Use config methods for pattern matching (Requirements: 3.5)
+        config = self._config
+
         # Check if entire file is an entry point file (tests, migrations, etc.)
-        file_is_entry_point = is_entry_point_file(file_path)
+        file_is_entry_point = config.is_entry_point_file(file_path) if config else is_entry_point_file(file_path)
 
         # Check if file is likely API endpoints or workers (decorated functions are entry points)
-        file_is_api = is_api_endpoint_file(file_path)
-        file_is_worker = is_worker_file(file_path)
+        file_is_api = config.is_api_endpoint_file(file_path) if config else is_api_endpoint_file(file_path)
+        file_is_worker = config.is_worker_file(file_path) if config else is_worker_file(file_path)
 
         def get_text(node: "Node") -> str:
             return code[node.start_byte : node.end_byte]
@@ -638,8 +1129,11 @@ class CallGraphAnalyzer:
             """Check if any decorator marks this as an entry point."""
             for dec in decorators:
                 dec_name = extract_decorator_name(dec)
-                if dec_name and is_decorator_entry_point(dec_name):
-                    return True
+                if dec_name:
+                    if config and config.is_decorator_entry_point(dec_name):
+                        return True
+                    elif not config and is_decorator_entry_point(dec_name):
+                        return True
             return False
 
         def extract_calls_from_decorators(decorators: list["Node"]) -> set[str]:
@@ -713,12 +1207,17 @@ class CallGraphAnalyzer:
                     # In worker files, decorated functions are likely Celery tasks
                     is_worker_task = file_is_worker and has_any_decorator and not name.startswith("_")
 
-                    # Determine if this is an entry point
+                    # Determine if this is an entry point (Requirements: 3.5)
+                    # Use config methods for pattern matching
+                    name_is_entry = config.is_entry_point_by_name(name) if config else is_entry_point_by_name(name)
+                    name_is_callback = config.is_callback_by_name(name) if config else is_callback_by_name(name)
+                    name_is_async_gen = config.is_async_generator_name(name) if config else is_async_generator_name(name)
+
                     is_entry = (
                         file_is_entry_point  # All functions in test/migration files
-                        or is_entry_point_by_name(name)  # Name pattern match
-                        or is_callback_by_name(name)  # Callback pattern match
-                        or is_async_generator_name(name)  # Async generators (SSE)
+                        or name_is_entry  # Name pattern match
+                        or name_is_callback  # Callback pattern match
+                        or name_is_async_gen  # Async generators (SSE)
                         or has_entry_point_decorator(decorators)  # Decorator match
                         or (is_class_method and is_public_method)  # Public class methods
                         or is_api_endpoint  # Decorated functions in API files
@@ -762,9 +1261,14 @@ class CallGraphAnalyzer:
         4. Callback name patterns (*_callback, *_strategy, etc.)
         5. Separate export default statements: export default FunctionName
         6. React HOC patterns: memo(Component), forwardRef(Component)
+
+        Requirements: 3.5
         """
+        # Use config methods for pattern matching (Requirements: 3.5)
+        config = self._config
+
         # Check if entire file is an entry point file (tests, etc.)
-        file_is_entry_point = is_entry_point_file(file_path)
+        file_is_entry_point = config.is_entry_point_file(file_path) if config else is_entry_point_file(file_path)
 
         # Track functions that are exported via separate "export default X" statements
         # or used in HOC patterns like memo(X), forwardRef(X)
@@ -876,11 +1380,15 @@ class CallGraphAnalyzer:
                 # Check if this function is exported via separate statement or HOC
                 is_exported_separately = name in exported_names
 
-                # Determine if this is an entry point
+                # Determine if this is an entry point (Requirements: 3.5)
+                # Use config methods for pattern matching
+                name_is_entry = config.is_entry_point_by_name(name) if config else is_entry_point_by_name(name)
+                name_is_callback = config.is_callback_by_name(name) if config else is_callback_by_name(name)
+
                 is_entry = (
                     file_is_entry_point  # All functions in test files
-                    or is_entry_point_by_name(name)  # Name pattern match
-                    or is_callback_by_name(name)  # Callback pattern match
+                    or name_is_entry  # Name pattern match
+                    or name_is_callback  # Callback pattern match
                     or exported  # Exported functions are entry points
                     or is_exported_separately  # Exported via separate statement or HOC
                 )
@@ -935,17 +1443,33 @@ class CallGraphAnalyzer:
         4. Functions passed as keyword arguments: func(handler=my_handler)
         5. Functions called from if __name__ == "__main__": blocks (CLI entry points)
         6. Module-level calls (outside any function) - mark called functions as entry points
+
+        Performance optimization (Requirements 2.1, 2.3, 2.4):
+        Pre-builds a file-specific function index before processing calls.
+        This reduces find_containing_function from O(N) to O(F) where:
+        - N = total functions in codebase
+        - F = functions in current file
         """
 
         def get_text(node: "Node") -> str:
             return code[node.start_byte : node.end_byte]
 
+        # Pre-build file-specific function index for O(F) lookup instead of O(N)
+        # Requirements: 2.1, 2.3, 2.4
+        file_functions: list[CallGraphNode] = [
+            node for node in call_graph.nodes.values()
+            if node.file_path == file_path
+        ]
+
         def find_containing_function(line: int) -> str | None:
-            """Find which function contains the given line."""
-            for node_id, node in call_graph.nodes.items():
-                if node.file_path == file_path:
-                    if node.line_start <= line <= node.line_end:
-                        return node_id
+            """Find which function contains the given line.
+
+            Uses pre-built file-specific index for O(F) iteration
+            where F = functions in current file.
+            """
+            for node in file_functions:
+                if node.line_start <= line <= node.line_end:
+                    return node.id
             return None
 
         def is_at_module_level(node: "Node") -> bool:
@@ -958,19 +1482,35 @@ class CallGraphAnalyzer:
             return True
 
         def link_call(caller_id: str, called_name: str) -> None:
-            """Link a caller to a called function."""
-            # Try to find the called function in the same file first
-            called_id = f"{file_path}:{called_name}"
-            if called_id not in call_graph.nodes:
-                # Try to find in other files (simplified - just by name)
-                for node_id in call_graph.nodes:
-                    if node_id.endswith(f":{called_name}"):
-                        called_id = node_id
-                        break
+            """Link a caller to ALL potential target functions (conservative for dead code detection).
 
-            if called_id in call_graph.nodes and caller_id in call_graph.nodes:
-                call_graph.nodes[caller_id].calls.add(called_id)
-                call_graph.nodes[called_id].called_by.add(caller_id)
+            For dead code detection, we'd rather miss dead code than delete live code.
+            Linking to all candidates ensures no function is incorrectly flagged as dead.
+
+            Strategy:
+            1. Always include same-file match if it exists (highest priority)
+            2. Also include ALL cross-file matches with the same name
+            3. Update both caller.calls and target.called_by for each candidate
+            """
+            if caller_id not in call_graph.nodes:
+                return
+
+            candidates: list[str] = []
+
+            # Try same-file first (always include if exists - highest priority)
+            same_file_id = f"{file_path}:{called_name}"
+            if same_file_id in call_graph.nodes:
+                candidates.append(same_file_id)
+
+            # Find ALL functions with this name across the codebase (cross-file matches)
+            for node_id in call_graph.nodes:
+                if node_id.endswith(f":{called_name}") and node_id != same_file_id:
+                    candidates.append(node_id)
+
+            # Link to ALL candidates (conservative approach)
+            for target_id in candidates:
+                call_graph.nodes[caller_id].calls.add(target_id)
+                call_graph.nodes[target_id].called_by.add(caller_id)
 
         def mark_as_entry_point(func_name: str) -> None:
             """Mark a function as an entry point (used as callback or called from __main__)."""
@@ -1207,31 +1747,68 @@ class CallGraphAnalyzer:
     def _extract_js_calls(
         self, root: "Node", code: str, file_path: str, call_graph: CallGraph
     ) -> None:
-        """Extract JavaScript/TypeScript function calls and link them."""
+        """Extract JavaScript/TypeScript function calls and link them.
+
+        Performance optimization (Requirements 2.2, 2.3, 2.4):
+        Pre-builds a file-specific function index before processing calls.
+        This reduces find_containing_function from O(N) to O(F) where:
+        - N = total functions in codebase
+        - F = functions in current file
+        """
 
         def get_text(node: "Node") -> str:
             return code[node.start_byte : node.end_byte]
 
+        # Pre-build file-specific function index for O(F) lookup instead of O(N)
+        # Requirements: 2.2, 2.3, 2.4
+        file_functions: list[CallGraphNode] = [
+            node for node in call_graph.nodes.values()
+            if node.file_path == file_path
+        ]
+
         def find_containing_function(line: int) -> str | None:
-            """Find which function contains the given line."""
-            for node_id, node in call_graph.nodes.items():
-                if node.file_path == file_path:
-                    if node.line_start <= line <= node.line_end:
-                        return node_id
+            """Find which function contains the given line.
+
+            Uses pre-built file-specific index for O(F) iteration
+            where F = functions in current file.
+            """
+            for node in file_functions:
+                if node.line_start <= line <= node.line_end:
+                    return node.id
             return None
 
         def link_js_call(caller_id: str, called_name: str) -> None:
-            """Link a JS/TS caller to a called function."""
-            called_id = f"{file_path}:{called_name}"
-            if called_id not in call_graph.nodes:
-                for node_id in call_graph.nodes:
-                    if node_id.endswith(f":{called_name}"):
-                        called_id = node_id
-                        break
+            """Link a JS/TS caller to ALL potential target functions (conservative for dead code detection).
 
-            if called_id in call_graph.nodes and caller_id in call_graph.nodes:
-                call_graph.nodes[caller_id].calls.add(called_id)
-                call_graph.nodes[called_id].called_by.add(caller_id)
+            For dead code detection, we'd rather miss dead code than delete live code.
+            Linking to all candidates ensures no function is incorrectly flagged as dead.
+
+            Strategy:
+            1. Always include same-file match if it exists (highest priority)
+            2. Also include ALL cross-file matches with the same name
+            3. Update both caller.calls and target.called_by for each candidate
+
+            Requirements: 1.1, 1.2, 1.3, 1.4
+            """
+            if caller_id not in call_graph.nodes:
+                return
+
+            candidates: list[str] = []
+
+            # Try same-file first (always include if exists - highest priority)
+            same_file_id = f"{file_path}:{called_name}"
+            if same_file_id in call_graph.nodes:
+                candidates.append(same_file_id)
+
+            # Find ALL functions with this name across the codebase (cross-file matches)
+            for node_id in call_graph.nodes:
+                if node_id.endswith(f":{called_name}") and node_id != same_file_id:
+                    candidates.append(node_id)
+
+            # Link to ALL candidates (conservative approach)
+            for target_id in candidates:
+                call_graph.nodes[caller_id].calls.add(target_id)
+                call_graph.nodes[target_id].called_by.add(caller_id)
 
         def mark_js_entry_point(func_name: str) -> None:
             """Mark a JS/TS function as an entry point."""

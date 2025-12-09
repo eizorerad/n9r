@@ -1,11 +1,9 @@
 'use client'
 
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
-  ArrowLeft,
   MessageSquare,
 
   FileCode,
@@ -296,14 +294,18 @@ export function IDEClient({ id, token }: IDEClientProps) {
   }, [])
 
   // Handle URL query params for opening files (e.g. from search)
+  // Using a ref to track if we've already processed this file param
+  const processedFileParamRef = useRef<string | null>(null)
   useEffect(() => {
     const fileParam = searchParams.get('file')
-    if (fileParam && fileParam !== selectedFile) {
-      handleFileSelect(fileParam, 'file')
-      // Optional: Clear param from URL to avoid reopening on refresh? 
-      // For now, keeping it is standard deep linking behavior.
+    if (fileParam && fileParam !== processedFileParamRef.current) {
+      processedFileParamRef.current = fileParam
+      // Defer state update to avoid synchronous setState in effect
+      queueMicrotask(() => {
+        handleFileSelect(fileParam, 'file')
+      })
     }
-  }, [searchParams, handleFileSelect, selectedFile])
+  }, [searchParams, handleFileSelect])
 
   // Handle closing a tab
   const handleCloseTab = useCallback((path: string, e: React.MouseEvent) => {
@@ -330,8 +332,8 @@ export function IDEClient({ id, token }: IDEClientProps) {
     setSelectedFile(null)
   }, [clearSelection])
 
-  // Get current tab data
-  const activeTabData = openTabs.find(t => t.path === activeTab)
+  // Get current tab data (used for potential future features)
+  const _activeTabData = openTabs.find(t => t.path === activeTab)
 
   // Check if directory is loading
   const checkDirectoryLoading = useCallback((path: string) => {

@@ -25,7 +25,7 @@ export function ActivityBar({ className, activeView, onViewChange }: ActivityBar
     const topItems = [
         { id: "explorer", icon: Files, label: "Explorer" },
         { id: "search", icon: Search, label: "Search" },
-        { id: "source-control", icon: GitGraph, label: "Source Control" },
+        { id: "source-control", icon: GitBranch, label: "Source Control" },
         { id: "run-debug", icon: Bug, label: "Run and Debug" },
         { id: "extensions", icon: Blocks, label: "Extensions" },
     ]

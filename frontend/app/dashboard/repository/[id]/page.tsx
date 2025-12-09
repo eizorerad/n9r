@@ -384,9 +384,9 @@ export default async function RepositoryPage({
             </Suspense>
           </div>
 
-          {/* Right: Compact Code Health Panel */}
-          <div className="lg:w-[320px] xl:w-[360px] flex-shrink-0">
-            <Suspense fallback={<div className="h-32 bg-muted/30 rounded-xl animate-pulse" />}>
+          {/* Right: Compact Code Health Panel - Sticky */}
+          <div className="fixed top-4 right-4 z-40">
+            <Suspense fallback={<div className="h-20 w-[160px] bg-muted/30 rounded-xl animate-pulse" />}>
               <VCISection id={id} />
             </Suspense>
           </div>

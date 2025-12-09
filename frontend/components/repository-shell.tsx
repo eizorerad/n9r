@@ -69,7 +69,7 @@ export function RepositoryShell({
     // Determine sidebar content
     let sidebarContent: React.ReactNode | null = null
 
-    const handleSearchResultClick = (result: any) => {
+    const handleSearchResultClick = (result: { file_path: string }) => {
         // Navigate to IDE view with the file selected
         // We pass the file path as a query parameter so the IDE can open it
         // Note: We need to ensure IDEClient reads this parameter

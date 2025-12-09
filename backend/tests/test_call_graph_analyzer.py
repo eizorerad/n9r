@@ -17,6 +17,7 @@ from hypothesis import strategies as st
 
 from app.services.call_graph_analyzer import (
     TREE_SITTER_AVAILABLE,
+    AnalyzerConfig,
     CallGraph,
     CallGraphAnalyzer,
     CallGraphNode,
@@ -1621,3 +1622,1114 @@ async def fetch_with_retry(
             # Verify names are clean
             for node in call_graph.nodes.values():
                 assert node.name.isidentifier(), f"Invalid name: '{node.name}'"
+
+
+# =============================================================================
+# Property Tests for Multi-File Same-Name Function Resolution
+# =============================================================================
+
+
+class TestMultiFileSameNameResolution:
+    """Property tests for multi-file same-name function resolution.
+
+    **Feature: call-graph-refactoring, Property 1 & 2**
+    **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
+
+    These tests verify that when multiple files define functions with the same name,
+    the call graph analyzer correctly links calls to ALL candidates while prioritizing
+    same-file matches.
+    """
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    @given(st.integers(min_value=2, max_value=5))
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+    def test_same_file_priority_inclusion(self, num_files: int):
+        """
+        **Feature: call-graph-refactoring, Property 2: Same-File Priority Inclusion**
+        **Validates: Requirements 1.2**
+
+        Property: For any function call where a matching function exists in the same file,
+        the same-file function SHALL always be included in the linked candidates
+        (regardless of whether cross-file matches also exist).
+        """
+        # Create multiple files with a function named "helper"
+        # One file will call helper() and should link to its own helper first
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # Create file1.py with helper() and caller() that calls helper()
+            file1_code = '''
+def helper():
+    """Helper in file1."""
+    return "file1"
+
+def caller():
+    """Calls helper - should link to same-file helper."""
+    return helper()
+'''
+            (repo_path / "file1.py").write_text(file1_code)
+
+            # Create additional files with their own helper() function
+            for i in range(2, num_files + 1):
+                file_code = f'''
+def helper():
+    """Helper in file{i}."""
+    return "file{i}"
+'''
+                (repo_path / f"file{i}.py").write_text(file_code)
+
+            # Analyze the repository
+            analyzer = CallGraphAnalyzer()
+            call_graph = analyzer.analyze(repo_path)
+
+            # Verify caller exists
+            caller_id = "file1.py:caller"
+            assert caller_id in call_graph.nodes, "caller not found in call graph"
+
+            caller_node = call_graph.nodes[caller_id]
+
+            # Property: Same-file helper MUST be in caller's calls
+            same_file_helper_id = "file1.py:helper"
+            assert same_file_helper_id in caller_node.calls, (
+                f"Same-file helper should be in caller's calls.\n"
+                f"caller.calls = {caller_node.calls}\n"
+                f"Expected: {same_file_helper_id}"
+            )
+
+            # Property: Same-file helper's called_by MUST include caller
+            same_file_helper = call_graph.nodes.get(same_file_helper_id)
+            assert same_file_helper is not None, "Same-file helper not found"
+            assert caller_id in same_file_helper.called_by, (
+                f"Caller should be in same-file helper's called_by.\n"
+                f"helper.called_by = {same_file_helper.called_by}\n"
+                f"Expected: {caller_id}"
+            )
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    @given(st.integers(min_value=2, max_value=4))
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+    def test_multi_candidate_bidirectional_linking(self, num_files: int):
+        """
+        **Feature: call-graph-refactoring, Property 1: Multi-Candidate Bidirectional Linking**
+        **Validates: Requirements 1.1, 1.3, 1.4**
+
+        Property: For any function call that matches multiple functions with the same name
+        across different files, linking the call SHALL result in:
+        - The caller's `calls` set containing ALL candidate function IDs
+        - Each candidate's `called_by` set containing the caller ID
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # Create caller file that calls process() - no local process() defined
+            caller_code = '''
+def main():
+    """Main entry point that calls process()."""
+    return process()
+'''
+            (repo_path / "main.py").write_text(caller_code)
+
+            # Create multiple files with process() function
+            for i in range(1, num_files + 1):
+                file_code = f'''
+def process():
+    """Process function in module{i}."""
+    return "module{i}"
+'''
+                (repo_path / f"module{i}.py").write_text(file_code)
+
+            # Analyze the repository
+            analyzer = CallGraphAnalyzer()
+            call_graph = analyzer.analyze(repo_path)
+
+            # Verify main exists
+            main_id = "main.py:main"
+            assert main_id in call_graph.nodes, "main not found in call graph"
+
+            main_node = call_graph.nodes[main_id]
+
+            # Collect all process() function IDs
+            process_ids = [
+                node_id for node_id in call_graph.nodes
+                if node_id.endswith(":process")
+            ]
+
+            # Property 1: ALL process functions should be in main's calls
+            for process_id in process_ids:
+                assert process_id in main_node.calls, (
+                    f"All process() candidates should be in main's calls.\n"
+                    f"Missing: {process_id}\n"
+                    f"main.calls = {main_node.calls}"
+                )
+
+            # Property 2: main should be in each process function's called_by
+            for process_id in process_ids:
+                process_node = call_graph.nodes[process_id]
+                assert main_id in process_node.called_by, (
+                    f"main should be in {process_id}'s called_by.\n"
+                    f"{process_id}.called_by = {process_node.called_by}"
+                )
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    def test_same_file_match_with_cross_file_matches(self):
+        """
+        **Feature: call-graph-refactoring, Property 2: Same-File Priority Inclusion**
+        **Validates: Requirements 1.2**
+
+        Verify that same-file match is included even when cross-file matches exist.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # File with both helper() and caller()
+            file1_code = '''
+def helper():
+    return "local"
+
+def caller():
+    return helper()
+'''
+            (repo_path / "file1.py").write_text(file1_code)
+
+            # Another file with helper()
+            file2_code = '''
+def helper():
+    return "remote"
+'''
+            (repo_path / "file2.py").write_text(file2_code)
+
+            analyzer = CallGraphAnalyzer()
+            call_graph = analyzer.analyze(repo_path)
+
+            caller_node = call_graph.nodes.get("file1.py:caller")
+            assert caller_node is not None
+
+            # Same-file helper MUST be included
+            assert "file1.py:helper" in caller_node.calls, (
+                "Same-file helper must be in calls even with cross-file matches"
+            )
+
+            # Cross-file helper should also be included (conservative linking)
+            assert "file2.py:helper" in caller_node.calls, (
+                "Cross-file helper should also be linked (conservative approach)"
+            )
+
+            # Bidirectional: both helpers should have caller in called_by
+            file1_helper = call_graph.nodes.get("file1.py:helper")
+            file2_helper = call_graph.nodes.get("file2.py:helper")
+
+            assert "file1.py:caller" in file1_helper.called_by
+            assert "file1.py:caller" in file2_helper.called_by
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    def test_no_false_positive_dead_code_with_same_name_functions(self):
+        """
+        **Feature: call-graph-refactoring, Property 1: Multi-Candidate Bidirectional Linking**
+        **Validates: Requirements 1.1, 1.3, 1.4**
+
+        Verify that functions with same name across files are not incorrectly
+        flagged as dead code when one of them is called.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # Entry point that calls validate()
+            main_code = '''
+def main():
+    return validate()
+'''
+            (repo_path / "main.py").write_text(main_code)
+
+            # Multiple files with validate() function
+            for i in range(1, 4):
+                file_code = f'''
+def validate():
+    return "validator{i}"
+'''
+                (repo_path / f"validator{i}.py").write_text(file_code)
+
+            analyzer = CallGraphAnalyzer()
+            call_graph = analyzer.analyze(repo_path)
+            findings = analyzer.to_dead_code_findings(call_graph)
+
+            dead_names = [f.function_name for f in findings]
+
+            # None of the validate() functions should be flagged as dead
+            # because main() calls validate() and links to ALL candidates
+            assert "validate" not in dead_names, (
+                "validate() should not be dead code - it's called by main().\n"
+                f"Dead code findings: {dead_names}"
+            )
+
+
+# =============================================================================
+# Property Tests for Config Round-Trip Consistency
+# =============================================================================
+
+
+@st.composite
+def valid_regex_pattern(draw) -> str:
+    """Generate valid regex patterns that can be compiled."""
+    # Use simple patterns that are always valid
+    prefix = draw(st.sampled_from(["^", ""]))
+    suffix = draw(st.sampled_from(["$", ""]))
+    # Generate a simple word pattern
+    word = draw(st.from_regex(r"[a-zA-Z_][a-zA-Z0-9_]*", fullmatch=True).filter(
+        lambda s: len(s) >= 1 and len(s) <= 20
+    ))
+    return f"{prefix}{word}{suffix}"
+
+
+@st.composite
+def analyzer_config_strategy(draw):
+    """Generate valid AnalyzerConfig objects for property testing.
+
+    Generates configs with:
+    - 0-5 patterns per pattern list
+    - 0-5 exclude directories
+    - All patterns are valid regex strings
+    """
+    from app.services.call_graph_analyzer import AnalyzerConfig
+
+    # Generate pattern lists (0-5 patterns each)
+    entry_point_names = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    entry_point_decorators = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    entry_point_files = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    callback_names = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    async_generator_patterns = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    api_file_patterns = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+    worker_file_patterns = draw(st.lists(valid_regex_pattern(), min_size=0, max_size=5))
+
+    # Generate exclude directories (simple directory names)
+    exclude_dirs = draw(st.sets(
+        st.from_regex(r"[a-zA-Z_][a-zA-Z0-9_]*", fullmatch=True).filter(
+            lambda s: len(s) >= 1 and len(s) <= 20
+        ),
+        min_size=0,
+        max_size=5
+    ))
+
+    config = AnalyzerConfig(
+        entry_point_name_patterns=entry_point_names,
+        entry_point_decorator_patterns=entry_point_decorators,
+        entry_point_file_patterns=entry_point_files,
+        callback_name_patterns=callback_names,
+        async_generator_patterns=async_generator_patterns,
+        api_file_patterns=api_file_patterns,
+        worker_file_patterns=worker_file_patterns,
+        exclude_dirs=exclude_dirs,
+    )
+    config.compile_patterns()
+    return config
+
+
+class TestConfigRoundTripProperties:
+    """Property tests for config serialization round-trip consistency.
+
+    **Feature: call-graph-refactoring, Property 6: Config Round-Trip Consistency**
+    **Validates: Requirements 5.7, 5.8**
+    """
+
+    @given(analyzer_config_strategy())
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+    def test_config_round_trip_consistency(self, config: AnalyzerConfig):
+        """
+        **Feature: call-graph-refactoring, Property 6: Config Round-Trip Consistency**
+        **Validates: Requirements 5.7, 5.8**
+
+        Property: For any valid AnalyzerConfig object, serializing to YAML and
+        deserializing back SHALL produce an equivalent config (same patterns,
+        same exclusions).
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Serialize to YAML
+        yaml_str = config.to_yaml()
+
+        # Deserialize back
+        restored_config = AnalyzerConfig.from_yaml(yaml_str)
+
+        # Property 1: Entry point name patterns are preserved
+        assert config.entry_point_name_patterns == restored_config.entry_point_name_patterns, (
+            f"Entry point name patterns not preserved.\n"
+            f"Original: {config.entry_point_name_patterns}\n"
+            f"Restored: {restored_config.entry_point_name_patterns}"
+        )
+
+        # Property 2: Entry point decorator patterns are preserved
+        assert config.entry_point_decorator_patterns == restored_config.entry_point_decorator_patterns, (
+            f"Entry point decorator patterns not preserved.\n"
+            f"Original: {config.entry_point_decorator_patterns}\n"
+            f"Restored: {restored_config.entry_point_decorator_patterns}"
+        )
+
+        # Property 3: Entry point file patterns are preserved
+        assert config.entry_point_file_patterns == restored_config.entry_point_file_patterns, (
+            f"Entry point file patterns not preserved.\n"
+            f"Original: {config.entry_point_file_patterns}\n"
+            f"Restored: {restored_config.entry_point_file_patterns}"
+        )
+
+        # Property 4: Callback name patterns are preserved
+        assert config.callback_name_patterns == restored_config.callback_name_patterns, (
+            f"Callback name patterns not preserved.\n"
+            f"Original: {config.callback_name_patterns}\n"
+            f"Restored: {restored_config.callback_name_patterns}"
+        )
+
+        # Property 5: Async generator patterns are preserved
+        assert config.async_generator_patterns == restored_config.async_generator_patterns, (
+            f"Async generator patterns not preserved.\n"
+            f"Original: {config.async_generator_patterns}\n"
+            f"Restored: {restored_config.async_generator_patterns}"
+        )
+
+        # Property 6: API file patterns are preserved
+        assert config.api_file_patterns == restored_config.api_file_patterns, (
+            f"API file patterns not preserved.\n"
+            f"Original: {config.api_file_patterns}\n"
+            f"Restored: {restored_config.api_file_patterns}"
+        )
+
+        # Property 7: Worker file patterns are preserved
+        assert config.worker_file_patterns == restored_config.worker_file_patterns, (
+            f"Worker file patterns not preserved.\n"
+            f"Original: {config.worker_file_patterns}\n"
+            f"Restored: {restored_config.worker_file_patterns}"
+        )
+
+        # Property 8: Exclude directories are preserved
+        assert config.exclude_dirs == restored_config.exclude_dirs, (
+            f"Exclude directories not preserved.\n"
+            f"Original: {config.exclude_dirs}\n"
+            f"Restored: {restored_config.exclude_dirs}"
+        )
+
+        # Property 9: Restored config is compiled
+        assert restored_config._compiled, "Restored config should be compiled"
+
+    @given(analyzer_config_strategy())
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+    def test_config_yaml_is_valid_yaml(self, config: AnalyzerConfig):
+        """
+        **Feature: call-graph-refactoring, Property 6: Config Round-Trip Consistency**
+        **Validates: Requirements 5.7**
+
+        Property: For any valid AnalyzerConfig, to_yaml() SHALL produce
+        valid YAML that can be parsed without errors.
+        """
+        import yaml
+
+        yaml_str = config.to_yaml()
+
+        # Should not raise any exceptions
+        parsed = yaml.safe_load(yaml_str)
+
+        # Should be a dictionary
+        assert isinstance(parsed, dict), f"YAML should parse to dict, got {type(parsed)}"
+
+        # Should contain expected keys
+        expected_keys = {
+            "entry_point_names",
+            "entry_point_decorators",
+            "entry_point_files",
+            "callback_names",
+            "async_generator_patterns",
+            "api_file_patterns",
+            "worker_file_patterns",
+            "exclude_dirs",
+        }
+        assert set(parsed.keys()) == expected_keys, (
+            f"YAML keys mismatch.\n"
+            f"Expected: {expected_keys}\n"
+            f"Got: {set(parsed.keys())}"
+        )
+
+    def test_config_from_yaml_with_defaults(self):
+        """
+        **Feature: call-graph-refactoring, Property 6: Config Round-Trip Consistency**
+        **Validates: Requirements 5.7, 5.8**
+
+        Test that load_defaults() config can round-trip through YAML.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Load defaults
+        original = AnalyzerConfig.load_defaults()
+
+        # Round-trip through YAML
+        yaml_str = original.to_yaml()
+        restored = AnalyzerConfig.from_yaml(yaml_str)
+
+        # All patterns should match
+        assert original.entry_point_name_patterns == restored.entry_point_name_patterns
+        assert original.entry_point_decorator_patterns == restored.entry_point_decorator_patterns
+        assert original.entry_point_file_patterns == restored.entry_point_file_patterns
+        assert original.callback_name_patterns == restored.callback_name_patterns
+        assert original.async_generator_patterns == restored.async_generator_patterns
+        assert original.api_file_patterns == restored.api_file_patterns
+        assert original.worker_file_patterns == restored.worker_file_patterns
+        assert original.exclude_dirs == restored.exclude_dirs
+
+    def test_config_from_yaml_invalid_format(self):
+        """
+        **Feature: call-graph-refactoring, Property 6: Config Round-Trip Consistency**
+        **Validates: Requirements 5.8**
+
+        Test that from_yaml() raises ValueError for invalid YAML format.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # YAML that parses to a list instead of dict
+        invalid_yaml = "- item1\n- item2\n"
+
+        with pytest.raises(ValueError, match="Invalid YAML format"):
+            AnalyzerConfig.from_yaml(invalid_yaml)
+
+
+# =============================================================================
+# Property Tests for Directory Exclusion Completeness
+# =============================================================================
+
+
+@st.composite
+def excluded_directory_name(draw) -> str:
+    """Generate directory names that should be excluded by default config.
+
+    Returns one of the default excluded directories from AnalyzerConfig.
+    """
+    from app.services.call_graph_analyzer import AnalyzerConfig
+
+    config = AnalyzerConfig.load_defaults()
+    return draw(st.sampled_from(sorted(config.exclude_dirs)))
+
+
+@st.composite
+def file_in_excluded_directory(draw) -> tuple[str, str]:
+    """Generate a file path inside an excluded directory.
+
+    Returns:
+        Tuple of (excluded_dir_name, full_file_path)
+    """
+    excluded_dir = draw(excluded_directory_name())
+
+    # Generate a valid Python filename
+    filename = draw(st.from_regex(r"[a-zA-Z_][a-zA-Z0-9_]*\.py", fullmatch=True).filter(
+        lambda s: len(s) >= 4 and len(s) <= 30
+    ))
+
+    # Optionally add subdirectory depth
+    depth = draw(st.integers(min_value=0, max_value=2))
+    subdirs = []
+    for _ in range(depth):
+        subdir = draw(st.from_regex(r"[a-zA-Z_][a-zA-Z0-9_]*", fullmatch=True).filter(
+            lambda s: len(s) >= 1 and len(s) <= 15
+        ))
+        subdirs.append(subdir)
+
+    # Build full path
+    if subdirs:
+        full_path = f"{excluded_dir}/{'/'.join(subdirs)}/{filename}"
+    else:
+        full_path = f"{excluded_dir}/{filename}"
+
+    return excluded_dir, full_path
+
+
+class TestDirectoryExclusionCompletenessProperties:
+    """Property tests for directory exclusion completeness.
+
+    **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+    **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+    """
+
+    @given(excluded_directory_name())
+    @settings(max_examples=100)
+    def test_default_excluded_dirs_are_excluded(self, dir_name: str):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Property: For any directory in the default exclude_dirs set,
+        should_exclude_dir() SHALL return True.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        config = AnalyzerConfig.load_defaults()
+
+        assert config.should_exclude_dir(dir_name), (
+            f"Directory '{dir_name}' should be excluded but was not.\n"
+            f"Default exclude_dirs: {sorted(config.exclude_dirs)}"
+        )
+
+    def test_all_required_directories_are_excluded(self):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Verify that all directories specified in requirements are excluded:
+        - 4.1: node_modules (package managers)
+        - 4.2: .venv, venv, env (Python virtual environments)
+        - 4.3: __pycache__, .mypy_cache, .pytest_cache, .ruff_cache (Python caches)
+        - 4.4: dist, build, _build, target (build outputs)
+        - 4.5: .next, .nuxt, .output (framework-specific)
+        - 4.6: .git, .hg, .svn (version control)
+        - 4.7: coverage, htmlcov (test coverage)
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        config = AnalyzerConfig.load_defaults()
+
+        # Requirement 4.1: Package manager directories
+        assert config.should_exclude_dir("node_modules"), "node_modules should be excluded (Req 4.1)"
+
+        # Requirement 4.2: Python virtual environment directories
+        assert config.should_exclude_dir(".venv"), ".venv should be excluded (Req 4.2)"
+        assert config.should_exclude_dir("venv"), "venv should be excluded (Req 4.2)"
+        assert config.should_exclude_dir("env"), "env should be excluded (Req 4.2)"
+
+        # Requirement 4.3: Python cache directories
+        assert config.should_exclude_dir("__pycache__"), "__pycache__ should be excluded (Req 4.3)"
+        assert config.should_exclude_dir(".mypy_cache"), ".mypy_cache should be excluded (Req 4.3)"
+        assert config.should_exclude_dir(".pytest_cache"), ".pytest_cache should be excluded (Req 4.3)"
+        assert config.should_exclude_dir(".ruff_cache"), ".ruff_cache should be excluded (Req 4.3)"
+
+        # Requirement 4.4: Build output directories
+        assert config.should_exclude_dir("dist"), "dist should be excluded (Req 4.4)"
+        assert config.should_exclude_dir("build"), "build should be excluded (Req 4.4)"
+        assert config.should_exclude_dir("_build"), "_build should be excluded (Req 4.4)"
+        assert config.should_exclude_dir("target"), "target should be excluded (Req 4.4)"
+
+        # Requirement 4.5: Framework-specific directories
+        assert config.should_exclude_dir(".next"), ".next should be excluded (Req 4.5)"
+        assert config.should_exclude_dir(".nuxt"), ".nuxt should be excluded (Req 4.5)"
+        assert config.should_exclude_dir(".output"), ".output should be excluded (Req 4.5)"
+
+        # Requirement 4.6: Version control directories
+        assert config.should_exclude_dir(".git"), ".git should be excluded (Req 4.6)"
+        assert config.should_exclude_dir(".hg"), ".hg should be excluded (Req 4.6)"
+        assert config.should_exclude_dir(".svn"), ".svn should be excluded (Req 4.6)"
+
+        # Requirement 4.7: Test coverage directories
+        assert config.should_exclude_dir("coverage"), "coverage should be excluded (Req 4.7)"
+        assert config.should_exclude_dir("htmlcov"), "htmlcov should be excluded (Req 4.7)"
+
+    @given(st.from_regex(r"[a-zA-Z][a-zA-Z0-9_]*", fullmatch=True).filter(
+        lambda s: len(s) >= 2 and len(s) <= 20 and s not in {
+            "node_modules", ".venv", "venv", "env", ".env",
+            "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+            "dist", "build", "_build", "target",
+            ".next", ".nuxt", ".output",
+            ".git", ".hg", ".svn",
+            "coverage", "htmlcov", ".coverage",
+            ".tox", "vendor", ".eggs"
+        }
+    ))
+    @settings(max_examples=100)
+    def test_non_excluded_dirs_are_not_excluded(self, dir_name: str):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Property: For any directory NOT in the default exclude_dirs set,
+        should_exclude_dir() SHALL return False.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        config = AnalyzerConfig.load_defaults()
+
+        assert not config.should_exclude_dir(dir_name), (
+            f"Directory '{dir_name}' should NOT be excluded but was.\n"
+            f"Default exclude_dirs: {sorted(config.exclude_dirs)}"
+        )
+
+    @given(file_in_excluded_directory())
+    @settings(max_examples=100)
+    def test_should_exclude_dir_returns_true_for_excluded_dirs(self, dir_and_path: tuple[str, str]):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Property: For any directory in the exclude_dirs set, should_exclude_dir()
+        SHALL return True, enabling the analyzer to filter out files in those directories.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        excluded_dir, _file_path = dir_and_path
+
+        config = AnalyzerConfig.load_defaults()
+
+        # The config should correctly identify this directory as excluded
+        assert config.should_exclude_dir(excluded_dir), (
+            f"should_exclude_dir('{excluded_dir}') should return True.\n"
+            f"This directory is in exclude_dirs: {excluded_dir in config.exclude_dirs}"
+        )
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    def test_analyzer_excludes_common_directories(self):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Integration test: Verify that the analyzer excludes common directories
+        that are in the hardcoded exclude_patterns (node_modules, .venv, etc.).
+
+        Note: Full config integration (task 9.2) will expand this to all exclude_dirs.
+        """
+        # Create a temporary repo with files in excluded directories
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # Create files in directories that ARE currently excluded by the analyzer
+            # (these are in the hardcoded exclude_patterns in _find_source_files)
+            excluded_dirs_in_analyzer = ["node_modules", ".venv", "venv", "__pycache__", ".git", "dist", "build", ".next"]
+
+            for excluded_dir in excluded_dirs_in_analyzer:
+                excluded_file = repo_path / excluded_dir / "module.py"
+                excluded_file.parent.mkdir(parents=True, exist_ok=True)
+                excluded_file.write_text('''
+def excluded_function():
+    """This function should not be analyzed."""
+    return 42
+''')
+
+            # Also create a non-excluded file for comparison
+            normal_file = repo_path / "normal_module.py"
+            normal_file.write_text('''
+def normal_function():
+    """This function should be analyzed."""
+    return 1
+''')
+
+            # Analyze the repository
+            analyzer = CallGraphAnalyzer()
+            call_graph = analyzer.analyze(repo_path)
+
+            # The normal function SHOULD be in the call graph
+            normal_node_id = "normal_module.py:normal_function"
+            assert normal_node_id in call_graph.nodes, (
+                f"Function in non-excluded directory should be analyzed.\n"
+                f"Expected node: {normal_node_id}\n"
+                f"Found nodes: {list(call_graph.nodes.keys())}"
+            )
+
+            # Functions in excluded directories should NOT be in the call graph
+            for excluded_dir in excluded_dirs_in_analyzer:
+                excluded_node_id = f"{excluded_dir}/module.py:excluded_function"
+                assert excluded_node_id not in call_graph.nodes, (
+                    f"Function in excluded directory '{excluded_dir}' should not be analyzed.\n"
+                    f"Node ID: {excluded_node_id}\n"
+                    f"Found nodes: {list(call_graph.nodes.keys())}"
+                )
+
+    def test_custom_exclude_dirs_via_config(self):
+        """
+        **Feature: call-graph-refactoring, Property 5: Directory Exclusion Completeness**
+        **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7**
+
+        Test that custom exclude directories can be added via config merge.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Start with defaults
+        config = AnalyzerConfig.load_defaults()
+        original_count = len(config.exclude_dirs)
+
+        # Add custom directory
+        config.exclude_dirs.add("my_custom_build")
+
+        # Verify custom directory is now excluded
+        assert config.should_exclude_dir("my_custom_build"), (
+            "Custom directory should be excluded after adding to exclude_dirs"
+        )
+
+        # Verify original directories are still excluded
+        assert config.should_exclude_dir("node_modules"), (
+            "Original directories should still be excluded"
+        )
+
+        # Verify count increased
+        assert len(config.exclude_dirs) == original_count + 1, (
+            "Adding custom directory should increase exclude_dirs count"
+        )
+
+
+# =============================================================================
+# Property Tests for Config Pattern Merge (Task 8.3)
+# =============================================================================
+
+
+@st.composite
+def repo_config_yaml_content(draw) -> dict[str, list[str]]:
+    """Generate valid repo config YAML content with custom patterns.
+
+    Returns:
+        Dictionary representing YAML content for .n9r/call_graph.yaml
+    """
+    # Generate custom entry point name patterns
+    custom_names = draw(st.lists(
+        st.from_regex(r"\^[a-z_]+\$", fullmatch=True).filter(lambda s: len(s) >= 3 and len(s) <= 20),
+        min_size=0,
+        max_size=3
+    ))
+
+    # Generate custom decorator patterns
+    custom_decorators = draw(st.lists(
+        st.from_regex(r"\^@?[a-z_]+\$", fullmatch=True).filter(lambda s: len(s) >= 3 and len(s) <= 20),
+        min_size=0,
+        max_size=3
+    ))
+
+    # Generate custom file patterns
+    custom_files = draw(st.lists(
+        st.from_regex(r"[a-z_]+/", fullmatch=True).filter(lambda s: len(s) >= 2 and len(s) <= 15),
+        min_size=0,
+        max_size=3
+    ))
+
+    # Generate custom exclude directories
+    custom_exclude_dirs = draw(st.lists(
+        st.from_regex(r"[a-z_]+", fullmatch=True).filter(
+            lambda s: len(s) >= 2 and len(s) <= 15 and s not in {
+                "node_modules", ".venv", "venv", "env", ".env",
+                "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
+                "dist", "build", "_build", "target",
+                ".next", ".nuxt", ".output",
+                ".git", ".hg", ".svn",
+                "coverage", "htmlcov", ".coverage",
+                ".tox", "vendor", ".eggs"
+            }
+        ),
+        min_size=0,
+        max_size=3
+    ))
+
+    return {
+        "entry_point_names": custom_names,
+        "entry_point_decorators": custom_decorators,
+        "entry_point_files": custom_files,
+        "exclude_dirs": custom_exclude_dirs,
+    }
+
+
+class TestConfigPatternMergeProperties:
+    """Property tests for config pattern merge behavior.
+
+    **Feature: call-graph-refactoring, Property 3: Config Pattern Merge is Additive**
+    **Validates: Requirements 3.2, 3.3**
+    """
+
+    @given(repo_config_yaml_content())
+    @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
+    def test_config_merge_is_additive(self, custom_config: dict[str, list[str]]):
+        """
+        **Feature: call-graph-refactoring, Property 3: Config Pattern Merge is Additive**
+        **Validates: Requirements 3.2, 3.3**
+
+        Property: For any repository with a .n9r/call_graph.yaml config file,
+        the resulting AnalyzerConfig SHALL contain all default patterns PLUS
+        all patterns from the config file (superset relationship).
+        """
+        import yaml
+
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Get default config patterns
+        defaults = AnalyzerConfig.load_defaults()
+        default_name_patterns = set(defaults.entry_point_name_patterns)
+        default_decorator_patterns = set(defaults.entry_point_decorator_patterns)
+        default_file_patterns = set(defaults.entry_point_file_patterns)
+        default_exclude_dirs = set(defaults.exclude_dirs)
+
+        # Create a temporary repo with custom config
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            config_dir = repo_path / ".n9r"
+            config_dir.mkdir(parents=True)
+            config_file = config_dir / "call_graph.yaml"
+
+            # Write custom config
+            config_file.write_text(yaml.dump(custom_config))
+
+            # Load config for repo (should merge defaults + custom)
+            merged_config = AnalyzerConfig.load_for_repo(repo_path)
+
+            # Property 1: All default name patterns are preserved
+            merged_name_patterns = set(merged_config.entry_point_name_patterns)
+            assert default_name_patterns.issubset(merged_name_patterns), (
+                f"Default name patterns should be preserved.\n"
+                f"Missing: {default_name_patterns - merged_name_patterns}"
+            )
+
+            # Property 2: All custom name patterns are added
+            custom_names = set(custom_config.get("entry_point_names", []))
+            assert custom_names.issubset(merged_name_patterns), (
+                f"Custom name patterns should be added.\n"
+                f"Missing: {custom_names - merged_name_patterns}"
+            )
+
+            # Property 3: All default decorator patterns are preserved
+            merged_decorator_patterns = set(merged_config.entry_point_decorator_patterns)
+            assert default_decorator_patterns.issubset(merged_decorator_patterns), (
+                f"Default decorator patterns should be preserved.\n"
+                f"Missing: {default_decorator_patterns - merged_decorator_patterns}"
+            )
+
+            # Property 4: All custom decorator patterns are added
+            custom_decorators = set(custom_config.get("entry_point_decorators", []))
+            assert custom_decorators.issubset(merged_decorator_patterns), (
+                f"Custom decorator patterns should be added.\n"
+                f"Missing: {custom_decorators - merged_decorator_patterns}"
+            )
+
+            # Property 5: All default file patterns are preserved
+            merged_file_patterns = set(merged_config.entry_point_file_patterns)
+            assert default_file_patterns.issubset(merged_file_patterns), (
+                f"Default file patterns should be preserved.\n"
+                f"Missing: {default_file_patterns - merged_file_patterns}"
+            )
+
+            # Property 6: All custom file patterns are added
+            custom_files = set(custom_config.get("entry_point_files", []))
+            assert custom_files.issubset(merged_file_patterns), (
+                f"Custom file patterns should be added.\n"
+                f"Missing: {custom_files - merged_file_patterns}"
+            )
+
+            # Property 7: All default exclude dirs are preserved
+            merged_exclude_dirs = set(merged_config.exclude_dirs)
+            assert default_exclude_dirs.issubset(merged_exclude_dirs), (
+                f"Default exclude dirs should be preserved.\n"
+                f"Missing: {default_exclude_dirs - merged_exclude_dirs}"
+            )
+
+            # Property 8: All custom exclude dirs are added
+            custom_exclude = set(custom_config.get("exclude_dirs", []))
+            assert custom_exclude.issubset(merged_exclude_dirs), (
+                f"Custom exclude dirs should be added.\n"
+                f"Missing: {custom_exclude - merged_exclude_dirs}"
+            )
+
+            # Property 9: Merged config is compiled
+            assert merged_config._compiled, "Merged config should be compiled"
+
+    def test_config_merge_without_repo_config_returns_defaults(self):
+        """
+        **Feature: call-graph-refactoring, Property 3: Config Pattern Merge is Additive**
+        **Validates: Requirements 3.2, 3.3**
+
+        Test that load_for_repo() returns defaults when no config file exists.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # No .n9r/call_graph.yaml exists
+            config = AnalyzerConfig.load_for_repo(repo_path)
+            defaults = AnalyzerConfig.load_defaults()
+
+            # Should be identical to defaults
+            assert config.entry_point_name_patterns == defaults.entry_point_name_patterns
+            assert config.entry_point_decorator_patterns == defaults.entry_point_decorator_patterns
+            assert config.entry_point_file_patterns == defaults.entry_point_file_patterns
+            assert config.exclude_dirs == defaults.exclude_dirs
+
+    def test_config_merge_with_invalid_yaml_falls_back_to_defaults(self):
+        """
+        **Feature: call-graph-refactoring, Property 3: Config Pattern Merge is Additive**
+        **Validates: Requirements 3.4**
+
+        Test that invalid YAML in config file falls back to defaults gracefully.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+            config_dir = repo_path / ".n9r"
+            config_dir.mkdir(parents=True)
+            config_file = config_dir / "call_graph.yaml"
+
+            # Write invalid YAML
+            config_file.write_text("invalid: yaml: content: [")
+
+            # Should not raise, should return defaults
+            config = AnalyzerConfig.load_for_repo(repo_path)
+            defaults = AnalyzerConfig.load_defaults()
+
+            # Should be identical to defaults (fallback)
+            assert config.entry_point_name_patterns == defaults.entry_point_name_patterns
+            assert config.exclude_dirs == defaults.exclude_dirs
+
+
+# =============================================================================
+# Property Tests for Custom Entry Point Detection (Task 8.4)
+# =============================================================================
+
+
+@st.composite
+def custom_decorator_pattern_and_function(draw) -> tuple[str, str, str]:
+    """Generate a custom decorator pattern and a function that matches it.
+
+    Returns:
+        Tuple of (decorator_pattern, decorator_name, function_code)
+    """
+    # Generate a simple decorator name (e.g., "my_task", "custom_handler")
+    base_name = draw(st.from_regex(r"[a-z]+_[a-z]+", fullmatch=True).filter(
+        lambda s: len(s) >= 5 and len(s) <= 20
+    ))
+
+    # Create pattern that matches this decorator
+    pattern = f"^{base_name}$"
+
+    # Generate function name
+    func_name = draw(st.from_regex(r"[a-z_]+", fullmatch=True).filter(
+        lambda s: len(s) >= 3 and len(s) <= 15 and s not in {"def", "class", "return", "pass"}
+    ))
+
+    # Create function code with the decorator
+    code = f'''
+@{base_name}
+def {func_name}():
+    pass
+'''
+
+    return pattern, base_name, code, func_name
+
+
+class TestCustomEntryPointDetectionProperties:
+    """Property tests for custom entry point detection.
+
+    **Feature: call-graph-refactoring, Property 4: Custom Entry Point Detection**
+    **Validates: Requirements 3.5**
+    """
+
+    @given(st.from_regex(r"\^[a-z_]+\$", fullmatch=True).filter(lambda s: len(s) >= 4 and len(s) <= 15))
+    @settings(max_examples=100)
+    def test_custom_decorator_pattern_is_detected(self, pattern: str):
+        """
+        **Feature: call-graph-refactoring, Property 4: Custom Entry Point Detection**
+        **Validates: Requirements 3.5**
+
+        Property: For any decorator pattern defined in the repo config file,
+        is_decorator_entry_point() SHALL return True for matching decorators.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Create config with custom decorator pattern
+        config = AnalyzerConfig.load_defaults()
+        config.entry_point_decorator_patterns.append(pattern)
+        config.compile_patterns()
+
+        # Extract the decorator name from the pattern (remove ^ and $)
+        decorator_name = pattern.strip("^$")
+
+        # The config should detect this decorator as an entry point
+        assert config.is_decorator_entry_point(decorator_name), (
+            f"Decorator '{decorator_name}' should be detected as entry point.\n"
+            f"Pattern: {pattern}\n"
+            f"All decorator patterns: {config.entry_point_decorator_patterns}"
+        )
+
+    @given(st.from_regex(r"\^[a-z_]+\$", fullmatch=True).filter(lambda s: len(s) >= 4 and len(s) <= 15))
+    @settings(max_examples=100)
+    def test_custom_name_pattern_is_detected(self, pattern: str):
+        """
+        **Feature: call-graph-refactoring, Property 4: Custom Entry Point Detection**
+        **Validates: Requirements 3.5**
+
+        Property: For any function name pattern defined in the repo config file,
+        is_entry_point_by_name() SHALL return True for matching function names.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Create config with custom name pattern
+        config = AnalyzerConfig.load_defaults()
+        config.entry_point_name_patterns.append(pattern)
+        config.compile_patterns()
+
+        # Extract the function name from the pattern (remove ^ and $)
+        func_name = pattern.strip("^$")
+
+        # The config should detect this function name as an entry point
+        assert config.is_entry_point_by_name(func_name), (
+            f"Function name '{func_name}' should be detected as entry point.\n"
+            f"Pattern: {pattern}\n"
+            f"All name patterns: {config.entry_point_name_patterns}"
+        )
+
+    @given(st.from_regex(r"[a-z_]+/", fullmatch=True).filter(lambda s: len(s) >= 3 and len(s) <= 15))
+    @settings(max_examples=100)
+    def test_custom_file_pattern_is_detected(self, pattern: str):
+        """
+        **Feature: call-graph-refactoring, Property 4: Custom Entry Point Detection**
+        **Validates: Requirements 3.5**
+
+        Property: For any file pattern defined in the repo config file,
+        is_entry_point_file() SHALL return True for matching file paths.
+        """
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        # Create config with custom file pattern
+        config = AnalyzerConfig.load_defaults()
+        config.entry_point_file_patterns.append(pattern)
+        config.compile_patterns()
+
+        # Create a file path that matches the pattern
+        file_path = f"{pattern}module.py"
+
+        # The config should detect this file as an entry point file
+        assert config.is_entry_point_file(file_path), (
+            f"File path '{file_path}' should be detected as entry point file.\n"
+            f"Pattern: {pattern}\n"
+            f"All file patterns: {config.entry_point_file_patterns}"
+        )
+
+    @pytest.mark.skipif(not TREE_SITTER_AVAILABLE, reason="tree-sitter not installed")
+    def test_custom_decorator_in_repo_config_marks_function_as_entry_point(self):
+        """
+        **Feature: call-graph-refactoring, Property 4: Custom Entry Point Detection**
+        **Validates: Requirements 3.5**
+
+        Integration test: Verify that a function decorated with a custom decorator
+        defined in .n9r/call_graph.yaml is marked as an entry point.
+
+        Note: This test verifies the config loading mechanism. Full integration
+        with CallGraphAnalyzer (task 9.3) will enable automatic detection.
+        """
+        import yaml
+
+        from app.services.call_graph_analyzer import AnalyzerConfig
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo_path = Path(tmpdir)
+
+            # Create .n9r/call_graph.yaml with custom decorator pattern
+            config_dir = repo_path / ".n9r"
+            config_dir.mkdir(parents=True)
+            config_file = config_dir / "call_graph.yaml"
+            config_file.write_text(yaml.dump({
+                "entry_point_decorators": ["^my_custom_task$"],
+                "entry_point_names": ["^job_"],
+            }))
+
+            # Load config for repo
+            config = AnalyzerConfig.load_for_repo(repo_path)
+
+            # Verify custom decorator pattern is detected
+            assert config.is_decorator_entry_point("my_custom_task"), (
+                "Custom decorator 'my_custom_task' should be detected as entry point"
+            )
+
+            # Verify custom name pattern is detected
+            assert config.is_entry_point_by_name("job_process_data"), (
+                "Function name 'job_process_data' should be detected as entry point"
+            )
+
+            # Verify default patterns still work
+            assert config.is_decorator_entry_point("pytest.fixture"), (
+                "Default decorator 'pytest.fixture' should still be detected"
+            )
+            assert config.is_entry_point_by_name("test_something"), (
+                "Default name pattern 'test_*' should still work"
+            )
