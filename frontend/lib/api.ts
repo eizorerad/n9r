@@ -69,10 +69,23 @@ async function request<T>(
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...fetchOptions,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...fetchOptions,
+      headers,
+    });
+  } catch (networkError) {
+    // Network error (CORS, connection refused, etc.)
+    // This could indicate the backend is down or there's a network issue
+    console.error('[API] Network error:', networkError);
+    throw new ApiError(
+      0,
+      "NETWORK_ERROR",
+      "Failed to connect to server. Please check your connection.",
+      networkError
+    );
+  }
 
   if (!response.ok) {
     // Handle 401 Unauthorized - redirect to login
