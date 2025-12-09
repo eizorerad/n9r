@@ -3,10 +3,8 @@ import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { getRepositories } from '@/lib/data/repositories'
 import { RepositoriesTableServer } from './repositories-table-server'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Workbench } from '@/components/layout/workbench'
-import { Sidebar } from '@/components/layout/sidebar'
 
 // Repositories List Component - async Server Component
 async function RepositoriesList() {
@@ -47,6 +45,7 @@ export default function DashboardPage() {
         <div className="container mx-auto px-6 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="flex items-center gap-3 group">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo.svg"
                 alt="Necromancer"

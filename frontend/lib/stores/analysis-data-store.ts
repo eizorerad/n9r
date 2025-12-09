@@ -75,6 +75,11 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
       !state.error &&
       state.analysisData.status === 'completed'
     ) {
+      // Ensure loading is false when returning cached data
+      // This fixes the lag when switching to Static Analysis tab
+      if (state.loading) {
+        set({ loading: false })
+      }
       return
     }
 

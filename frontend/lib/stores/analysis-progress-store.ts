@@ -76,7 +76,8 @@ export const useAnalysisProgressStore = create<AnalysisProgressState>((set, get)
   
   removeTask: (id) => {
     set((state) => {
-      const { [id]: _, ...rest } = state.tasks
+      const { [id]: removed, ...rest } = state.tasks
+      void removed // Explicitly mark as intentionally unused
       return { tasks: rest }
     })
   },
@@ -85,7 +86,7 @@ export const useAnalysisProgressStore = create<AnalysisProgressState>((set, get)
     set((state) => {
       const activeTasks = Object.fromEntries(
         Object.entries(state.tasks).filter(
-          ([_, task]) => task.status === 'pending' || task.status === 'running'
+          ([, task]) => task.status === 'pending' || task.status === 'running'
         )
       )
       return { tasks: activeTasks }

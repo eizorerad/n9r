@@ -2,9 +2,15 @@
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Card, CardContent } from '@/components/ui/card'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Flame, ChevronDown, ChevronRight, FileCode, AlertCircle, AlertTriangle, Info, Zap } from 'lucide-react'
 
 interface ClusterInfo {
   id: number
@@ -54,152 +60,108 @@ interface TechDebtHeatmapProps {
   hasSemanticCache?: boolean
 }
 
-const riskColors: Record<string, string> = {
-  critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-  high: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  medium: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-}
-
-const healthColors: Record<string, string> = {
-  good: 'text-emerald-400',
-  moderate: 'text-amber-400',
-  poor: 'text-red-400',
+// Priority config matching AI Scan pattern
+const priorityConfig = {
+  critical: {
+    icon: AlertCircle,
+    color: 'text-white',
+    iconColor: 'text-red-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Critical',
+  },
+  high: {
+    icon: AlertTriangle,
+    color: 'text-white',
+    iconColor: 'text-orange-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'High',
+  },
+  medium: {
+    icon: AlertTriangle,
+    color: 'text-white',
+    iconColor: 'text-amber-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Medium',
+  },
+  low: {
+    icon: Info,
+    color: 'text-white',
+    iconColor: 'text-blue-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Low',
+  },
 }
 
 export function TechDebtHeatmap({ className, cachedData, hasSemanticCache = false }: TechDebtHeatmapProps) {
   const [view, setView] = useState<'hotspots' | 'clusters'>('hotspots')
 
-  // Check if we have valid cached data
   const hasCachedData = cachedData && (Array.isArray(cachedData.clusters) || Array.isArray(cachedData.coupling_hotspots))
 
-  // Show message if no cached data available
   if (!hasCachedData) {
     const isOldCache = hasSemanticCache && !cachedData
-    
+
     return (
-      <Card className={cn('glass-panel border-border/50', className)}>
-        <CardContent className="p-6">
-          <div className="text-center py-8">
-            <div className="text-3xl mb-3">🔥</div>
-            <h3 className="text-base font-semibold mb-2">Technical Debt Heatmap</h3>
-            {isOldCache ? (
-              <>
-                <p className="text-sm text-muted-foreground mb-2">
-                  Tech debt analysis requires a newer analysis.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Re-run the analysis to view technical debt.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm text-muted-foreground mb-2">
-                  Tech debt data not available yet.
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Run an analysis for this commit to view technical debt.
-                </p>
-              </>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <div className={cn('flex flex-col items-center justify-center h-full text-muted-foreground gap-2 p-8', className)}>
+        <Flame className="w-8 h-8 text-muted-foreground/30" />
+        <span className="text-sm">{isOldCache ? 'Re-run analysis for tech debt data' : 'No tech debt data available'}</span>
+      </div>
     )
   }
 
-  // Calculate debt score from architecture health (inverse of overall_score)
   const overallScore = cachedData.overall_score ?? 50
   const debtScore = 100 - overallScore
-
-  // Build hotspots from coupling_hotspots and outliers
   const hotspots = buildHotspots(cachedData)
-  
-  // Build cluster health data
   const clusterHealth = buildClusterHealth(cachedData.clusters || [])
 
-  const getDebtColor = (score: number) => {
-    if (score <= 20) return 'text-emerald-400'
-    if (score <= 40) return 'text-blue-400'
-    if (score <= 60) return 'text-amber-400'
-    return 'text-red-400'
-  }
-
-  const getDebtGradient = (score: number) => {
-    if (score <= 20) return 'from-emerald-500 to-emerald-600'
-    if (score <= 40) return 'from-blue-500 to-blue-600'
-    if (score <= 60) return 'from-amber-500 to-amber-600'
-    return 'from-red-500 to-red-600'
-  }
-
   return (
-    <div className={cn('space-y-6', className)}>
-      {/* Debt Score Card */}
-      <Card className="glass-panel border-border/50 relative overflow-hidden">
-        <div className={cn(
-          'absolute inset-0 opacity-5 bg-gradient-to-br',
-          getDebtGradient(debtScore)
-        )} />
-        <CardContent className="relative p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold mb-1">Technical Debt</h3>
-              <p className="text-sm text-muted-foreground">
-                {hotspots.length} hotspots · {clusterHealth.length} clusters
-              </p>
-            </div>
-            <div className="text-right">
-              <div className={cn('text-4xl font-bold', getDebtColor(debtScore))}>
-                {debtScore}
-              </div>
-              <div className="text-sm text-muted-foreground">debt score</div>
-            </div>
-          </div>
-
-          {/* Debt level indicator */}
-          <div className="mt-4">
-            <div className="h-2 rounded-full bg-background/50 overflow-hidden">
-              <div 
-                className={cn('h-full rounded-full bg-gradient-to-r', getDebtGradient(debtScore))}
-                style={{ width: `${debtScore}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-              <span>Low debt</span>
-              <span>High debt</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* View Toggle */}
-      <div className="flex gap-2">
-        <Button
-          variant={view === 'hotspots' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('hotspots')}
-        >
-          Debt Hotspots ({hotspots.length})
-        </Button>
-        <Button
-          variant={view === 'clusters' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setView('clusters')}
-        >
-          By Cluster ({clusterHealth.length})
-        </Button>
+    <div className={cn('flex flex-col h-full', className)}>
+      {/* Header */}
+      <div className="flex-none flex items-center justify-between px-3 pt-2 pb-2">
+        <div className="flex items-center gap-2">
+          <Flame className="h-4 w-4 text-primary" />
+          <span className="text-xs font-medium">
+            Debt Score: {debtScore}
+          </span>
+          <Badge variant="outline" className={cn(
+            'text-[10px] px-2 py-0.5 rounded-full',
+            debtScore <= 20 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+              debtScore <= 40 ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                debtScore <= 60 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                  'bg-red-500/10 text-red-400 border-red-500/20'
+          )}>
+            {debtScore <= 20 ? 'Low' : debtScore <= 40 ? 'Moderate' : debtScore <= 60 ? 'High' : 'Critical'}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant={view === 'hotspots' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setView('hotspots')}
+          >
+            Hotspots ({hotspots.length})
+          </Button>
+          <Button
+            variant={view === 'clusters' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setView('clusters')}
+          >
+            Clusters ({clusterHealth.length})
+          </Button>
+        </div>
       </div>
 
       {/* Content */}
-      <Card className="glass-panel border-border/50">
-        <CardContent className="p-4">
-          {view === 'hotspots' ? (
-            <HotspotsView hotspots={hotspots} />
-          ) : (
-            <ClustersView clusters={clusterHealth} />
-          )}
-        </CardContent>
-      </Card>
+      {view === 'hotspots' ? (
+        <HotspotsView hotspots={hotspots} />
+      ) : (
+        <ClustersView clusters={clusterHealth} />
+      )}
     </div>
   )
 }
@@ -215,7 +177,6 @@ interface TechDebtHotspot {
 function buildHotspots(data: CachedArchitectureData): TechDebtHotspot[] {
   const hotspots: TechDebtHotspot[] = []
 
-  // Add coupling hotspots as critical/high
   for (const hotspot of data.coupling_hotspots || []) {
     hotspots.push({
       file_path: hotspot.file_path,
@@ -226,7 +187,6 @@ function buildHotspots(data: CachedArchitectureData): TechDebtHotspot[] {
     })
   }
 
-  // Add outliers as medium risk (limit to 10)
   for (const outlier of (data.outliers || []).slice(0, 10)) {
     if (outlier.nearest_similarity < 0.4) {
       hotspots.push({
@@ -254,110 +214,175 @@ function buildClusterHealth(clusters: ClusterInfo[]): ClusterHealthInfo[] {
     cluster: c.name,
     cohesion: c.cohesion,
     health: c.cohesion >= 0.7 ? 'good' : c.cohesion >= 0.5 ? 'moderate' : 'poor',
-    avg_complexity: 0, // Not available in cached data
+    avg_complexity: 0,
   }))
 }
 
 function HotspotsView({ hotspots }: { hotspots: TechDebtHotspot[] }) {
   if (hotspots.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-emerald-400">✓ No debt hotspots</p>
-        <p className="text-sm mt-1">Codebase is in good shape</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1">
+        <span className="text-emerald-400 text-sm">✓ No debt hotspots</span>
+        <span className="text-xs">Codebase is in good shape</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border/50">
       {hotspots.map((hotspot, idx) => (
-        <div
-          key={idx}
-          className={cn(
-            'p-4 rounded-lg bg-background/30 border border-border/50',
-            hotspot.risk === 'critical' && 'border-l-2 border-l-red-500',
-            hotspot.risk === 'high' && 'border-l-2 border-l-orange-500',
-            hotspot.risk === 'medium' && 'border-l-2 border-l-amber-500'
-          )}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <code className="text-sm">{hotspot.file_path}</code>
-                <Badge 
-                  variant="outline" 
-                  className={riskColors[hotspot.risk] || riskColors.medium}
-                >
-                  {hotspot.risk}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">{hotspot.suggestion}</p>
-            </div>
-            <div className="text-right shrink-0">
-              {hotspot.bridges_clusters > 0 && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Bridges: </span>
-                  <span className="font-medium">{hotspot.bridges_clusters}</span>
-                </div>
-              )}
-              {hotspot.cohesion !== null && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Cohesion: </span>
-                  <span className="font-medium">{Math.round(hotspot.cohesion * 100)}%</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <HotspotCard key={idx} hotspot={hotspot} />
       ))}
     </div>
+  )
+}
+
+function HotspotCard({ hotspot }: { hotspot: TechDebtHotspot }) {
+  const [isOpen, setIsOpen] = useState(true)
+  const config = priorityConfig[hotspot.risk as keyof typeof priorityConfig] || priorityConfig.medium
+  const PriorityIcon = config.icon
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {config.label}
+                </Badge>
+                <span className="flex items-center gap-1 text-[10px] text-white">
+                  <Zap className="h-3 w-3 text-orange-400" />
+                  Tech Debt
+                </span>
+                {hotspot.bridges_clusters > 0 && (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-transparent text-white border-white/30">
+                    {hotspot.bridges_clusters} clusters
+                  </Badge>
+                )}
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {hotspot.file_path.split('/').pop()}
+              </h4>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                <FileCode className="h-2.5 w-2.5" />
+                <span className="truncate">{hotspot.file_path}</span>
+              </div>
+            </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            )}
+          </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-xs text-muted-foreground">{hotspot.suggestion}</p>
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            {hotspot.bridges_clusters > 0 && (
+              <span>Bridges {hotspot.bridges_clusters} clusters</span>
+            )}
+            {hotspot.cohesion !== null && (
+              <span>Cohesion: {Math.round(hotspot.cohesion * 100)}%</span>
+            )}
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
 function ClustersView({ clusters }: { clusters: ClusterHealthInfo[] }) {
   if (clusters.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p>No cluster data available</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1">
+        <span className="text-sm">No cluster data available</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border/50">
       {clusters.map((cluster, idx) => (
-        <div
-          key={idx}
-          className="p-4 rounded-lg bg-background/30 border border-border/50"
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-medium">{cluster.cluster}</h4>
-              <div className="flex items-center gap-4 mt-1 text-sm">
-                <span>
-                  <span className="text-muted-foreground">Cohesion: </span>
-                  <span className={cn(
-                    'font-medium',
-                    cluster.cohesion >= 0.7 ? 'text-emerald-400' : 
-                    cluster.cohesion >= 0.5 ? 'text-amber-400' : 'text-red-400'
-                  )}>
-                    {Math.round(cluster.cohesion * 100)}%
-                  </span>
-                </span>
-                {cluster.avg_complexity > 0 && (
-                  <span>
-                    <span className="text-muted-foreground">Avg CC: </span>
-                    <span className="font-medium">{cluster.avg_complexity.toFixed(1)}</span>
-                  </span>
-                )}
-              </div>
-            </div>
-            <span className={cn('font-medium', healthColors[cluster.health] || healthColors.moderate)}>
-              {cluster.health}
-            </span>
-          </div>
-        </div>
+        <ClusterCard key={idx} cluster={cluster} />
       ))}
     </div>
+  )
+}
+
+function ClusterCard({ cluster }: { cluster: ClusterHealthInfo }) {
+  const [isOpen, setIsOpen] = useState(true)
+  const level = cluster.health === 'good' ? 'low' : cluster.health === 'moderate' ? 'medium' : 'high'
+  const config = priorityConfig[level as keyof typeof priorityConfig]
+  const PriorityIcon = config.icon
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {cluster.health}
+                </Badge>
+                <span className="flex items-center gap-1 text-[10px] text-white">
+                  <Flame className="h-3 w-3 text-purple-400" />
+                  Cluster
+                </span>
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {cluster.cluster}
+              </h4>
+            </div>
+            <div className="text-right shrink-0">
+              <span className={cn(
+                'text-sm font-bold',
+                cluster.cohesion >= 0.7 ? 'text-emerald-400' :
+                  cluster.cohesion >= 0.5 ? 'text-amber-400' : 'text-red-400'
+              )}>
+                {Math.round(cluster.cohesion * 100)}%
+              </span>
+              <div className="text-[10px] text-muted-foreground">cohesion</div>
+            </div>
+          </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+            <span>Cohesion: {Math.round(cluster.cohesion * 100)}%</span>
+            {cluster.avg_complexity > 0 && (
+              <span>Avg Complexity: {cluster.avg_complexity.toFixed(1)}</span>
+            )}
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

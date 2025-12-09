@@ -3,6 +3,8 @@
 import { Files, Search, GitBranch, Bug, Blocks, User, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import Link from "next/link"
+import Image from "next/image"
 
 interface ActivityBarProps {
     className?: string
@@ -37,6 +39,21 @@ export function ActivityBar({ className, activeView, onViewChange }: ActivityBar
 
     return (
         <div className={cn("w-[48px] flex flex-col items-center bg-secondary py-2 border-r border-[#252526] z-50", className)}>
+            {/* Logo linking to dashboard - styled like other activity bar icons */}
+            <Link
+                href="/dashboard"
+                className="h-12 w-full flex items-center justify-center relative group opacity-60 hover:opacity-100 transition-none"
+                title="Go to Dashboard"
+            >
+                <Image
+                    src="/logo.svg"
+                    alt="Logo"
+                    width={24}
+                    height={24}
+                    className="grayscale brightness-75 group-hover:grayscale-0 group-hover:brightness-100 transition-all"
+                />
+            </Link>
+
             <div className="flex flex-col gap-0 w-full">
                 {topItems.map((item) => (
                     <button

@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useMemo } from "react";
 
 /**
  * Analysis status response from the full-status endpoint.
@@ -232,10 +232,14 @@ export function useAnalysisStatus(
     retryDelay: 1000,
   });
 
+  // Memoize queryKey to prevent reference changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const memoizedQueryKey = useMemo(() => queryKey, [repositoryId, analysisId]);
+
   // Invalidate function for manual cache clearing
   const invalidate = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey });
-  }, [queryClient, queryKey]);
+    queryClient.invalidateQueries({ queryKey: memoizedQueryKey });
+  }, [queryClient, memoizedQueryKey]);
 
   // Refetch function
   const refetch = useCallback(() => {

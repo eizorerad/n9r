@@ -1,18 +1,17 @@
 'use client'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import {
   Activity,
   FileCode,
   AlertTriangle,
   CheckCircle,
   Code2,
-  FileText,
   Gauge,
-  Bug,
   Brain,
   TrendingUp,
-  List
 } from 'lucide-react'
 
 interface LanguageMetrics {
@@ -24,13 +23,11 @@ interface LanguageMetrics {
 
 interface AnalysisMetricsProps {
   metrics: {
-    // Score components
     complexity_score?: number
     maintainability_score?: number
     duplication_score?: number
     architecture_score?: number
     heuristics_score?: number
-    // Raw metrics
     total_files?: number
     total_lines?: number
     total_comments?: number
@@ -46,7 +43,6 @@ interface AnalysisMetricsProps {
     todo_comments?: number
     missing_docstrings?: number
     missing_type_hints?: number
-    // Extended Radon metrics
     complexity_distribution?: Record<string, number>
     top_complex_functions?: Array<{
       name: string
@@ -74,62 +70,8 @@ interface AnalysisMetricsProps {
       multi?: number
       blank?: number
     }
-    // Per-language breakdown
     by_language?: Record<string, LanguageMetrics>
   } | null
-}
-
-function ScoreBar({ label, score, color }: { label: string; score: number; color: string }) {
-  return (
-    <div className="space-y-1 sm:space-y-1.5">
-      <div className="flex justify-between text-xs sm:text-sm">
-        <span className="text-muted-foreground font-medium">{label}</span>
-        <span className="font-mono font-medium">{score.toFixed(0)}/100</span>
-      </div>
-      <div className="h-1.5 sm:h-2 bg-secondary rounded-full overflow-hidden">
-        <div
-          className={`h-full ${color} transition-all duration-500`}
-          style={{ width: `${score}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function MetricItem({ icon: Icon, label, value, unit = '', color = '' }: {
-  icon: React.ElementType;
-  label: string;
-  value: number | string;
-  unit?: string
-  color?: string
-}) {
-  return (
-    <div className="flex items-center gap-2 sm:gap-3 p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-      <div className="p-1.5 sm:p-2 bg-background rounded-md shadow-sm">
-        <Icon className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] sm:text-xs text-muted-foreground font-medium truncate">{label}</p>
-        <p className={`text-sm sm:text-lg font-bold tracking-tight ${color}`}>{value}{unit}</p>
-      </div>
-    </div>
-  )
-}
-
-function GradeBadge({ grade }: { grade: string }) {
-  const colors: Record<string, string> = {
-    A: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
-    B: 'bg-blue-500/10 text-blue-500 border-blue-500/20',
-    C: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
-    D: 'bg-orange-500/10 text-orange-500 border-orange-500/20',
-    E: 'bg-red-500/10 text-red-500 border-red-500/20',
-    F: 'bg-rose-700/10 text-rose-500 border-rose-700/20',
-  }
-  return (
-    <span className={`px-2 py-0.5 text-xs font-bold rounded border ${colors[grade] || colors.C}`}>
-      {grade}
-    </span>
-  )
 }
 
 function getLanguageIcon(lang: string): string {
@@ -151,7 +93,7 @@ export function AnalysisMetrics({ metrics }: AnalysisMetricsProps) {
   if (!metrics) {
     return (
       <Card className="glass-panel border-border/50">
-        <CardContent className="py-8 sm:py-12 text-center text-muted-foreground text-sm sm:text-base">
+        <CardContent className="py-12 text-center text-muted-foreground">
           No analysis data yet. Run an analysis to see detailed metrics.
         </CardContent>
       </Card>
@@ -164,319 +106,212 @@ export function AnalysisMetrics({ metrics }: AnalysisMetricsProps) {
   const raw = metrics.raw_metrics || {}
 
   return (
-    <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-2">
-      {/* Score Components */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <Activity className="h-4 w-4" />
-            VCI Score Components
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 sm:space-y-5">
-          <ScoreBar
-            label="Complexity"
-            score={metrics.complexity_score || 0}
-            color="bg-[#008236]"
-          />
-          <ScoreBar
-            label="Maintainability"
-            score={metrics.maintainability_score || 0}
-            color="bg-[#008236]"
-          />
-          <ScoreBar
-            label="Duplication"
-            score={metrics.duplication_score || 0}
-            color="bg-[#008236]"
-          />
-          <ScoreBar
-            label="Heuristics"
-            score={metrics.heuristics_score || 0}
-            color="bg-[#008236]"
-          />
-          <ScoreBar
-            label="Architecture"
-            score={metrics.architecture_score || 0}
-            color="bg-[#008236]"
-          />
-        </CardContent>
-      </Card>
+    <div className="h-full overflow-y-auto p-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
 
-      {/* Cyclomatic Complexity Distribution */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <TrendingUp className="h-4 w-4" />
-            Cyclomatic Complexity
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 sm:gap-2 mb-4 sm:mb-6">
+        {/* VCI Score Components - large panel */}
+        <BentoCard className="col-span-2 lg:col-span-3" title="VCI Score Components" icon={Activity} iconColor="text-primary">
+          <div className="grid grid-cols-5 gap-4">
+            <ScoreItem label="Complexity" score={metrics.complexity_score || 0} />
+            <ScoreItem label="Maintainability" score={metrics.maintainability_score || 0} />
+            <ScoreItem label="Duplication" score={metrics.duplication_score || 0} />
+            <ScoreItem label="Heuristics" score={metrics.heuristics_score || 0} />
+            <ScoreItem label="Architecture" score={metrics.architecture_score || 0} />
+          </div>
+        </BentoCard>
+
+        {/* Maintainability Index */}
+        <BentoCard title="MI Score" icon={Gauge} iconColor="text-purple-500">
+          <div className="text-center">
+            <div className={cn(
+              'text-3xl font-bold',
+              (mi.avg_mi || 0) >= 65 ? 'text-emerald-400' :
+                (mi.avg_mi || 0) >= 50 ? 'text-amber-400' : 'text-red-400'
+            )}>
+              {(mi.avg_mi || 0).toFixed(0)}
+            </div>
+            <div className="flex justify-center gap-2 mt-2 text-xs">
+              <Badge variant="outline" className="bg-transparent text-white border-white/30">
+                <span className="text-emerald-400 font-bold mr-1">{mi.files_by_grade?.A || 0}</span>A
+              </Badge>
+              <Badge variant="outline" className="bg-transparent text-white border-white/30">
+                <span className="text-amber-400 font-bold mr-1">{mi.files_by_grade?.B || 0}</span>B
+              </Badge>
+              <Badge variant="outline" className="bg-transparent text-white border-white/30">
+                <span className="text-red-400 font-bold mr-1">{mi.files_by_grade?.C || 0}</span>C
+              </Badge>
+            </div>
+            {(mi.files_below_65 || 0) > 0 && (
+              <p className="text-xs text-amber-400 mt-2">⚠️ {mi.files_below_65} files hard to maintain</p>
+            )}
+          </div>
+        </BentoCard>
+
+        {/* Cyclomatic Complexity Distribution */}
+        <BentoCard className="col-span-2" title="Cyclomatic Complexity" icon={TrendingUp} iconColor="text-blue-500">
+          <div className="grid grid-cols-6 gap-2">
             {['A', 'B', 'C', 'D', 'E', 'F'].map(grade => (
-              <div key={grade} className="text-center p-1.5 sm:p-2 rounded-lg bg-muted/20">
-                <GradeBadge grade={grade} />
-                <p className="text-sm sm:text-lg font-bold mt-1 sm:mt-2">{ccDist[grade] || 0}</p>
+              <div key={grade} className="text-center p-2 rounded-lg bg-muted/20">
+                <div className={cn(
+                  'text-lg font-bold',
+                  grade === 'A' ? 'text-emerald-400' :
+                    grade === 'B' ? 'text-blue-400' :
+                      grade === 'C' ? 'text-amber-400' :
+                        grade === 'D' ? 'text-orange-400' :
+                          'text-red-400'
+                )}>{grade}</div>
+                <div className="text-lg font-bold text-white">{ccDist[grade] || 0}</div>
               </div>
             ))}
           </div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground space-y-1 p-2 sm:p-3 rounded-lg bg-muted/30 border border-border/50">
-            <p>A (1-5): Simple • B (6-10): Low • C (11-20): Moderate</p>
-            <p className="hidden sm:block">D (21-30): High • E (31-40): Very High • F (41+): Untestable</p>
-          </div>
-        </CardContent>
-      </Card>
+        </BentoCard>
 
-      {/* Halstead Metrics */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <Brain className="h-4 w-4" />
-            Halstead Metrics
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 sm:space-y-4">
-          <div className="grid grid-cols-2 gap-2 sm:gap-4">
-            <MetricItem
-              icon={Code2}
-              label="Volume"
-              value={(halstead.total_volume || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            />
-            <MetricItem
-              icon={Gauge}
-              label="Avg Difficulty"
-              value={(halstead.avg_difficulty || 0).toFixed(1)}
-            />
-            <MetricItem
-              icon={Activity}
-              label="Avg Effort"
-              value={(halstead.avg_effort || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-            />
-            <MetricItem
-              icon={Bug}
+        {/* Halstead Metrics */}
+        <BentoCard className="col-span-2" title="Halstead Metrics" icon={Brain} iconColor="text-pink-500">
+          <div className="grid grid-cols-4 gap-3">
+            <MetricCell label="Volume" value={(halstead.total_volume || 0).toLocaleString()} />
+            <MetricCell label="Difficulty" value={(halstead.avg_difficulty || 0).toFixed(1)} />
+            <MetricCell label="Effort" value={(halstead.avg_effort || 0).toLocaleString()} />
+            <MetricCell
               label="Est. Bugs"
-              value={(halstead.bugs_estimate || 0).toFixed(2)}
-              color={halstead.bugs_estimate && halstead.bugs_estimate > 5 ? 'text-amber-500' : ''}
+              value={(halstead.bugs_estimate || 0).toFixed(1)}
+              highlight={(halstead.bugs_estimate || 0) > 5}
             />
           </div>
-          <div className="text-[10px] sm:text-xs text-muted-foreground p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50 space-y-0.5">
-            <p><strong>Volume:</strong> Info content</p>
-            <p><strong>Difficulty:</strong> Understanding complexity</p>
-          </div>
-        </CardContent>
-      </Card>
+        </BentoCard>
 
-      {/* Maintainability Index */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <Gauge className="h-4 w-4" />
-            Maintainability Index
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 sm:space-y-6">
-          <div className="flex items-center justify-center py-2 sm:py-4">
-            <div className="relative text-center">
-              <div className={`text-4xl sm:text-5xl md:text-6xl font-bold tracking-tighter ${(mi.avg_mi || 0) >= 65 ? 'text-emerald-500' :
-                (mi.avg_mi || 0) >= 50 ? 'text-amber-500' : 'text-destructive'
-                }`}>
-                {(mi.avg_mi || 0).toFixed(0)}
-              </div>
-              <p className="text-xs sm:text-sm text-muted-foreground mt-1 sm:mt-2 font-medium uppercase tracking-wide">Avg MI</p>
-            </div>
+        {/* Raw Metrics */}
+        <BentoCard className="col-span-2" title="Raw Metrics" icon={FileCode} iconColor="text-cyan-500">
+          <div className="grid grid-cols-6 gap-2">
+            <MetricCell label="LOC" value={(raw.loc || metrics.total_lines || 0).toLocaleString()} />
+            <MetricCell label="LLOC" value={(raw.lloc || 0).toLocaleString()} />
+            <MetricCell label="SLOC" value={(raw.sloc || 0).toLocaleString()} />
+            <MetricCell label="Comments" value={(raw.comments || 0).toLocaleString()} />
+            <MetricCell label="Blank" value={(raw.blank || 0).toLocaleString()} />
+            <MetricCell label="Docstrings" value={(raw.multi || 0).toLocaleString()} />
           </div>
-          <div className="grid grid-cols-3 gap-2 sm:gap-3 text-center">
-            <div className="p-2 sm:p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-              <p className="text-lg sm:text-2xl font-bold text-emerald-500">{mi.files_by_grade?.A || 0}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">A (≥20)</p>
-            </div>
-            <div className="p-2 sm:p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
-              <p className="text-lg sm:text-2xl font-bold text-amber-500">{mi.files_by_grade?.B || 0}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">B (10-20)</p>
-            </div>
-            <div className="p-2 sm:p-3 rounded-lg bg-destructive/5 border border-destructive/10">
-              <p className="text-lg sm:text-2xl font-bold text-destructive">{mi.files_by_grade?.C || 0}</p>
-              <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">C (&lt;10)</p>
-            </div>
-          </div>
-          {(mi.files_below_65 || 0) > 0 && (
-            <p className="text-xs sm:text-sm text-amber-500 text-center font-medium bg-amber-500/10 py-1.5 sm:py-2 rounded-lg border border-amber-500/20">
-              ⚠️ {mi.files_below_65} files hard to maintain
-            </p>
-          )}
-        </CardContent>
-      </Card>
+        </BentoCard>
 
-      {/* Raw Metrics */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <FileCode className="h-4 w-4" />
-            Raw Metrics
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-3 gap-2 sm:gap-4">
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.loc || metrics.total_lines || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">LOC</p>
+        {/* Hard Heuristics */}
+        <BentoCard className="col-span-2" title="Hard Heuristics" icon={CheckCircle} iconColor="text-green-500">
+          <div className="grid grid-cols-5 gap-3">
+            <HeuristicCell label="Generic Names" value={metrics.generic_names || 0} warn={10} />
+            <HeuristicCell label="Magic Numbers" value={metrics.magic_numbers || 0} warn={20} />
+            <HeuristicCell label="TODO/FIXME" value={metrics.todo_comments || 0} warn={10} />
+            <HeuristicCell label="Missing Docs" value={metrics.missing_docstrings || 0} warn={5} />
+            <HeuristicCell label="Missing Types" value={metrics.missing_type_hints || 0} warn={20} />
           </div>
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.lloc || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">LLOC</p>
-          </div>
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.sloc || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">SLOC</p>
-          </div>
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.comments || metrics.total_comments || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">Comments</p>
-          </div>
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.blank || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">Blank</p>
-          </div>
-          <div className="text-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <p className="text-base sm:text-xl font-bold">{(raw.multi || 0).toLocaleString()}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground font-medium mt-0.5 sm:mt-1">Docstrings</p>
-          </div>
-        </CardContent>
-      </Card>
+        </BentoCard>
 
-      {/* Hard Heuristics */}
-      <Card className="glass-panel border-border/50">
-        <CardHeader className="pb-2 sm:pb-4">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-            <CheckCircle className="h-4 w-4" />
-            Hard Heuristics
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 sm:space-y-3">
-          <div className="flex justify-between items-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <span className="text-xs sm:text-sm text-muted-foreground font-medium">Generic Names</span>
-            <span className={`text-base sm:text-xl font-bold ${(metrics.generic_names || 0) > 10 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {metrics.generic_names || 0}
-            </span>
-          </div>
-          <div className="flex justify-between items-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <span className="text-xs sm:text-sm text-muted-foreground font-medium">Magic Numbers</span>
-            <span className={`text-base sm:text-xl font-bold ${(metrics.magic_numbers || 0) > 20 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {metrics.magic_numbers || 0}
-            </span>
-          </div>
-          <div className="flex justify-between items-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <span className="text-xs sm:text-sm text-muted-foreground font-medium">TODO/FIXME</span>
-            <span className={`text-base sm:text-xl font-bold ${(metrics.todo_comments || 0) > 10 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {metrics.todo_comments || 0}
-            </span>
-          </div>
-          <div className="flex justify-between items-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <span className="text-xs sm:text-sm text-muted-foreground font-medium">Missing Docs</span>
-            <span className={`text-base sm:text-xl font-bold ${(metrics.missing_docstrings || 0) > 5 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {metrics.missing_docstrings || 0}
-            </span>
-          </div>
-          <div className="flex justify-between items-center p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-            <span className="text-xs sm:text-sm text-muted-foreground font-medium">Missing Types</span>
-            <span className={`text-base sm:text-xl font-bold ${(metrics.missing_type_hints || 0) > 20 ? 'text-amber-500' : 'text-emerald-500'}`}>
-              {metrics.missing_type_hints || 0}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* By Language Breakdown */}
-      {metrics.by_language && Object.keys(metrics.by_language).length > 0 && (
-        <Card className="glass-panel border-border/50">
-          <CardHeader className="pb-2 sm:pb-4">
-            <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-              <Code2 className="h-4 w-4" />
-              By Language
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2 sm:space-y-3">
+        {/* By Language */}
+        {metrics.by_language && Object.keys(metrics.by_language).length > 0 && (
+          <BentoCard className="col-span-2 lg:col-span-4" title="By Language" icon={Code2} iconColor="text-orange-500">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {Object.entries(metrics.by_language).map(([lang, data]) => (
-                <div key={lang} className="flex items-center justify-between p-2 sm:p-3 bg-muted/30 rounded-lg border border-border/50">
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-base sm:text-xl">{getLanguageIcon(lang)}</span>
-                    <span className="text-xs sm:text-sm font-medium capitalize">{lang}</span>
-                  </div>
-                  <div className="flex gap-3 sm:gap-6 text-xs sm:text-sm">
-                    <div className="text-center">
-                      <p className="text-muted-foreground text-[10px] sm:text-xs">Files</p>
-                      <p className="font-bold">{data.files}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-muted-foreground text-[10px] sm:text-xs">Lines</p>
-                      <p className="font-bold">{data.lines.toLocaleString()}</p>
-                    </div>
-                    <div className="text-center hidden sm:block">
-                      <p className="text-muted-foreground text-xs">CC</p>
-                      <p className="font-bold">{data.avg_complexity.toFixed(1)}</p>
+                <div key={lang} className="flex items-center gap-3 p-3 rounded-lg bg-muted/20">
+                  <span className="text-2xl">{getLanguageIcon(lang)}</span>
+                  <div>
+                    <div className="text-sm font-medium capitalize text-white">{lang}</div>
+                    <div className="flex gap-3 text-xs text-muted-foreground">
+                      <span><span className="text-white font-bold">{data.files}</span> files</span>
+                      <span><span className="text-white font-bold">{data.lines.toLocaleString()}</span> lines</span>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          </BentoCard>
+        )}
 
-      {/* Top Complex Functions */}
-      {metrics.top_complex_functions && metrics.top_complex_functions.length > 0 && (
-        <Card className="glass-panel border-border/50 lg:col-span-2">
-          <CardHeader className="pb-2 sm:pb-4">
-            <CardTitle className="text-sm sm:text-base flex items-center gap-2 text-muted-foreground">
-              <AlertTriangle className="h-4 w-4" />
-              Top Complex Functions
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {/* Mobile view - card layout */}
-            <div className="sm:hidden space-y-2">
-              {metrics.top_complex_functions.slice(0, 5).map((func, i) => (
-                <div key={i} className="p-2 bg-muted/30 rounded-lg border border-border/50">
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="font-mono text-xs text-blue-400 truncate flex-1">{func.name}</span>
-                    <div className="flex items-center gap-2 ml-2">
-                      <span className="text-xs font-bold">{func.complexity}</span>
-                      <GradeBadge grade={func.rank} />
-                    </div>
+        {/* Top Complex Functions */}
+        {metrics.top_complex_functions && metrics.top_complex_functions.length > 0 && (
+          <BentoCard className="col-span-2 lg:col-span-4" title="Top Complex Functions" icon={AlertTriangle} iconColor="text-red-500">
+            <div className="space-y-2">
+              {metrics.top_complex_functions.slice(0, 8).map((func, i) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-muted/20">
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground w-6">{i + 1}.</span>
+                    <span className="font-mono text-blue-400">{func.name}</span>
+                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">{func.file}</span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground truncate">{func.file}:{func.line}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg font-bold text-white">{func.complexity}</span>
+                    <Badge variant="outline" className={cn(
+                      'bg-transparent border-white/30',
+                      func.rank === 'A' ? 'text-emerald-400' :
+                        func.rank === 'B' ? 'text-blue-400' :
+                          func.rank === 'C' ? 'text-amber-400' :
+                            'text-red-400'
+                    )}>{func.rank}</Badge>
+                  </div>
                 </div>
               ))}
             </div>
-            {/* Desktop view - table layout */}
-            <div className="hidden sm:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b border-border/50">
-                    <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-medium">#</th>
-                    <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-medium">Function</th>
-                    <th className="text-left py-2 sm:py-3 px-2 sm:px-4 font-medium">File</th>
-                    <th className="text-center py-2 sm:py-3 px-2 sm:px-4 font-medium">CC</th>
-                    <th className="text-center py-2 sm:py-3 px-2 sm:px-4 font-medium">Grade</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.top_complex_functions.slice(0, 10).map((func, i) => (
-                    <tr key={i} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
-                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-muted-foreground">{i + 1}</td>
-                      <td className="py-2 sm:py-3 px-2 sm:px-4 font-mono text-blue-400 text-xs sm:text-sm">{func.name}</td>
-                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-muted-foreground truncate max-w-[200px]" title={func.file}>
-                        {func.file}:{func.line}
-                      </td>
-                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-center font-bold">{func.complexity}</td>
-                      <td className="py-2 sm:py-3 px-2 sm:px-4 text-center"><GradeBadge grade={func.rank} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          </BentoCard>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BentoCard({
+  children,
+  title,
+  icon: Icon,
+  iconColor,
+  className
+}: {
+  children: React.ReactNode
+  title: string
+  icon: React.ElementType
+  iconColor: string
+  className?: string
+}) {
+  return (
+    <div className={cn(
+      'bg-muted/10 rounded-xl border border-border/30 p-4',
+      className
+    )}>
+      <div className="flex items-center gap-2 mb-3">
+        <Icon className={cn('h-4 w-4', iconColor)} />
+        <span className="text-sm font-medium text-white">{title}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function ScoreItem({ label, score }: { label: string; score: number }) {
+  return (
+    <div className="text-center p-2 rounded-lg bg-muted/20">
+      <div className={cn(
+        'text-2xl font-bold',
+        score >= 80 ? 'text-emerald-400' :
+          score >= 60 ? 'text-amber-400' : 'text-red-400'
+      )}>{score}</div>
+      <div className="text-xs text-muted-foreground mt-1">{label}</div>
+    </div>
+  )
+}
+
+function MetricCell({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className="text-center">
+      <div className={cn('text-lg font-bold', highlight ? 'text-amber-400' : 'text-white')}>
+        {value}
+      </div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+    </div>
+  )
+}
+
+function HeuristicCell({ label, value, warn }: { label: string; value: number; warn: number }) {
+  return (
+    <div className="text-center">
+      <div className={cn('text-xl font-bold', value > warn ? 'text-amber-400' : 'text-emerald-400')}>
+        {value}
+      </div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   )
 }

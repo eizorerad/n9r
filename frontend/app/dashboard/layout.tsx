@@ -1,5 +1,4 @@
 import { getValidatedSession } from '@/lib/session'
-import { Workbench } from '@/components/layout/workbench'
 
 export default async function DashboardLayout({
   children,

@@ -178,7 +178,7 @@ export function RepositoriesTable({ data, isLoading, onRowClick }: RepositoriesT
       },
       {
         id: "actions",
-        cell: ({ row }) => (
+        cell: () => (
           <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
             <MoreHorizontal className="h-4 w-4" />
           </Button>
@@ -188,6 +188,7 @@ export function RepositoriesTable({ data, isLoading, onRowClick }: RepositoriesT
     []
   );
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,

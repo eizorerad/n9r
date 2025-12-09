@@ -96,6 +96,7 @@ export default function ConnectRepositoryPage() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img 
                 src="/logo.svg" 
                 alt="Necromancer" 

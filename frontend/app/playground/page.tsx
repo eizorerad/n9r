@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Loader2, Search, AlertCircle, CheckCircle, BarChart3, Shield, Code2, Activity, Brain, Sparkles, Network, Cpu, Binary } from "lucide-react";
+import { Loader2, Search, AlertCircle, BarChart3, Shield, Code2, Activity, Sparkles, Network, Cpu, Binary } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,6 +122,7 @@ function PlaygroundContent() {
       handleScan(repoParam);
       setHasAutoScanned(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, hasAutoScanned]);
 
   // Poll for results
@@ -147,7 +148,7 @@ function PlaygroundContent() {
     return () => clearInterval(interval);
   }, [scanId, result?.status]);
 
-  const { grade, color, bgColor, borderColor } = result?.vci_score ? getGrade(result.vci_score) : { grade: "-", color: "text-muted-foreground", bgColor: "bg-muted", borderColor: "border-border" };
+  const { grade, color, bgColor } = result?.vci_score ? getGrade(result.vci_score) : { grade: "-", color: "text-muted-foreground", bgColor: "bg-muted", borderColor: "border-border" };
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">

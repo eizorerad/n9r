@@ -139,12 +139,7 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       embeddingsStatus: analysisStatus.embeddings_status,
       vectorsCount: analysisStatus.vectors_count,
     }
-  }, [
-    analysisStatus?.semantic_cache_status,
-    analysisStatus?.has_semantic_cache,
-    analysisStatus?.embeddings_status,
-    analysisStatus?.vectors_count,
-  ])
+  }, [analysisStatus])
 
   // Compute counts for tab headers per Requirements 6.1
   // IMPORTANT: This must be at the top level, not after conditional returns (Rules of Hooks)
@@ -315,17 +310,8 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       lastRefreshedEmbeddingsStatus.current = 'completed'
       // Don't refresh here - wait for semantic cache to complete
     }
-  }, [
-    derivedStatus?.semanticCacheStatus,
-    derivedStatus?.hasSemanticCache,
-    derivedStatus?.embeddingsStatus,
-    derivedStatus?.vectorsCount,
-    semanticCache?.is_cached,
-    fetchSemanticCache,
-    queryClient,
-    repositoryId,
-    selectedAnalysisId,
-  ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [derivedStatus])
 
   if (!token) {
     return (
@@ -478,18 +464,17 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
   return (
     <div className="h-full flex flex-col">
-      {/* Tab Navigation with counts per Requirements 6.1 */}
-      <div className="flex-none flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 px-1">
+      {/* Tab Navigation with counts */}
+      <div className="flex-none flex flex-wrap gap-3 px-4 pt-4 pb-4">
         {tabs.map((tab) => (
           <Button
             key={tab.id}
             variant={activeTab === tab.id ? 'default' : 'outline'}
-            size="sm"
             onClick={() => setActiveTab(tab.id)}
-            className="flex flex-col items-start h-auto py-1.5 sm:py-2 px-2 sm:px-4 text-xs sm:text-sm"
+            className="flex flex-col items-start h-auto py-3 px-5 min-w-[120px]"
           >
-            <span className="font-medium">{getTabLabel(tab)}</span>
-            <span className="text-[10px] sm:text-xs opacity-70 hidden sm:block">{tab.description}</span>
+            <span className="text-base font-semibold">{getTabLabel(tab)}</span>
+            <span className="text-xs opacity-70">{tab.description}</span>
           </Button>
         ))}
       </div>

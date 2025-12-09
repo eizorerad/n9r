@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Github, Zap, ArrowRight, Search, Loader2 } from "lucide-react";
+import { Github, Zap, Loader2 } from "lucide-react";
 import LiquidEther from "@/components/LiquidEther";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,6 +122,7 @@ export default function Home() {
       <footer className="bg-[#1e1e1e] border-t border-neutral-700/50 py-2 shrink-0 z-50">
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/logo.svg" alt="Necromancer" className="w-5 h-5 opacity-70" />
             <span className="text-neutral-500 text-xs font-mono">© 2025 Necromancer</span>
             <span className="text-neutral-600 text-xs">|</span>

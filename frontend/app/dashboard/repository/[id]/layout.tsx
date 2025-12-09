@@ -20,30 +20,7 @@ async function fetchLatestAnalysis(repoId: string, token: string) {
     }
 }
 
-// Helper to fetch files for the tree
-async function fetchRepoFiles(repoId: string, token: string) {
-    try {
-        // FIXME: Replace with actual API call when available endpoint is confirmed
-        // For now, return a mock structure or try to hit a likely endpoint
-        // const files = await getFiles(repoId, token)
-        // return files.map(f => f.path)
 
-        // Mock data for demonstration until API is ready
-        return [
-            "src/main.py",
-            "src/utils.py",
-            "src/models/user.py",
-            "src/api/routes.py",
-            "tests/test_main.py",
-            "README.md",
-            "requirements.txt",
-            "Dockerfile"
-        ]
-    } catch (e) {
-        console.error("Failed to fetch files", e)
-        return []
-    }
-}
 
 export default async function RepositoryLayout({
     children,
@@ -70,6 +47,7 @@ export default async function RepositoryLayout({
     }
 
     const currentAnalysisCommit = latestAnalysis?.status === 'completed' ? latestAnalysis.commit_sha : null
+    const hasAnalysis = !!repo.last_analysis_at
 
     return (
         <RepositoryShell
@@ -77,6 +55,7 @@ export default async function RepositoryLayout({
             defaultBranch={repo.default_branch}
             token={session.accessToken}
             currentAnalysisCommit={currentAnalysisCommit}
+            hasAnalysis={hasAnalysis}
         >
             {children}
         </RepositoryShell>

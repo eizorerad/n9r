@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 
 const secretKey = process.env.SESSION_SECRET
 const encodedKey = new TextEncoder().encode(secretKey)

@@ -5,12 +5,18 @@ import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { 
-  ArchitectureHealthResponse, 
-  ClusterInfo, 
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
+  ArchitectureHealthResponse,
+  ClusterInfo,
   OutlierInfo,
-  CouplingHotspot 
+  CouplingHotspot
 } from '@/lib/semantic-api'
+import { AlertCircle, AlertTriangle, Info, ChevronDown, ChevronRight, FileCode, Zap, GitBranch } from 'lucide-react'
 
 // Cached data may have optional overall_score (for backward compatibility with 'score' field)
 type CachedArchitectureHealth = Omit<ArchitectureHealthResponse, 'overall_score'> & {
@@ -32,13 +38,6 @@ const statusColors: Record<string, string> = {
   scattered: 'bg-red-500/10 text-red-400 border-red-500/20',
 }
 
-const riskColors: Record<string, string> = {
-  critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-  high: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  medium: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-}
-
 // Normalize cached data to ensure overall_score is always a number
 function normalizeCachedData(cached: CachedArchitectureHealth | undefined): ArchitectureHealthResponse | null {
   if (!cached) return null
@@ -49,11 +48,11 @@ function normalizeCachedData(cached: CachedArchitectureHealth | undefined): Arch
 }
 
 function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache = false }: ArchitectureHealthProps) {
-  const [activeTab, setActiveTab] = useState<'clusters' | 'issues' | 'hotspots'>('clusters')
+  const [activeTab, setActiveTab] = useState<'issues' | 'hotspots'>('issues')
 
   // Normalize cached data
   const data = useMemo(() => normalizeCachedData(cachedData), [cachedData])
-  
+
   // Memoize derived values to prevent recalculation on every render
   const computedValues = useMemo(() => {
     if (!data) return null
@@ -61,29 +60,16 @@ function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache =
     const scoreValue = data.overall_score ?? (data as unknown as { score?: number }).score
     // Issues tab shows only outliers, Hotspots tab shows coupling_hotspots
     const outlierCount = data.outliers.length
-    const hotspotCount = data.coupling_hotspots.length
     const hasScore = typeof scoreValue === 'number'
     const displayScore = hasScore ? scoreValue : 0
-    
-    return { scoreValue, outlierCount, hotspotCount, hasScore, displayScore }
+
+    return { scoreValue, outlierCount, hasScore, displayScore }
   }, [data])
-
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-emerald-400'
-    if (score >= 60) return 'text-amber-400'
-    return 'text-red-400'
-  }
-
-  const getScoreGradient = (score: number) => {
-    if (score >= 80) return 'from-emerald-500 to-emerald-600'
-    if (score >= 60) return 'from-amber-500 to-amber-600'
-    return 'from-red-500 to-red-600'
-  }
 
   // Show message if no cached data available
   if (!data || !computedValues) {
     const isOldCache = hasSemanticCache && !cachedData
-    
+
     return (
       <Card className={cn('glass-panel border-border/50', className)}>
         <CardContent className="p-6">
@@ -114,101 +100,62 @@ function ArchitectureHealthComponent({ className, cachedData, hasSemanticCache =
       </Card>
     )
   }
-  
-  const { outlierCount, hotspotCount, hasScore, displayScore } = computedValues
+
+  const { outlierCount, hasScore, displayScore } = computedValues
 
   return (
-    <div className={cn('space-y-6', className)}>
-      {/* Overall Score Card */}
-      <Card className="glass-panel border-border/50 relative overflow-hidden">
-        <div className={cn(
-          'absolute inset-0 opacity-5 bg-gradient-to-br',
-          getScoreGradient(displayScore)
-        )} />
-        <CardContent className="relative p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold mb-1">Architecture Health</h3>
-              <p className="text-sm text-muted-foreground">
-                {data.total_files} files · {data.total_chunks} code chunks
-              </p>
-            </div>
-            <div className="text-right">
-              <div className={cn('text-4xl font-bold', hasScore ? getScoreColor(displayScore) : 'text-muted-foreground')}>
-                {hasScore ? displayScore : '—'}
-              </div>
-              <div className="text-sm text-muted-foreground">/100</div>
-            </div>
-          </div>
-
-          {/* Metrics */}
-          <div className="grid grid-cols-3 gap-4 mt-6">
-            <div className="text-center p-3 rounded-lg bg-background/30">
-              <div className="text-2xl font-bold text-blue-400">
-                {data.metrics.cluster_count || data.clusters.length}
-              </div>
-              <div className="text-xs text-muted-foreground">Clusters</div>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-background/30">
-              <div className="text-2xl font-bold text-emerald-400">
-                {Math.round((data.metrics.avg_cohesion || 0) * 100)}%
-              </div>
-              <div className="text-xs text-muted-foreground">Avg Cohesion</div>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-background/30">
-              <div className="text-2xl font-bold text-amber-400">
-                {Math.round(data.metrics.outlier_percentage || 0)}%
-              </div>
-              <div className="text-xs text-muted-foreground">Outliers</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Tabs */}
-      <div className="flex gap-2">
-        <Button
-          variant={activeTab === 'clusters' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('clusters')}
-        >
-          Clusters ({data.clusters.length})
-        </Button>
-        <Button
-          variant={activeTab === 'issues' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('issues')}
-        >
-          Issues ({outlierCount})
-        </Button>
-        <Button
-          variant={activeTab === 'hotspots' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setActiveTab('hotspots')}
-        >
-          Coupling ({data.coupling_hotspots.length})
-        </Button>
+    <div className={cn('flex flex-col h-full', className)}>
+      {/* Compact Header */}
+      <div className="flex-none flex items-center justify-between px-3 pt-2 pb-2">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-primary" />
+          <span className="text-xs font-medium">
+            {data.total_files} files · {data.total_chunks} chunks
+          </span>
+          <Badge variant="outline" className={cn(
+            'text-[10px] px-2 py-0.5 rounded-full',
+            hasScore && displayScore >= 80 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+              hasScore && displayScore >= 60 ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                'bg-red-500/10 text-red-400 border-red-500/20'
+          )}>
+            Score: {hasScore ? displayScore : '—'}/100
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant={activeTab === 'issues' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setActiveTab('issues')}
+          >
+            Issues ({outlierCount})
+          </Button>
+          <Button
+            variant={activeTab === 'hotspots' ? 'default' : 'ghost'}
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setActiveTab('hotspots')}
+          >
+            Coupling ({data.coupling_hotspots.length})
+          </Button>
+        </div>
       </div>
 
       {/* Tab Content */}
-      <Card className="glass-panel border-border/50">
-        <CardContent className="p-4">
-          {activeTab === 'clusters' && (
-            <ClustersTab clusters={data.clusters} />
-          )}
-          {activeTab === 'issues' && (
-            <IssuesTab outliers={data.outliers} />
-          )}
-          {activeTab === 'hotspots' && (
-            <HotspotsTab hotspots={data.coupling_hotspots} />
-          )}
-        </CardContent>
-      </Card>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {activeTab === 'issues' && (
+          <IssuesTab outliers={data.outliers} />
+        )}
+        {activeTab === 'hotspots' && (
+          <HotspotsTab hotspots={data.coupling_hotspots} />
+        )}
+      </div>
     </div>
   )
 }
 
-function ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function _ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
   if (clusters.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -232,8 +179,8 @@ function ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
                 {cluster.file_count} files · {cluster.chunk_count} chunks
               </p>
             </div>
-            <Badge 
-              variant="outline" 
+            <Badge
+              variant="outline"
               className={statusColors[cluster.status] || statusColors.moderate}
             >
               {cluster.status}
@@ -245,8 +192,8 @@ function ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
               <span className="text-muted-foreground">Cohesion: </span>
               <span className={cn(
                 'font-medium',
-                cluster.cohesion >= 0.7 ? 'text-emerald-400' : 
-                cluster.cohesion >= 0.5 ? 'text-amber-400' : 'text-red-400'
+                cluster.cohesion >= 0.7 ? 'text-emerald-400' :
+                  cluster.cohesion >= 0.5 ? 'text-amber-400' : 'text-red-400'
               )}>
                 {Math.round(cluster.cohesion * 100)}%
               </span>
@@ -281,163 +228,224 @@ function ClustersTab({ clusters }: { clusters: ClusterInfo[] }) {
   )
 }
 
-const tierColors: Record<string, { border: string; icon: string; badge: string }> = {
+const priorityConfig = {
   critical: {
-    border: 'border-l-red-500',
-    icon: 'text-red-400',
-    badge: 'bg-red-500/10 text-red-400 border-red-500/20',
+    icon: AlertCircle,
+    color: 'text-white',
+    iconColor: 'text-red-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Critical',
   },
   recommended: {
-    border: 'border-l-amber-500',
-    icon: 'text-amber-400',
-    badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    icon: AlertTriangle,
+    color: 'text-white',
+    iconColor: 'text-amber-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Recommended',
   },
   informational: {
-    border: 'border-l-blue-500',
-    icon: 'text-blue-400',
-    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    icon: Info,
+    color: 'text-white',
+    iconColor: 'text-blue-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Info',
   },
-}
-
-const tierIcons: Record<string, string> = {
-  critical: '🔴',
-  recommended: '⚠',
-  informational: 'ℹ',
 }
 
 function IssuesTab({ outliers }: { outliers: OutlierInfo[] }) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
-
   if (outliers.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-emerald-400">✓ No outliers detected</p>
-        <p className="text-sm mt-1">All code appears well-organized</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1 py-8">
+        <span className="text-emerald-400 text-sm">✓ No outliers detected</span>
+        <span className="text-xs">All code appears well-organized</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-3">
-      {outliers.map((outlier, idx) => {
-        const tier = outlier.tier || 'recommended'
-        const colors = tierColors[tier] || tierColors.recommended
-        const icon = tierIcons[tier] || '⚠'
-        const confidencePercent = Math.round((outlier.confidence || 0.5) * 100)
-        const isExpanded = expandedIdx === idx
+    <div className="space-y-0 divide-y divide-border/50">
+      {outliers.map((outlier, idx) => (
+        <OutlierCard key={idx} outlier={outlier} />
+      ))}
+    </div>
+  )
+}
 
-        return (
-          <div
-            key={idx}
-            className={cn(
-              'p-4 rounded-lg bg-background/30 border-l-2 border border-border/50',
-              colors.border
-            )}
-          >
-            <div className="flex items-start gap-3">
-              <span className={cn('mt-0.5', colors.icon)}>{icon}</span>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                  <code className="text-sm">{outlier.file_path}</code>
-                  {outlier.chunk_name && (
-                    <>
-                      <span className="text-muted-foreground/50">→</span>
-                      <span className="text-sm font-medium">{outlier.chunk_name}</span>
-                    </>
+function OutlierCard({ outlier }: { outlier: OutlierInfo }) {
+  const [isOpen, setIsOpen] = useState(true)
+  const tier = outlier.tier || 'recommended'
+  const config = priorityConfig[tier as keyof typeof priorityConfig] || priorityConfig.recommended
+  const PriorityIcon = config.icon
+  const confidencePercent = Math.round((outlier.confidence || 0.5) * 100)
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
                   )}
-                  {outlier.chunk_type && (
-                    <Badge variant="outline" className="text-xs">
-                      {outlier.chunk_type}
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className={cn('text-xs capitalize', colors.badge)}>
-                    {tier}
+                >
+                  {config.label}
+                </Badge>
+                <span className="flex items-center gap-1 text-[10px] text-white">
+                  <Zap className="h-3 w-3 text-purple-400" />
+                  Outlier
+                </span>
+                {outlier.chunk_type && (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-transparent text-white border-white/30">
+                    {outlier.chunk_type}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">
-                    {confidencePercent}% confidence
-                  </span>
-                </div>
-                <p className="text-sm text-muted-foreground">{outlier.suggestion}</p>
-                {outlier.nearest_file && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Nearest: {outlier.nearest_file} ({Math.round(outlier.nearest_similarity * 100)}% similar)
-                  </p>
                 )}
-                {outlier.confidence_factors && outlier.confidence_factors.length > 0 && (
-                  <div className="mt-2">
-                    <button
-                      onClick={() => setExpandedIdx(isExpanded ? null : idx)}
-                      className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                    >
-                      {isExpanded ? '▼' : '▶'} {isExpanded ? 'Hide' : 'Show'} confidence factors ({outlier.confidence_factors.length})
-                    </button>
-                    {isExpanded && (
-                      <ul className="mt-2 space-y-1 text-xs text-muted-foreground pl-4">
-                        {outlier.confidence_factors.map((factor, i) => (
-                          <li key={i} className="list-disc list-inside">{factor}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
+                <span className="text-[10px] text-muted-foreground">
+                  {confidencePercent}% confidence
+                </span>
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {outlier.chunk_name || outlier.file_path.split('/').pop()}
+              </h4>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                <FileCode className="h-2.5 w-2.5" />
+                <span className="truncate">{outlier.file_path}</span>
               </div>
             </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            )}
           </div>
-        )
-      })}
-    </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-xs text-muted-foreground">{outlier.suggestion}</p>
+          {outlier.nearest_file && (
+            <div className="text-[10px] text-muted-foreground">
+              Nearest: {outlier.nearest_file} ({Math.round(outlier.nearest_similarity * 100)}% similar)
+            </div>
+          )}
+          {outlier.confidence_factors && outlier.confidence_factors.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground font-medium">Confidence factors:</div>
+              <ul className="text-[10px] text-muted-foreground space-y-0.5 pl-3">
+                {outlier.confidence_factors.map((factor, i) => (
+                  <li key={i} className="list-disc list-inside">{factor}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
 function HotspotsTab({ hotspots }: { hotspots: CouplingHotspot[] }) {
   if (hotspots.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-emerald-400">✓ No coupling hotspots</p>
-        <p className="text-sm mt-1">Good separation of concerns</p>
+      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-1 py-8">
+        <span className="text-emerald-400 text-sm">✓ No coupling hotspots</span>
+        <span className="text-xs">Good separation of concerns</span>
       </div>
     )
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-0 divide-y divide-border/50">
       {hotspots.map((hotspot, idx) => (
-        <div
-          key={idx}
-          className="p-4 rounded-lg bg-background/30 border-l-2 border-l-red-500 border border-border/50"
-        >
-          <div className="flex items-start gap-3">
-            <span className="text-red-400 mt-0.5">⚡</span>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <code className="text-sm">{hotspot.file_path}</code>
-                <Badge 
-                  variant="outline" 
-                  className={hotspot.clusters_connected >= 4 ? riskColors.critical : riskColors.high}
-                >
-                  {hotspot.clusters_connected} clusters
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">{hotspot.suggestion}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {hotspot.cluster_names.slice(0, 4).map((name, i) => (
-                  <code key={i} className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">
-                    {name}
-                  </code>
-                ))}
-                {hotspot.cluster_names.length > 4 && (
-                  <span className="text-xs text-muted-foreground">
-                    +{hotspot.cluster_names.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <CouplingHotspotCard key={idx} hotspot={hotspot} />
       ))}
     </div>
   )
 }
+
+function CouplingHotspotCard({ hotspot }: { hotspot: CouplingHotspot }) {
+  const [isOpen, setIsOpen] = useState(true)
+  const level = hotspot.clusters_connected >= 4 ? 'critical' : 'recommended'
+  const config = priorityConfig[level as keyof typeof priorityConfig]
+  const PriorityIcon = config.icon
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {config.label}
+                </Badge>
+                <span className="flex items-center gap-1 text-[10px] text-white">
+                  <GitBranch className="h-3 w-3 text-orange-400" />
+                  Coupling
+                </span>
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-transparent text-white border-white/30">
+                  {hotspot.clusters_connected} clusters
+                </Badge>
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {hotspot.file_path.split('/').pop()}
+              </h4>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                <FileCode className="h-2.5 w-2.5" />
+                <span className="truncate">{hotspot.file_path}</span>
+              </div>
+            </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            )}
+          </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-xs text-muted-foreground">{hotspot.suggestion}</p>
+          <div className="flex flex-wrap gap-1">
+            {hotspot.cluster_names.slice(0, 6).map((name, i) => (
+              <Badge key={i} variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-primary/10 text-primary border-primary/30">
+                {name}
+              </Badge>
+            ))}
+            {hotspot.cluster_names.length > 6 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{hotspot.cluster_names.length - 6} more
+              </span>
+            )}
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 
 // Memoize component to prevent unnecessary re-renders
 // Only re-render when actual props change
@@ -445,7 +453,7 @@ export const ArchitectureHealth = memo(ArchitectureHealthComponent, (prevProps, 
   // Deep comparison for cachedData since it's an object
   const prevCacheString = JSON.stringify(prevProps.cachedData)
   const nextCacheString = JSON.stringify(nextProps.cachedData)
-  
+
   return (
     prevProps.repositoryId === nextProps.repositoryId &&
     prevProps.token === nextProps.token &&

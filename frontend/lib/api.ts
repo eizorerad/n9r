@@ -499,13 +499,14 @@ export const commitApi = {
   list: (
     token: string,
     repositoryId: string,
-    params?: { branch?: string; per_page?: number }
+    params?: { branch?: string; per_page?: number; page?: number }
   ) => {
     const searchParams = new URLSearchParams();
     if (params?.branch) searchParams.set("branch", params.branch);
     if (params?.per_page) searchParams.set("per_page", String(params.per_page));
+    if (params?.page) searchParams.set("page", String(params.page));
     const query = searchParams.toString();
-    return request<{ commits: Commit[]; branch: string }>(
+    return request<{ commits: Commit[]; branch: string; page: number; has_more: boolean }>(
       `/repositories/${repositoryId}/commits${query ? `?${query}` : ""}`,
       { token }
     );

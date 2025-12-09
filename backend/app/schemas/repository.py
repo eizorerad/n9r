@@ -195,3 +195,5 @@ class CommitListResponse(BaseSchema):
 
     commits: list[CommitResponse]
     branch: str
+    page: int = 1
+    has_more: bool = False

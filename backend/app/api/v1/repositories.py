@@ -705,6 +705,7 @@ async def list_commits(
     db: DbSession,
     branch: str | None = Query(default=None, description="Branch name (defaults to repository's default branch)"),
     per_page: int = Query(default=30, le=100, description="Number of commits to return"),
+    page: int = Query(default=1, ge=1, description="Page number for pagination"),
 ) -> CommitListResponse:
     """List commits for a repository branch with analysis status.
 
@@ -738,13 +739,19 @@ async def list_commits(
         # Parse owner/repo from full_name
         owner, repo_name = repository.full_name.split("/")
 
-        # Fetch commits via GitHubService
+        # Fetch commits via GitHubService (request one extra to detect has_more)
         commits = await github.list_commits(
             owner=owner,
             repo=repo_name,
             sha=target_branch,
-            per_page=per_page,
+            per_page=per_page + 1,
+            page=page,
         )
+
+        # Check if there are more commits
+        has_more = len(commits) > per_page
+        if has_more:
+            commits = commits[:per_page]
 
         # Get commit SHAs for analysis lookup
         commit_shas = [commit["sha"] for commit in commits]
@@ -783,7 +790,12 @@ async def list_commits(
                 )
             )
 
-        return CommitListResponse(commits=commit_responses, branch=target_branch)
+        return CommitListResponse(
+            commits=commit_responses,
+            branch=target_branch,
+            page=page,
+            has_more=has_more,
+        )
 
     except GitHubTimeoutError as e:
         logger.warning(f"GitHub API timeout for user {current_user.id} on repo {repo_id}")

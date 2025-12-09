@@ -23,19 +23,19 @@ export function RepoTabs({
         {
             id: "ai-scan" as TabType,
             label: "AI Scan",
-            icon: <Brain className="w-3.5 h-3.5 text-pink-400" />,
+            icon: <Brain className="w-3.5 h-3.5 text-primary" />,
             content: aiScanContent,
         },
         {
             id: "semantic" as TabType,
             label: "Semantic Analysis",
-            icon: <Network className="w-3.5 h-3.5 text-purple-400" />,
+            icon: <Network className="w-3.5 h-3.5 text-primary" />,
             content: semanticAnalysisContent,
         },
         {
             id: "static" as TabType,
             label: "Static Analysis (Issues)",
-            icon: <Bug className="w-3.5 h-3.5 text-amber-400" />,
+            icon: <Bug className="w-3.5 h-3.5 text-primary" />,
             content: staticAnalysisContent,
         },
     ]

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query'
 import { GitCommit, Loader2, RefreshCw, AlertCircle, ShieldAlert, Clock, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { branchApi, commitApi, ApiError, type Commit } from '@/lib/api'
@@ -18,12 +18,14 @@ import {
 } from '@/components/ui/select'
 import { useCommitSelectionStore } from '@/lib/stores/commit-selection-store'
 import { useAnalysisDataStore } from '@/lib/stores/analysis-data-store'
+import { RunAnalysisButton } from '@/components/run-analysis-button'
 
 interface CommitTimelineProps {
   repositoryId: string
   defaultBranch: string
   token: string
   currentAnalysisCommit?: string | null
+  hasAnalysis?: boolean
 }
 
 // Helper to format relative time
@@ -55,14 +57,6 @@ function getVCIColor(score: number): string {
   if (score >= 60) return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
   if (score >= 40) return 'bg-orange-500/20 text-orange-400 border-orange-500/30'
   return 'bg-red-500/20 text-red-400 border-red-500/30'
-}
-
-function getVCIGrade(score: number): string {
-  if (score >= 90) return 'A'
-  if (score >= 80) return 'B'
-  if (score >= 70) return 'C'
-  if (score >= 60) return 'D'
-  return 'F'
 }
 
 // CommitRow subcomponent
@@ -171,9 +165,11 @@ function CommitSkeleton() {
   )
 }
 
+
 // Main component
-export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnalysisCommit }: CommitTimelineProps) {
+export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnalysisCommit, hasAnalysis = false }: CommitTimelineProps) {
   const [selectedBranch, setSelectedBranch] = useState<string>(defaultBranch)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
   
   // Use global commit selection store instead of local state
   const { 
@@ -196,43 +192,69 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     staleTime: 5 * 60 * 1000,
   })
 
-  // Fetch commits
+  // Fetch commits with infinite scroll
   const {
     data: commitsData,
     isLoading: commitsLoading,
     error: commitsError,
     refetch: refetchCommits,
-  } = useQuery({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['commits', repositoryId, selectedBranch],
-    queryFn: () => commitApi.list(token, repositoryId, { branch: selectedBranch, per_page: 30 }),
+    queryFn: ({ pageParam = 1 }) => 
+      commitApi.list(token, repositoryId, { branch: selectedBranch, per_page: 30, page: pageParam }),
+    getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.page + 1 : undefined,
+    initialPageParam: 1,
     enabled: !!token && !!repositoryId && !!selectedBranch,
     staleTime: 60 * 1000,
-    refetchInterval: selectedCommitSha ? 5000 : false, // Poll while a commit is selected (might be analyzing)
+    refetchInterval: selectedCommitSha ? 5000 : false,
   })
 
   const branches = branchesData?.data || []
-  const commits = commitsData?.commits || []
+  // Flatten all pages into single commits array - memoized to prevent reference changes
+  const commits = useMemo(() => 
+    commitsData?.pages.flatMap(page => page.commits) || [],
+    [commitsData?.pages]
+  )
+
+  // Intersection Observer for infinite scroll
+  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
+    const [target] = entries
+    if (target.isIntersecting && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage()
+    }
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage])
+
+  useEffect(() => {
+    const element = loadMoreRef.current
+    if (!element) return
+
+    const observer = new IntersectionObserver(handleObserver, {
+      root: null,
+      rootMargin: '100px',
+      threshold: 0,
+    })
+
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [handleObserver])
 
   // Handle commit click - toggle selection or select new commit
   const handleCommitClick = (commit: Commit) => {
     if (selectedCommitSha === commit.sha) {
-      // Toggle off if clicking the same commit
       clearSelection()
     } else {
-      // Select new commit with its analysis_id
       setSelectedCommit(commit.sha, commit.analysis_id || null, repositoryId)
     }
   }
   
   // Auto-select most recent analyzed commit on mount or when commits change
   useEffect(() => {
-    // Only auto-select if:
-    // 1. No commit is currently selected for this repository, OR
-    // 2. The store has a different repository selected
     const shouldAutoSelect = !selectedCommitSha || storeRepositoryId !== repositoryId
     
     if (shouldAutoSelect && commits.length > 0) {
-      // Find the most recent analyzed commit (completed status)
       const mostRecentAnalyzed = commits.find(c => c.analysis_status === 'completed')
       
       if (mostRecentAnalyzed) {
@@ -242,7 +264,6 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
           repositoryId
         )
       } else {
-        // If no analyzed commits, select the most recent commit
         const mostRecent = commits[0]
         if (mostRecent) {
           setSelectedCommit(mostRecent.sha, mostRecent.analysis_id || null, repositoryId)
@@ -251,32 +272,22 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     }
   }, [commits, repositoryId, selectedCommitSha, storeRepositoryId, setSelectedCommit])
   
-  // Auto-update selectedAnalysisId when analysis completes for the selected commit
-  // This ensures panels refresh with new data when analysis finishes
-  // Requirements: 2.3
+  // Auto-update selectedAnalysisId when analysis completes
   const { selectedAnalysisId } = useCommitSelectionStore()
   
   useEffect(() => {
     if (!selectedCommitSha || !commits.length) return
     
-    // Find the currently selected commit in the refreshed commits list
     const currentCommit = commits.find(c => c.sha === selectedCommitSha)
     if (!currentCommit) return
     
-    // If the commit now has an analysis_id that differs from what's in the store,
-    // update the store to trigger panel refreshes
-    // BUT: Only update if store has NO analysis_id yet (null)
-    // If store already has an analysis_id, it was set by use-analysis-stream after completion
-    // and we should NOT override it with stale data from commits list
     const newAnalysisId = currentCommit.analysis_id || null
     if (newAnalysisId && !selectedAnalysisId) {
-      // Store has no analysis_id, set it from commits list
       setSelectedCommit(selectedCommitSha, newAnalysisId, repositoryId)
     }
   }, [commits, selectedCommitSha, selectedAnalysisId, setSelectedCommit, repositoryId])
 
   // Invalidate analysis cache when status changes to completed
-  // This forces re-fetch of analysis data with full metrics
   const { invalidateAnalysis } = useAnalysisDataStore()
   const prevStatusRef = useRef<Record<string, string>>({})
   
@@ -290,12 +301,10 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     const currentStatus = selectedCommit.analysis_status
     const prevStatus = prevStatusRef.current[analysisId]
     
-    // If status changed to 'completed' from a non-completed state, invalidate cache
     if (currentStatus === 'completed' && prevStatus && prevStatus !== 'completed') {
       invalidateAnalysis(analysisId)
     }
     
-    // Update tracked status
     if (currentStatus) {
       prevStatusRef.current[analysisId] = currentStatus
     }
@@ -318,11 +327,9 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
         errorMessage = 'Try again later.'
       } else if (error.isPermissionError()) {
         errorIcon = <ShieldAlert className="h-8 w-8 text-destructive mb-3" />
-        // Check if it's a GitHub token issue
         if (error.message?.toLowerCase().includes('github token')) {
           errorTitle = 'GitHub reconnection needed'
           errorMessage = 'Your GitHub access has expired.'
-          // Show logout button instead of retry
           return (
             <div className="flex flex-col items-center justify-center py-6 text-center">
               {errorIcon}
@@ -388,6 +395,12 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
         </Select>
       </div>
 
+      {/* Run Analysis Button */}
+      <RunAnalysisButton
+        repositoryId={repositoryId}
+        hasAnalysis={hasAnalysis}
+      />
+
       {/* Commits list */}
       {commitsLoading ? (
         <CommitSkeleton />
@@ -402,12 +415,22 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
             <CommitRow
               key={commit.sha}
               commit={commit}
-              isLast={index === commits.length - 1}
+              isLast={index === commits.length - 1 && !hasNextPage}
               isSelected={selectedCommitSha === commit.sha}
               isCurrentAnalysis={currentAnalysisCommit === commit.sha}
               onClick={() => handleCommitClick(commit)}
             />
           ))}
+          
+          {/* Infinite scroll trigger */}
+          <div ref={loadMoreRef} className="py-2">
+            {isFetchingNextPage && (
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading more...
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -332,8 +332,7 @@ export function IDEClient({ id, token }: IDEClientProps) {
     setSelectedFile(null)
   }, [clearSelection])
 
-  // Get current tab data (used for potential future features)
-  const _activeTabData = openTabs.find(t => t.path === activeTab)
+
 
   // Check if directory is loading
   const checkDirectoryLoading = useCallback((path: string) => {
@@ -498,6 +497,7 @@ export function IDEClient({ id, token }: IDEClientProps) {
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-[#555555]">
               <div className="mb-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/logo.svg" className="w-24 h-24 opacity-5 grayscale" alt="" />
               </div>
               <p className="text-sm">Select a file to begin editing</p>

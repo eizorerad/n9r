@@ -74,7 +74,7 @@ describe('RunAnalysisButton - Property 3: Run Analysis uses selected commit', ()
    */
   it('should have null selectedCommitSha when no commit is selected', () => {
     fc.assert(
-      fc.property(fc.uuid(), (_repositoryId) => {
+      fc.property(fc.uuid(), () => {
         // Clear any selection
         useCommitSelectionStore.getState().clearSelection()
         

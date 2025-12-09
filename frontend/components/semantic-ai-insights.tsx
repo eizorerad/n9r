@@ -7,13 +7,18 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Sparkles, X, AlertTriangle, Info, AlertCircle, ChevronDown, ChevronUp, HelpCircle, ArrowUpDown } from 'lucide-react'
+import { Sparkles, X, AlertTriangle, Info, AlertCircle, ChevronDown, ChevronUp, ChevronRight, HelpCircle, ArrowUpDown, FileCode, Trash2, Flame } from 'lucide-react'
 import {
   useArchitectureFindings,
   useDismissInsight,
@@ -48,18 +53,49 @@ interface SemanticAIInsightsProps {
 const priorityConfig = {
   high: {
     icon: AlertCircle,
-    badge: 'bg-red-500/10 text-red-400 border-red-500/20',
-    border: 'border-l-red-500',
+    color: 'text-white',
+    iconColor: 'text-red-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'High',
   },
   medium: {
     icon: AlertTriangle,
-    badge: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    border: 'border-l-amber-500',
+    color: 'text-white',
+    iconColor: 'text-amber-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Medium',
   },
   low: {
     icon: Info,
-    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    border: 'border-l-blue-500',
+    color: 'text-white',
+    iconColor: 'text-blue-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
+    label: 'Low',
+  },
+}
+
+// Category config matching AI Scan's dimension pattern
+const categoryConfig = {
+  dead_code: {
+    icon: Trash2,
+    label: 'Dead Code',
+    color: 'text-white',
+    iconColor: 'text-purple-400',
+  },
+  hot_spot: {
+    icon: Flame,
+    label: 'Hot Spot',
+    color: 'text-white',
+    iconColor: 'text-orange-400',
+  },
+  insight: {
+    icon: Sparkles,
+    label: 'Insight',
+    color: 'text-white',
+    iconColor: 'text-green-400',
   },
 }
 
@@ -290,7 +326,7 @@ function getItemFilePath(item: FindingItem): string {
  */
 export function sortFindings(items: FindingItem[], sortOption: SortOption): FindingItem[] {
   const sorted = [...items]
-  
+
   switch (sortOption) {
     case 'score':
       // Sort by impact_score/risk_score descending
@@ -306,7 +342,7 @@ export function sortFindings(items: FindingItem[], sortOption: SortOption): Find
       sorted.sort((a, b) => getItemFilePath(a).localeCompare(getItemFilePath(b)))
       break
   }
-  
+
   return sorted
 }
 
@@ -327,12 +363,12 @@ function SemanticAIInsightsContent({
   // Combine all items into a single list
   const allItems = useMemo(() => {
     const items: FindingItem[] = []
-    
+
     // Add all items without pre-sorting - sorting is handled separately
     insights.forEach(insight => items.push({ type: 'insight', data: insight }))
     hot_spots.forEach(finding => items.push({ type: 'hot_spot', data: finding }))
     dead_code.forEach(finding => items.push({ type: 'dead_code', data: finding }))
-    
+
     return items
   }, [insights, dead_code, hot_spots])
 
@@ -346,52 +382,54 @@ function SemanticAIInsightsContent({
   const showExpandButton = totalCount > COLLAPSED_LIMIT
 
   return (
-    <Card className={cn('glass-panel border-border/50', className)}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sparkles className="h-5 w-5 text-brand-green" />
-            Semantic AI Insights ({totalCount})
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 ml-1"
-              onClick={onInfoClick}
-              title="How scores are calculated"
-            >
-              <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-            </Button>
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {/* Sort dropdown - Feature: transparent-scoring-formula, Validates: Requirements 7.1 */}
-            <Select value={sortOption} onValueChange={(value) => setSortOption(value as SortOption)}>
-              <SelectTrigger className="w-[130px] h-8 text-xs">
-                <ArrowUpDown className="h-3 w-3 mr-1" />
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="score">By Score</SelectItem>
-                <SelectItem value="type">By Type</SelectItem>
-                <SelectItem value="file">By File</SelectItem>
-              </SelectContent>
-            </Select>
-            <Badge variant="outline" className={cn(
-              summary.health_score >= 80 ? 'bg-emerald-500/10 text-emerald-400' :
-              summary.health_score >= 60 ? 'bg-amber-500/10 text-amber-400' :
-              'bg-red-500/10 text-red-400'
-            )}>
-              Health: {summary.health_score}/100
-            </Badge>
-          </div>
+    <div className={cn('flex flex-col h-full space-y-3', className)}>
+      {/* Header with stats */}
+      <div className="flex-none flex items-center justify-between px-3 pt-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="text-xs font-medium">
+            {totalCount} finding{totalCount !== 1 ? 's' : ''}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-5 w-5"
+            onClick={onInfoClick}
+            title="How scores are calculated"
+          >
+            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
+          </Button>
         </div>
-        {summary.main_concerns.length > 0 && (
-          <p className="text-sm text-muted-foreground mt-1">
-            {summary.main_concerns[0]}
-          </p>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Render visible items */}
+        <div className="flex items-center gap-2">
+          {/* Sort dropdown */}
+          <Select value={sortOption} onValueChange={(value) => setSortOption(value as SortOption)}>
+            <SelectTrigger className="w-[100px] h-7 text-[10px]">
+              <ArrowUpDown className="h-3 w-3 mr-1" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="score">By Score</SelectItem>
+              <SelectItem value="type">By Type</SelectItem>
+              <SelectItem value="file">By File</SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge
+            variant="outline"
+            className="text-[10px] px-2 py-0.5 rounded-full bg-transparent text-white border-white/30"
+          >
+            Health: {summary.health_score}/100
+          </Badge>
+        </div>
+      </div>
+
+      {summary.main_concerns.length > 0 && (
+        <p className="flex-none text-xs text-muted-foreground px-3">
+          {summary.main_concerns[0]}
+        </p>
+      )}
+
+      {/* Issues list */}
+      <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border/50">
         {visibleItems.map((item) => {
           if (item.type === 'insight') {
             const insight = item.data as SemanticAIInsight
@@ -418,30 +456,30 @@ function SemanticAIInsightsContent({
             return <HotSpotCard key={`hot-${finding.id}`} finding={finding} />
           }
         })}
+      </div>
 
-        {/* Show all / Show less button */}
-        {showExpandButton && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full text-muted-foreground hover:text-foreground"
-            onClick={() => setIsExpanded(!isExpanded)}
-          >
-            {isExpanded ? (
-              <>
-                <ChevronUp className="h-4 w-4 mr-2" />
-                Show less
-              </>
-            ) : (
-              <>
-                <ChevronDown className="h-4 w-4 mr-2" />
-                Show all ({hiddenCount} more)
-              </>
-            )}
-          </Button>
-        )}
-      </CardContent>
-    </Card>
+      {/* Show all / Show less button */}
+      {showExpandButton && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="flex-none w-full text-muted-foreground hover:text-foreground"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp className="h-4 w-4 mr-2" />
+              Show less
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-4 w-4 mr-2" />
+              Show all ({hiddenCount} more)
+            </>
+          )}
+        </Button>
+      )}
+    </div>
   )
 }
 
@@ -452,67 +490,94 @@ interface InsightCardProps {
 }
 
 function InsightCard({ insight, onDismiss, isLoading }: InsightCardProps) {
+  const [isOpen, setIsOpen] = useState(true)
   const config = priorityConfig[insight.priority] || priorityConfig.medium
-  const Icon = config.icon
+  const catConfig = categoryConfig.insight
+  const PriorityIcon = config.icon
+  const CategoryIcon = catConfig.icon
 
   return (
-    <div className={cn(
-      'p-4 rounded-lg bg-background/30 border border-border/50 border-l-2',
-      config.border
-    )}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1">
-          <Icon className={cn('h-5 w-5 mt-0.5 shrink-0', 
-            insight.priority === 'high' ? 'text-red-400' :
-            insight.priority === 'medium' ? 'text-amber-400' : 'text-blue-400'
-          )} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h4 className="font-medium text-sm">{insight.title}</h4>
-              <Badge variant="outline" className={cn('text-xs capitalize', config.badge)}>
-                {insight.priority}
-              </Badge>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
             </div>
-            <p className="text-sm text-muted-foreground">{insight.description}</p>
-            {insight.evidence && (
-              <p className="text-xs text-muted-foreground mt-2">
-                <span className="font-medium">Evidence:</span> {insight.evidence}
-              </p>
-            )}
-            {insight.suggested_action && (
-              <p className="text-xs mt-2">
-                <span className="font-medium text-brand-green">Action:</span>{' '}
-                <span className="text-muted-foreground">{insight.suggested_action}</span>
-              </p>
-            )}
-            {insight.affected_files.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {insight.affected_files.slice(0, 3).map((file, idx) => (
-                  <code key={idx} className="text-xs px-1.5 py-0.5 rounded bg-background/50">
-                    {file.split('/').pop()}
-                  </code>
-                ))}
-                {insight.affected_files.length > 3 && (
-                  <span className="text-xs text-muted-foreground">
-                    +{insight.affected_files.length - 3} more
-                  </span>
-                )}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {config.label}
+                </Badge>
+                <span className={cn('flex items-center gap-1 text-[10px]', catConfig.color)}>
+                  <CategoryIcon className={cn('h-3 w-3', catConfig.iconColor)} />
+                  {catConfig.label}
+                </span>
               </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {insight.title}
+              </h4>
+              {insight.affected_files.length > 0 && (
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                  <FileCode className="h-2.5 w-2.5" />
+                  <span className="truncate">{insight.affected_files[0].split('/').pop()}</span>
+                </div>
+              )}
+            </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             )}
           </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-xs text-muted-foreground">{insight.description}</p>
+          {insight.evidence && (
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Evidence
+              </span>
+              <pre className="text-[10px] bg-muted/50 p-2 rounded-md overflow-x-auto font-mono">
+                {insight.evidence}
+              </pre>
+            </div>
+          )}
+          {insight.suggested_action && (
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Suggested Action
+              </span>
+              <p className="text-xs text-muted-foreground bg-emerald-500/5 p-2 rounded-md border border-emerald-500/10">
+                {insight.suggested_action}
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-muted-foreground hover:text-destructive"
+              onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+              disabled={isLoading}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Dismiss
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0"
-          onClick={onDismiss}
-          disabled={isLoading}
-          title="Dismiss insight"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -522,69 +587,102 @@ interface DeadCodeCardProps {
   isLoading: boolean
 }
 
-/**
- * Get color classes for score badge based on score value.
- * - green: 0-39 (low priority)
- * - amber: 40-69 (medium priority)
- * - red: 70-100 (high priority)
- */
-function getScoreBadgeClasses(score: number): string {
-  if (score < 40) {
-    return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-  } else if (score < 70) {
-    return 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-  } else {
-    return 'bg-red-500/10 text-red-400 border-red-500/20'
-  }
-}
+
 
 function DeadCodeCard({ finding, onDismiss, isLoading }: DeadCodeCardProps) {
+  const [isOpen, setIsOpen] = useState(true)
   const impactScore = finding.impact_score ?? 0
+  const catConfig = categoryConfig.dead_code
+  const CategoryIcon = catConfig.icon
+
+  // Map impact score to priority config
+  const priorityLevel = impactScore >= 70 ? 'high' : impactScore >= 40 ? 'medium' : 'low'
+  const config = priorityConfig[priorityLevel]
+  const PriorityIcon = config.icon
 
   return (
-    <div className="p-4 rounded-lg bg-background/30 border border-border/50 border-l-2 border-l-purple-500">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1">
-          <span className="text-purple-400 mt-0.5">🗑️</span>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <code className="text-sm font-medium">{finding.function_name}</code>
-              <Badge variant="outline" className={cn('text-xs', getScoreBadgeClasses(impactScore))}>
-                Impact: {Math.round(impactScore)}
-              </Badge>
-              {finding.confidence === 1.0 && (
-                <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/20">
-                  call-graph proven
-                </Badge>
-              )}
-              <span className="text-xs text-muted-foreground">
-                {finding.line_count} lines
-              </span>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              <code>{finding.file_path}</code> (lines {finding.line_start}-{finding.line_end})
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">{finding.evidence}</p>
-            {finding.suggested_action && (
-              <p className="text-xs mt-2">
-                <span className="font-medium text-brand-green">Action:</span>{' '}
-                <span className="text-muted-foreground">{finding.suggested_action}</span>
-              </p>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {config.label}
+                </Badge>
+                <span className={cn('flex items-center gap-1 text-[10px]', catConfig.color)}>
+                  <CategoryIcon className={cn('h-3 w-3', catConfig.iconColor)} />
+                  {catConfig.label}
+                </span>
+                {finding.confidence === 1.0 && (
+                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
+                    proven
+                  </Badge>
+                )}
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {finding.function_name}
+              </h4>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                <FileCode className="h-2.5 w-2.5" />
+                <span className="truncate">{finding.file_path.split('/').pop()}</span>
+                <span className="text-muted-foreground/60">:{finding.line_start}</span>
+              </div>
+            </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             )}
           </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <p className="text-xs text-muted-foreground">{finding.evidence}</p>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>Lines {finding.line_start}-{finding.line_end}</span>
+            <span>•</span>
+            <span>{finding.line_count} lines</span>
+            <span>•</span>
+            <span>Impact: {Math.round(impactScore)}</span>
+          </div>
+          {finding.suggested_action && (
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Suggested Action
+              </span>
+              <p className="text-xs text-muted-foreground bg-emerald-500/5 p-2 rounded-md border border-emerald-500/10">
+                {finding.suggested_action}
+              </p>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs text-muted-foreground hover:text-destructive"
+              onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+              disabled={isLoading}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Dismiss
+            </Button>
+          </div>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0"
-          onClick={onDismiss}
-          disabled={isLoading}
-          title="Dismiss finding"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -593,49 +691,99 @@ interface HotSpotCardProps {
 }
 
 function HotSpotCard({ finding }: HotSpotCardProps) {
+  const [isOpen, setIsOpen] = useState(true)
   const riskScore = finding.risk_score ?? 0
+  const catConfig = categoryConfig.hot_spot
+  const CategoryIcon = catConfig.icon
+
+  // Map risk score to priority config
+  const priorityLevel = riskScore >= 70 ? 'high' : riskScore >= 40 ? 'medium' : 'low'
+  const config = priorityConfig[priorityLevel]
+  const PriorityIcon = config.icon
 
   return (
-    <div className="p-4 rounded-lg bg-background/30 border border-border/50 border-l-2 border-l-orange-500">
-      <div className="flex items-start gap-3">
-        <span className="text-orange-400 mt-0.5">🔥</span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <code className="text-sm">{finding.file_path}</code>
-            <Badge variant="outline" className={cn('text-xs', getScoreBadgeClasses(riskScore))}>
-              Risk: {Math.round(riskScore)}
-            </Badge>
-            <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-400 border-orange-500/20">
-              {finding.changes_90d} changes
-            </Badge>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
+          <div className="flex items-start gap-3">
+            <div className={cn('p-1.5 rounded-md shrink-0', config.bg)}>
+              <PriorityIcon className={cn('h-3.5 w-3.5', config.iconColor)} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'text-[9px] uppercase tracking-wider font-bold px-1.5 py-0 rounded-full border',
+                    config.bg,
+                    config.border,
+                    config.color
+                  )}
+                >
+                  {config.label}
+                </Badge>
+                <span className={cn('flex items-center gap-1 text-[10px]', catConfig.color)}>
+                  <CategoryIcon className={cn('h-3 w-3', catConfig.iconColor)} />
+                  {catConfig.label}
+                </span>
+                <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-transparent text-white border-white/30">
+                  {finding.changes_90d} changes
+                </Badge>
+              </div>
+              <h4 className="text-xs font-medium text-foreground line-clamp-1 group-hover:text-primary transition-colors">
+                {finding.file_path.split('/').pop()}
+              </h4>
+              <div className="flex items-center gap-1 text-[10px] text-muted-foreground font-mono mt-1">
+                <FileCode className="h-2.5 w-2.5" />
+                <span className="truncate">{finding.file_path}</span>
+              </div>
+            </div>
+            {isOpen ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            )}
+          </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="px-3 pb-3 space-y-2">
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            <span>Risk: {Math.round(riskScore)}</span>
             {finding.coverage_rate !== null && (
-              <Badge variant="outline" className={cn('text-xs',
-                finding.coverage_rate >= 0.7 ? 'bg-emerald-500/10 text-emerald-400' :
-                finding.coverage_rate >= 0.5 ? 'bg-amber-500/10 text-amber-400' :
-                'bg-red-500/10 text-red-400'
-              )}>
-                {Math.round(finding.coverage_rate * 100)}% coverage
-              </Badge>
+              <>
+                <span>•</span>
+                <span>{Math.round(finding.coverage_rate * 100)}% coverage</span>
+              </>
             )}
           </div>
           {finding.risk_factors.length > 0 && (
-            <ul className="text-sm text-muted-foreground mt-1 space-y-0.5">
-              {finding.risk_factors.map((factor, idx) => (
-                <li key={idx} className="flex items-center gap-1">
-                  <span className="text-amber-400">•</span> {factor}
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Risk Factors
+              </span>
+              <ul className="text-xs text-muted-foreground space-y-0.5">
+                {finding.risk_factors.map((factor, idx) => (
+                  <li key={idx} className="flex items-center gap-1">
+                    <span className="text-muted-foreground">•</span> {factor}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {finding.suggested_action && (
-            <p className="text-xs mt-2">
-              <span className="font-medium text-brand-green">Action:</span>{' '}
-              <span className="text-muted-foreground">{finding.suggested_action}</span>
-            </p>
+            <div className="space-y-1">
+              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Suggested Action
+              </span>
+              <p className="text-xs text-muted-foreground bg-emerald-500/5 p-2 rounded-md border border-emerald-500/10">
+                {finding.suggested_action}
+              </p>
+            </div>
           )}
         </div>
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 

@@ -75,7 +75,7 @@ describe('AIInsightsPanel', () => {
     overall_stage: 'Semantic cache completed',
     is_complete: false,
   }
-  
+
   const defaultStatusMock: useAnalysisStatusModule.UseAnalysisStatusResult = {
     data: defaultStatusData,
     isLoading: false,
@@ -311,10 +311,10 @@ describe('AIInsightsPanel', () => {
   })
 
   /**
-   * Test: Issue card expands to show details when clicked
-   * Requirements: 6.2
+   * Test: Expand/Collapse behavior
+   * Requirements: UI UX
    */
-  it('should expand issue card to show details when clicked', async () => {
+  it('should be collapsed by default and support expand/collapse operations', async () => {
     const user = userEvent.setup()
 
     // Set up commit selection
@@ -363,6 +363,9 @@ describe('AIInsightsPanel', () => {
       expect(screen.getByText('SQL Injection Risk')).toBeInTheDocument()
     })
 
+    // Should be collapsed by default
+    expect(screen.queryByText('User input is not sanitized before database query')).not.toBeInTheDocument()
+
     // Click to expand
     await user.click(screen.getByText('SQL Injection Risk'))
 
@@ -371,7 +374,35 @@ describe('AIInsightsPanel', () => {
       expect(screen.getByText('User input is not sanitized before database query')).toBeInTheDocument()
     })
 
-    expect(screen.getByText('Use parameterized queries')).toBeInTheDocument()
+    // Click expand all button (Maximize2 icon)
+    // Note: Since we just expanded one item, and there's only one item, it thinks are all expanded aka 
+    // "Collapse All" mode. So we need to collapse it first to test "Expand All"
+
+    // Collapse item
+    await user.click(screen.getByText('SQL Injection Risk'))
+    await waitFor(() => {
+      expect(screen.queryByText('User input is not sanitized before database query')).not.toBeInTheDocument()
+    })
+
+    // Find Expand All button by title
+    const expandAllButton = screen.getByTitle('Expand all')
+    await user.click(expandAllButton)
+
+    // Should be expanded
+    await waitFor(() => {
+      expect(screen.getByText('User input is not sanitized before database query')).toBeInTheDocument()
+    })
+
+    // Button should now be "Collapse all"
+    expect(screen.getByTitle('Collapse all')).toBeInTheDocument()
+
+    // Click Collapse All
+    await user.click(screen.getByTitle('Collapse all'))
+
+    // Should be collapsed
+    await waitFor(() => {
+      expect(screen.queryByText('User input is not sanitized before database query')).not.toBeInTheDocument()
+    })
   })
 
   /**

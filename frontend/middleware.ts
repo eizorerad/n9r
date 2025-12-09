@@ -7,9 +7,6 @@ const protectedRoutes = ['/dashboard', '/repo']
 // Public routes that authenticated users should skip
 const publicRoutes = ['/login', '/signup']
 
-// Routes that should be accessible to everyone
-const publicApiRoutes = ['/api', '/auth/callback']
-
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
 

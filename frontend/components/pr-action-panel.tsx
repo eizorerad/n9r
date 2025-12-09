@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface PRActionPanelProps {
-  prId: string
   prTitle: string
   prUrl?: string
   prNumber?: number
@@ -25,7 +24,6 @@ interface PRActionPanelProps {
 }
 
 export function PRActionPanel({
-  prId,
   prTitle,
   prUrl,
   prNumber,
@@ -46,7 +44,7 @@ export function PRActionPanel({
     setError(null)
     try {
       await onApprove()
-    } catch (e) {
+    } catch {
       setError('Failed to approve PR')
     } finally {
       setIsLoading(null)
@@ -59,7 +57,7 @@ export function PRActionPanel({
     setError(null)
     try {
       await onReject()
-    } catch (e) {
+    } catch {
       setError('Failed to reject PR')
     } finally {
       setIsLoading(null)
@@ -74,7 +72,7 @@ export function PRActionPanel({
       await onRevise(feedback)
       setFeedback('')
       setShowReviseForm(false)
-    } catch (e) {
+    } catch {
       setError('Failed to submit revision request')
     } finally {
       setIsLoading(null)

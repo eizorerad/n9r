@@ -5,12 +5,11 @@ import { Workbench } from "@/components/layout/workbench"
 import { Sidebar } from "@/components/layout/sidebar"
 import { CommitTimeline } from "@/components/commit-timeline"
 import { SemanticSearch } from "@/components/semantic-search"
-import { Search, Bug } from "lucide-react"
+import { Bug } from "lucide-react"
 import { useStatusBarStore } from "@/lib/stores/status-bar-store"
 import { useEffect } from "react"
 import { AnalysisStatusSyncer } from "@/components/analysis-status-syncer"
 
-// Types for the passed data
 // Types for the passed data
 interface RepositoryShellProps {
     children: React.ReactNode
@@ -18,6 +17,7 @@ interface RepositoryShellProps {
     defaultBranch?: string
     token: string
     currentAnalysisCommit?: string | null
+    hasAnalysis?: boolean
 }
 
 export function RepositoryShell({
@@ -26,6 +26,7 @@ export function RepositoryShell({
     defaultBranch,
     token,
     currentAnalysisCommit,
+    hasAnalysis = false,
 }: RepositoryShellProps) {
     const router = useRouter()
     const pathname = usePathname()
@@ -86,6 +87,7 @@ export function RepositoryShell({
                         defaultBranch={defaultBranch || 'main'}
                         token={token}
                         currentAnalysisCommit={currentAnalysisCommit}
+                        hasAnalysis={hasAnalysis}
                     />
                 </div>
             </Sidebar>

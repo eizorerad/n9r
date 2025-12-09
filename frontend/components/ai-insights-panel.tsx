@@ -17,6 +17,8 @@ import {
   CheckCircle,
   XCircle,
   HelpCircle,
+  Minimize2,
+  Maximize2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -52,30 +54,34 @@ interface AIInsightsPanelProps {
 const SEVERITY_CONFIG = {
   critical: {
     icon: AlertCircle,
-    color: 'text-red-500',
-    bg: 'bg-red-500/10',
-    border: 'border-red-500/20',
+    color: 'text-white',
+    iconColor: 'text-red-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
     label: 'Critical',
   },
   high: {
     icon: AlertTriangle,
-    color: 'text-orange-500',
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/20',
+    color: 'text-white',
+    iconColor: 'text-orange-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
     label: 'High',
   },
   medium: {
     icon: AlertTriangle,
-    color: 'text-amber-500',
-    bg: 'bg-amber-500/10',
-    border: 'border-amber-500/20',
+    color: 'text-white',
+    iconColor: 'text-amber-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
     label: 'Medium',
   },
   low: {
     icon: Info,
-    color: 'text-blue-500',
-    bg: 'bg-blue-500/10',
-    border: 'border-blue-500/20',
+    color: 'text-white',
+    iconColor: 'text-blue-500',
+    bg: 'bg-transparent',
+    border: 'border-white/30',
     label: 'Low',
   },
 }
@@ -84,27 +90,32 @@ const DIMENSION_CONFIG = {
   security: {
     icon: Shield,
     label: 'Security',
-    color: 'text-red-400',
+    color: 'text-white',
+    iconColor: 'text-red-400',
   },
   db_consistency: {
     icon: Database,
     label: 'Database',
-    color: 'text-purple-400',
+    color: 'text-white',
+    iconColor: 'text-purple-400',
   },
   api_correctness: {
     icon: Code,
     label: 'API',
-    color: 'text-blue-400',
+    color: 'text-white',
+    iconColor: 'text-blue-400',
   },
   code_health: {
     icon: Sparkles,
     label: 'Code Health',
-    color: 'text-green-400',
+    color: 'text-white',
+    iconColor: 'text-green-400',
   },
   other: {
     icon: Info,
     label: 'Other',
-    color: 'text-gray-400',
+    color: 'text-white',
+    iconColor: 'text-gray-400',
   },
 }
 
@@ -137,20 +148,27 @@ const INVESTIGATION_STATUS_CONFIG = {
 // Issue Card Component
 // =============================================================================
 
-function IssueCard({ issue }: { issue: AIScanIssue }) {
-  const [isOpen, setIsOpen] = useState(false)
+function IssueCard({
+  issue,
+  isOpen,
+  onToggle
+}: {
+  issue: AIScanIssue
+  isOpen: boolean
+  onToggle: (open: boolean) => void
+}) {
   const severityConfig = SEVERITY_CONFIG[issue.severity]
   const dimensionConfig = DIMENSION_CONFIG[issue.dimension]
   const SeverityIcon = severityConfig.icon
   const DimensionIcon = dimensionConfig.icon
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+    <Collapsible open={isOpen} onOpenChange={onToggle}>
       <CollapsibleTrigger asChild>
         <button className="w-full p-3 hover:bg-muted/30 transition-colors text-left group">
           <div className="flex items-start gap-3">
             <div className={cn('p-1.5 rounded-md shrink-0', severityConfig.bg)}>
-              <SeverityIcon className={cn('h-3.5 w-3.5', severityConfig.color)} />
+              <SeverityIcon className={cn('h-3.5 w-3.5', severityConfig.iconColor)} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -166,7 +184,7 @@ function IssueCard({ issue }: { issue: AIScanIssue }) {
                   {severityConfig.label}
                 </Badge>
                 <span className={cn('flex items-center gap-1 text-[10px]', dimensionConfig.color)}>
-                  <DimensionIcon className="h-3 w-3" />
+                  <DimensionIcon className={cn('h-3 w-3', dimensionConfig.iconColor)} />
                   {dimensionConfig.label}
                 </span>
                 {issue.found_by_models.length > 1 && (
@@ -247,7 +265,15 @@ function IssueCard({ issue }: { issue: AIScanIssue }) {
 // Issues By Severity Component
 // =============================================================================
 
-function IssuesBySeverity({ issues }: { issues: AIScanIssue[] }) {
+function IssuesBySeverity({
+  issues,
+  expandedIds,
+  onToggle
+}: {
+  issues: AIScanIssue[]
+  expandedIds: Set<string>
+  onToggle: (id: string, isOpen: boolean) => void
+}) {
   const criticalIssues = issues.filter((i) => i.severity === 'critical')
   const highIssues = issues.filter((i) => i.severity === 'high')
   const mediumIssues = issues.filter((i) => i.severity === 'medium')
@@ -275,7 +301,12 @@ function IssuesBySeverity({ issues }: { issues: AIScanIssue[] }) {
       {severityGroups.map(({ severity, issues: groupIssues }) => (
         <div key={severity}>
           {groupIssues.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} />
+            <IssueCard
+              key={issue.id}
+              issue={issue}
+              isOpen={expandedIds.has(issue.id)}
+              onToggle={(open) => onToggle(issue.id, open)}
+            />
           ))}
         </div>
       ))}
@@ -335,10 +366,11 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     token,
   })
 
-  // Local state for scan results (issues, etc.)
+  // Local state for scan results and expansion
   const [scanData, setScanData] = useState<AIScanCacheResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
 
   // Refs
   const isMountedRef = useRef(true)
@@ -420,6 +452,34 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
       }
     }
   }, [selectedAnalysisId, token, refetchStatus])
+
+  // Toggle individual issue
+  const handleToggle = useCallback((id: string, isOpen: boolean) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (isOpen) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
+      return next
+    })
+  }, [])
+
+  // Toggle all issues
+  const handleToggleAll = useCallback(() => {
+    if (!scanData?.issues) return
+
+    setExpandedIds(prev => {
+      // If all are expanded, collapse all. Otherwise, expand all.
+      const allIds = scanData.issues.map(i => i.id)
+      if (prev.size === allIds.length) {
+        return new Set()
+      } else {
+        return new Set(allIds)
+      }
+    })
+  }, [scanData])
 
   // Get AI scan status from unified status hook
   const aiScanStatus = fullStatus?.ai_scan_status
@@ -510,6 +570,19 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
           {scanData.computed_at && (
             <span>{new Date(scanData.computed_at).toLocaleDateString()}</span>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 ml-1"
+            onClick={handleToggleAll}
+            title={expandedIds.size === scanData.issues.length ? "Collapse all" : "Expand all"}
+          >
+            {expandedIds.size === scanData.issues.length ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
         </div>
       </div>
 
@@ -538,7 +611,11 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
 
       {/* Issues list - Adaptive height */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <IssuesBySeverity issues={scanData.issues} />
+        <IssuesBySeverity
+          issues={scanData.issues}
+          expandedIds={expandedIds}
+          onToggle={handleToggle}
+        />
       </div>
     </div>
   )

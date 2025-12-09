@@ -80,7 +80,7 @@ export function ClusterMap({ className, cachedData, hasSemanticCache = false, on
   // Show message if no cached data available
   if (!hasCachedData) {
     const isOldCache = hasSemanticCache && !cachedData
-    
+
     return (
       <Card className={cn('glass-panel border-border/50', className)}>
         <CardContent className="p-6">
@@ -126,26 +126,6 @@ export function ClusterMap({ className, cachedData, hasSemanticCache = false, on
           </p>
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-4 mb-6 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-emerald-500" />
-            <span className="text-muted-foreground">Healthy</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-amber-500" />
-            <span className="text-muted-foreground">Moderate</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500" />
-            <span className="text-muted-foreground">Scattered</span>
-          </div>
-          <div className="flex items-center gap-2 ml-4">
-            <div className="w-3 h-3 rounded-full bg-slate-500 ring-2 ring-amber-500" />
-            <span className="text-muted-foreground">Outlier</span>
-          </div>
-        </div>
-
         {/* Graph View */}
         {clusters.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
@@ -168,8 +148,8 @@ export function ClusterMap({ className, cachedData, hasSemanticCache = false, on
           <div className="mt-6 p-4 rounded-lg bg-background/30 border border-border/50">
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-semibold">{selectedCluster.name}</h4>
-              <Badge 
-                variant="outline" 
+              <Badge
+                variant="outline"
                 className={cn(
                   selectedCluster.status === 'healthy' && 'bg-emerald-500/10 text-emerald-400',
                   selectedCluster.status === 'moderate' && 'bg-amber-500/10 text-amber-400',

@@ -348,7 +348,9 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                     } else if (update.status === 'running') {
                                         setStatus('running')
                                     }
-                                } catch { }
+                                } catch {
+                  // Ignore JSON parse errors for malformed SSE data
+                }
                             }
                         }
                     }
@@ -363,7 +365,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                         }
                     }
                     break
-                } catch (err) {
+                } catch {
                     if (!mounted) return
                     retryCount++
                     if (retryCount >= maxRetries) {
