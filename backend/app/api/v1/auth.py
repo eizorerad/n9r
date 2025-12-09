@@ -148,11 +148,8 @@ async def github_exchange(callback: AuthCallbackSimple, db: DbSession) -> AuthRe
     This endpoint is used when OAuth is initiated from the frontend.
     State verification is handled on the frontend side.
     """
-    # Log request details
-    logger.info("=== GitHub Exchange Request ===")
-    logger.info(f"Callback code: {callback.code[:10] if callback.code else 'None'}...")
-    logger.info(f"GitHub client_id from settings: '{settings.github_client_id}'")
-    logger.info(f"GitHub client_secret length: {len(settings.github_client_secret)}")
+    # Debug logging - avoid logging sensitive data
+    logger.debug("Processing GitHub OAuth exchange")
 
     # Exchange code for access token
     async with httpx.AsyncClient() as client:
@@ -168,7 +165,7 @@ async def github_exchange(callback: AuthCallbackSimple, db: DbSession) -> AuthRe
 
         logger.info(f"GitHub token response status: {token_response.status_code}")
         token_data = token_response.json()
-        logger.info(f"GitHub token response: {token_data}")
+        # Never log token_data - it contains the access_token
 
         if token_response.status_code != 200:
             raise HTTPException(
