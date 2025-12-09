@@ -87,7 +87,7 @@ async function MetricsSection({ id }: { id: string }) {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
-  return <MetricsSectionClient repositoryId={id} token={session.accessToken} />
+  return <MetricsSectionClient token={session.accessToken} />
 }
 
 // Issues Section Component - Client wrapper that subscribes to commit selection
@@ -95,7 +95,7 @@ async function IssuesSection({ id }: { id: string }) {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
-  return <IssuesSectionClient repositoryId={id} token={session.accessToken} />
+  return <IssuesSectionClient token={session.accessToken} />
 }
 
 // AI Insights Section Wrapper (passes token from server)

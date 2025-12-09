@@ -148,7 +148,7 @@ function PlaygroundContent() {
     return () => clearInterval(interval);
   }, [scanId, result?.status]);
 
-  const { grade, color, bgColor } = result?.vci_score ? getGrade(result.vci_score) : { grade: "-", color: "text-muted-foreground", bgColor: "bg-muted", borderColor: "border-border" };
+  const { grade, color, bgColor, borderColor } = result?.vci_score ? getGrade(result.vci_score) : { grade: "-", color: "text-muted-foreground", bgColor: "bg-muted", borderColor: "border-border" };
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
