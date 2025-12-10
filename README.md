@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <img src="frontend/public/Screenshot_3123.png" alt="Necromancer Dashboard" width="100%" />
+  <img src="frontend/public/Screenshot n9r.png" alt="Necromancer Dashboard" width="100%" />
 </p>
 
 ---
@@ -303,6 +303,28 @@ n9r/
 - [ ] 🔧 Auto-PR generation (auto-healing)
 - [ ] 🦊 GitLab/Bitbucket support
 - [ ] 🧩 VS Code extension
+
+---
+
+## 📋 Release Notes
+
+### v0.2.0-alpha — The AI & Semantic Update
+
+> We've successfully merged traditional static analysis with LLM-powered insights.
+
+#### ✨ Added
+- **AI Insights Panel** — Drill down into issues with "Expand for Evidence" and severity grouping
+- **Commit Timeline** — Time-travel through your repo's history to see how code health has evolved
+- **Transparent Scoring** — New "Dead Code Impact" and "Hotspot Risk" formulas so you know exactly why a file is flagged
+- **Multi-Language Support** — Added JS/TS, Go, and Java support via Lizard (alongside Radon for Python)
+
+#### ⚡ Improved
+- **Triple-Track Parallel Analysis** — Static, Embeddings, and AI Scans now run simultaneously, cutting analysis time by ~50%
+- **AST-enabled Call Graphs** — 99% accuracy in dead code detection
+
+#### 🔧 Changed
+- Refactored state management to PostgreSQL (goodbye Redis dependency for critical state)
+- Refactored UI in VSC style
 
 ---
 

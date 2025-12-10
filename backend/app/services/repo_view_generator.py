@@ -157,6 +157,8 @@ CORE_DIR_PATTERNS = {
     "utils",
     "helpers",
     "common",
+    "alembic",      # Database migrations - critical for understanding schema
+    "migrations",   # Alternative migration directory name
 }
 
 # API directory patterns (medium priority)

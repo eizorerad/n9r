@@ -195,6 +195,12 @@ You MUST respond with valid JSON in the following structure:
 7. Don't report issues in test files unless they indicate problems in production code
 8. Be language and framework agnostic - analyze any codebase objectively
 
+## Important Context Notes
+
+- **Database indexes**: Indexes may be defined in migration files (e.g., `alembic/versions/`, `migrations/`) rather than in ORM model definitions. Before reporting missing index issues, check migration files for `create_index` statements. If you cannot verify against migrations, set confidence to "medium" and note that verification is needed.
+- **ORM vs Database schema**: The ORM model file shows the application's view of the schema, but the actual database schema is defined by migrations. Discrepancies between model annotations and migration-defined indexes are documentation issues, not performance issues.
+- **Foreign key indexes**: Many databases automatically create indexes for foreign key columns. Don't assume missing `index=True` on a foreign key means no index exists.
+
 Analyze the repository content provided and return your findings in the JSON format specified above."""
 
 
