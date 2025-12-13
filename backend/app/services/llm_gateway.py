@@ -405,9 +405,9 @@ class LLMGateway:
             return self._vertex_embedding_model
 
         # Google Gemini (AI Studio)
-        # text-embedding-004 is the latest Google embedding model
+        # LiteLLM expects provider-prefixed model names for non-OpenAI providers.
         if settings.gemini_api_key:
-            return "text-embedding-004"
+            return "gemini/text-embedding-004"
 
         # Default to OpenAI
         return self.DEFAULT_MODELS["embedding"]

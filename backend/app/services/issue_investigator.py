@@ -35,6 +35,49 @@ MAX_SEARCH_RESULTS = 20
 MAX_CLI_OUTPUT_CHARS = 10000
 
 
+def _parse_shell_command(command: str) -> list[str]:
+    """Parse a shell command string into a list of arguments.
+    
+    TEMPORARY FIX: This is a basic implementation that uses shlex to parse
+    shell commands into argument lists. This eliminates shell injection by
+    executing commands directly without shell interpretation.
+    
+    TODO: Future improvements to consider:
+    - Semantic command analysis (understand intent, not just syntax)
+    - Configurable security policies per repository/user
+    - Machine learning-based command classification
+    - Integration with container security policies (seccomp, AppArmor)
+    - Audit logging and anomaly detection
+    
+    Args:
+        command: Shell command string (e.g., "grep -r 'pattern' .")
+        
+    Returns:
+        List of arguments (e.g., ["grep", "-r", "pattern", "."])
+        
+    Raises:
+        ValueError: If command cannot be parsed safely
+    """
+    import shlex
+    
+    if not command or not command.strip():
+        raise ValueError("Empty command")
+    
+    try:
+        # Use shlex to properly parse shell-like syntax
+        # This handles quotes, escapes, etc. correctly
+        args = shlex.split(command)
+        
+        if not args:
+            raise ValueError("Command parsed to empty list")
+            
+        return args
+        
+    except ValueError as e:
+        # shlex.split can raise ValueError for malformed input
+        raise ValueError(f"Failed to parse command: {e}")
+
+
 # =============================================================================
 # Data Classes
 # =============================================================================
@@ -142,13 +185,13 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "cli_run",
-        "description": "Execute a command in a sandboxed environment. Use this for running analysis tools, checking dependencies, or other safe operations. Network access is disabled for security.",
+        "description": "Execute a command in a sandboxed environment. Commands run in an isolated container with no network access. Use for running analysis tools, checking dependencies, or inspecting files. Note: Shell features like pipes (|) are NOT supported - use simple commands.",
         "parameters": {
             "type": "object",
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "Shell command to execute (e.g., 'grep -r \"pattern\" .', 'cat package.json | jq .dependencies')"
+                    "description": "Command to execute (e.g., 'grep -r pattern .', 'cat package.json', 'git log --oneline -10'). Note: Pipes and shell operators are not supported."
                 }
             },
             "required": ["command"]
@@ -448,10 +491,24 @@ Please investigate this issue using the available tools and determine if it's a 
             )
 
     async def _execute_cli_run(self, command: str) -> ToolResult:
-        """Execute cli_run tool in sandbox.
+        """Execute cli_run tool in sandbox WITHOUT shell interpretation.
+
+        SECURITY FIX (TEMPORARY):
+        Commands are parsed into argument lists and executed directly via
+        exec_args() instead of exec(). This eliminates shell injection by
+        bypassing shell interpretation entirely.
+        
+        The sandbox already provides strong isolation (network_mode=none,
+        cap_drop=ALL, non-root user), but this adds defense-in-depth.
+        
+        TODO: Future improvements to consider:
+        - Semantic command analysis for smarter security
+        - Configurable policies per repository/user
+        - ML-based command classification
+        - Better audit logging and anomaly detection
 
         Args:
-            command: Shell command to execute
+            command: Shell command string to execute
 
         Returns:
             ToolResult with command output or error
@@ -464,8 +521,31 @@ Please investigate this issue using the available tools and determine if it's a 
                 error="Sandbox not available for CLI commands"
             )
 
+        # Parse command into argument list to avoid shell injection
         try:
-            exit_code, output = await self.sandbox.exec(command, timeout=60)
+            args = _parse_shell_command(command)
+        except ValueError as e:
+            logger.warning(f"[CLI_RUN] Failed to parse command: '{command}' - {e}")
+            return ToolResult(
+                tool_name="cli_run",
+                success=False,
+                output="",
+                error=f"Failed to parse command: {e}"
+            )
+
+        # Log command execution
+        logger.info(f"[CLI_RUN] Executing command: {args[0]} (args: {len(args)})")
+
+        try:
+            # SECURITY: Use exec_args instead of exec to avoid shell interpretation
+            # This executes the command directly without sh -c wrapper
+            exit_code, output = await self.sandbox.exec_args(args, timeout=60)
+
+            # Log command result
+            logger.info(
+                f"[CLI_RUN] Command completed: {args[0]} - exit_code={exit_code}, "
+                f"output_length={len(output)}"
+            )
 
             # Truncate if too large
             if len(output) > MAX_CLI_OUTPUT_CHARS:
@@ -479,7 +559,7 @@ Please investigate this issue using the available tools and determine if it's a 
             )
 
         except Exception as e:
-            logger.error(f"Error executing command '{command}': {e}")
+            logger.error(f"[CLI_RUN] Error executing command '{command}': {e}")
             return ToolResult(
                 tool_name="cli_run",
                 success=False,

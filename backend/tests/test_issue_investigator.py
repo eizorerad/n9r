@@ -493,3 +493,128 @@ class TestToolResultUnit:
         assert result.success is False
         assert result.output == ""
         assert result.error == "File not found"
+
+
+# =============================================================================
+# Tests for CLI Command Parsing (Shell Injection Prevention)
+# =============================================================================
+
+
+class TestCLICommandParsing:
+    """Tests for CLI command parsing that prevents shell injection.
+    
+    TEMPORARY FIX: These tests verify the shlex-based parsing approach.
+    Future improvements may include semantic analysis, configurable policies,
+    or ML-based command classification.
+    """
+
+    def test_simple_commands_parse_correctly(self):
+        """Test that simple commands are parsed into argument lists."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        test_cases = [
+            ("grep -r pattern .", ["grep", "-r", "pattern", "."]),
+            ("cat file.txt", ["cat", "file.txt"]),
+            ("ls -la", ["ls", "-la"]),
+            ("git log --oneline -10", ["git", "log", "--oneline", "-10"]),
+            ("python -m pytest", ["python", "-m", "pytest"]),
+        ]
+
+        for cmd, expected in test_cases:
+            result = _parse_shell_command(cmd)
+            assert result == expected, f"Expected {expected} for '{cmd}', got {result}"
+
+    def test_quoted_arguments_preserved(self):
+        """Test that quoted arguments are properly handled."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        test_cases = [
+            ("grep 'hello world' file.txt", ["grep", "hello world", "file.txt"]),
+            ('grep "hello world" file.txt', ["grep", "hello world", "file.txt"]),
+            ("echo 'single quotes'", ["echo", "single quotes"]),
+            ('echo "double quotes"', ["echo", "double quotes"]),
+        ]
+
+        for cmd, expected in test_cases:
+            result = _parse_shell_command(cmd)
+            assert result == expected, f"Expected {expected} for '{cmd}', got {result}"
+
+    def test_empty_command_raises_error(self):
+        """Test that empty commands raise ValueError."""
+        from app.services.issue_investigator import _parse_shell_command
+        import pytest
+
+        with pytest.raises(ValueError, match="Empty command"):
+            _parse_shell_command("")
+
+        with pytest.raises(ValueError, match="Empty command"):
+            _parse_shell_command("   ")
+
+    def test_shell_metacharacters_become_literal(self):
+        """Test that shell metacharacters are treated as literal strings.
+        
+        This is the key security feature - pipes, redirects, etc. are NOT
+        interpreted by a shell, they become literal arguments.
+        """
+        from app.services.issue_investigator import _parse_shell_command
+
+        # These would be dangerous with shell interpretation, but are safe
+        # when parsed as literal arguments (they'll just fail to execute)
+        test_cases = [
+            # Pipe becomes a literal argument
+            ("cat file.txt | grep pattern", ["cat", "file.txt", "|", "grep", "pattern"]),
+            # Semicolon becomes a literal argument
+            ("ls ; rm -rf /", ["ls", ";", "rm", "-rf", "/"]),
+            # Redirect becomes a literal argument
+            ("echo hello > file.txt", ["echo", "hello", ">", "file.txt"]),
+        ]
+
+        for cmd, expected in test_cases:
+            result = _parse_shell_command(cmd)
+            assert result == expected, f"Expected {expected} for '{cmd}', got {result}"
+
+    def test_command_with_equals_sign(self):
+        """Test commands with environment variable syntax."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        # Note: Without shell, FOO=bar is just an argument, not env var setting
+        result = _parse_shell_command("FOO=bar command arg")
+        assert result == ["FOO=bar", "command", "arg"]
+
+    def test_complex_git_commands(self):
+        """Test parsing of complex git commands."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        test_cases = [
+            ("git log --format='%H %s' -5", ["git", "log", "--format=%H %s", "-5"]),
+            ("git show HEAD:file.py", ["git", "show", "HEAD:file.py"]),
+            ("git diff HEAD~1", ["git", "diff", "HEAD~1"]),
+        ]
+
+        for cmd, expected in test_cases:
+            result = _parse_shell_command(cmd)
+            assert result == expected, f"Expected {expected} for '{cmd}', got {result}"
+
+    def test_find_command_with_exec(self):
+        """Test parsing find command with -exec (common pattern)."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        # Note: -exec {} \; won't work without shell, but parsing should succeed
+        result = _parse_shell_command("find . -name '*.py' -type f")
+        assert result == ["find", ".", "-name", "*.py", "-type", "f"]
+
+    def test_malformed_quotes_raise_error(self):
+        """Test that malformed quotes raise ValueError."""
+        from app.services.issue_investigator import _parse_shell_command
+        import pytest
+
+        # Unclosed quote
+        with pytest.raises(ValueError, match="Failed to parse"):
+            _parse_shell_command("grep 'unclosed")
+
+    def test_backslash_escapes(self):
+        """Test that backslash escapes are handled."""
+        from app.services.issue_investigator import _parse_shell_command
+
+        result = _parse_shell_command(r"grep hello\ world file.txt")
+        assert result == ["grep", "hello world", "file.txt"]

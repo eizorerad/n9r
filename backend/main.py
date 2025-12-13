@@ -14,11 +14,14 @@ from app.core.redis import close_redis_pool
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Startup
-    print("Starting n9r API...")
+    logger.info("Starting n9r API...")
     yield
     # Shutdown
-    print("Shutting down n9r API...")
+    logger.info("Shutting down n9r API...")
     await close_redis_pool()
 
 

@@ -165,9 +165,12 @@ async def trigger_analysis(
         if not commit_sha:
             commit_sha = "HEAD"
 
-    # Atomic duplicate check with row locking to prevent race conditions.
-    # Uses FOR UPDATE NOWAIT to lock the repository row while checking for existing analyses.
-    # This prevents two concurrent requests from both passing the check.
+    # Atomic-ish duplicate check with row locking to prevent race conditions.
+    #
+    # Design intent: serialize "trigger analysis" per repository.
+    # Implementation change: lock ONLY the repository row (NOWAIT) and do a normal read
+    # of pending/running analyses. Locking the analyses rows with NOWAIT can cause
+    # spurious 409s and increases deadlock risk.
     from datetime import timedelta
 
     from sqlalchemy.exc import OperationalError
@@ -176,31 +179,25 @@ async def trigger_analysis(
     stuck_threshold = now - timedelta(minutes=5)
 
     try:
-        # Lock the repository row to serialize concurrent analysis requests
-        # NOWAIT ensures we fail fast if another request holds the lock
         await db.execute(
             select(Repository)
             .where(Repository.id == repository_id)
             .with_for_update(nowait=True)
         )
-
-        # Now safely check for existing analyses (other requests are blocked)
-        result = await db.execute(
-            select(Analysis)
-            .where(
-                Analysis.repository_id == repository_id,
-                Analysis.status.in_(["pending", "running"]),
-            )
-            .with_for_update(nowait=True)  # Also lock any existing analyses we find
-        )
     except OperationalError:
-        # Another request is already processing - likely a race condition
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Another analysis request is being processed. Please try again.",
         )
 
+    # With the repository row locked, this read is serialized for this repository.
+    result = await db.execute(
+        select(Analysis).where(
+            Analysis.repository_id == repository_id,
+            Analysis.status.in_(["pending", "running"]),
+        )
+    )
     existing_analyses = result.scalars().all()
 
     for existing in existing_analyses:
@@ -377,13 +374,15 @@ async def stream_analysis_progress(
             # Client disconnected
             pass
         except Exception as e:
+            # Streaming transport error (Redis/network/etc). Do NOT mark the analysis as failed.
+            # Emit a non-terminal "error" event so the client can retry.
             import json
             error_data = json.dumps({
                 "analysis_id": str(analysis_id),
                 "stage": "error",
                 "progress": 0,
                 "message": f"Stream error: {str(e)}",
-                "status": "failed",
+                "status": "error",
             })
             yield f"data: {error_data}\n\n"
 

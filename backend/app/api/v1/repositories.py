@@ -10,27 +10,6 @@ from app.api.deps import CurrentUser, DbSession
 from app.core.encryption import decrypt_token_or_none
 from app.models.repository import Repository
 from app.models.user import User
-
-
-def require_github_token(user: User) -> str:
-    """Get GitHub token or raise 403 to indicate GitHub re-authentication needed.
-
-    Returns the decrypted GitHub token if valid.
-    Raises HTTPException 403 if token is missing or invalid.
-
-    Note: We use 403 (not 401) because:
-    - 401 means "JWT session invalid" → redirect to login
-    - 403 means "GitHub token invalid" → show re-auth prompt in UI
-    """
-    logger.debug(f"Decrypting token for user {user.id}, encrypted_token exists: {bool(user.access_token_encrypted)}")
-    github_token = decrypt_token_or_none(user.access_token_encrypted)
-    if not github_token:
-        logger.warning(f"Failed to decrypt GitHub token for user {user.id}. Token encrypted: {bool(user.access_token_encrypted)}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="GitHub token expired or invalid. Please reconnect your GitHub account.",
-        )
-    return github_token
 from app.schemas.common import PaginatedResponse, PaginationMeta
 from app.schemas.repository import (
     AvailableRepository,
@@ -57,6 +36,27 @@ from app.services.github import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def require_github_token(user: User) -> str:
+    """Get GitHub token or raise 403 to indicate GitHub re-authentication needed.
+
+    Returns the decrypted GitHub token if valid.
+    Raises HTTPException 403 if token is missing or invalid.
+
+    Note: We use 403 (not 401) because:
+    - 401 means "JWT session invalid" → redirect to login
+    - 403 means "GitHub token invalid" → show re-auth prompt in UI
+    """
+    logger.debug(f"Decrypting token for user {user.id}, encrypted_token exists: {bool(user.access_token_encrypted)}")
+    github_token = decrypt_token_or_none(user.access_token_encrypted)
+    if not github_token:
+        logger.warning(f"Failed to decrypt GitHub token for user {user.id}. Token encrypted: {bool(user.access_token_encrypted)}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="GitHub token expired or invalid. Please reconnect your GitHub account.",
+        )
+    return github_token
 
 
 @router.get("", response_model=PaginatedResponse[RepositoryResponse])

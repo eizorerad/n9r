@@ -110,19 +110,25 @@ async def trigger_ai_scan(
         )
 
     # Check for in-progress AI scan (Requirement 1.4)
-    cache = analysis.ai_scan_cache
-    if cache and cache.get("status") in ("pending", "running"):
+    # Source of truth is Analysis.ai_scan_status (progress-tracking-refactor).
+    if analysis.ai_scan_status in ("pending", "running"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="AI scan already in progress",
         )
 
-    # Mark scan as pending in cache
-    analysis.ai_scan_cache = {
-        "status": "pending",
-        "started_at": datetime.now(UTC).isoformat(),
-    }
-    await db.commit()
+    # Mark scan as pending using the state service (single source of truth).
+    from app.services.analysis_state import AnalysisStateService
+    from app.services.analysis_state import InvalidStateTransitionError
+
+    try:
+        AnalysisStateService(db, publish_events=True).mark_ai_scan_pending(analysis_id)
+    except InvalidStateTransitionError:
+        # If state is already pending/running/completed, treat as conflict to avoid double-queue.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI scan already in progress",
+        )
 
     # Queue Celery task
     task = run_ai_scan.delay(
@@ -187,7 +193,7 @@ async def get_ai_scan_results(
         return AIScanCacheResponse(
             analysis_id=analysis_id,
             commit_sha=analysis.commit_sha,
-            status=AIScanStatus.PENDING,
+            status=AIScanStatus(analysis.ai_scan_status),
             repo_overview=None,
             issues=[],
             computed_at=None,
@@ -196,8 +202,9 @@ async def get_ai_scan_results(
             total_cost_usd=None,
         )
 
-    # Parse status
-    status_str = cache.get("status", "pending")
+    # Parse status: prefer the tracked column (single source of truth),
+    # fall back to cache["status"] for legacy rows.
+    status_str = analysis.ai_scan_status or cache.get("status", "pending")
     try:
         scan_status = AIScanStatus(status_str)
     except ValueError:
@@ -318,16 +325,23 @@ async def stream_ai_scan_progress(
             detail="Access denied",
         )
 
-    # Check if AI scan is already completed or failed
+    # Check if AI scan is already completed or failed (prefer tracked column)
     cache = analysis.ai_scan_cache
-    if cache and cache.get("status") in ("completed", "failed"):
+    terminal_status = analysis.ai_scan_status if analysis.ai_scan_status in ("completed", "failed") else None
+    if terminal_status or (cache and cache.get("status") in ("completed", "failed")):
         async def completed_stream():
+            status_str = terminal_status or cache.get("status")
             data = json.dumps({
                 "analysis_id": str(analysis_id),
-                "stage": cache.get("status"),
-                "progress": 100 if cache.get("status") == "completed" else 0,
-                "message": cache.get("error_message", "AI scan complete") if cache.get("status") == "failed" else "AI scan complete",
-                "status": cache.get("status"),
+                "stage": status_str,
+                "progress": 100 if status_str == "completed" else 0,
+                "message": (
+                    analysis.ai_scan_error
+                    if status_str == "failed" and analysis.ai_scan_error
+                    else cache.get("error_message", "AI scan complete") if status_str == "failed"
+                    else "AI scan complete"
+                ),
+                "status": status_str,
             })
             yield f"data: {data}\n\n"
 
@@ -384,14 +398,14 @@ async def stream_ai_scan_progress(
             while True:
                 current_time = asyncio.get_event_loop().time()
 
-                # Check overall timeout
+                # Check overall timeout (transport timeout, not scan failure)
                 if current_time - start_time > timeout_seconds:
                     timeout_data = json.dumps({
                         "analysis_id": str(analysis_id),
                         "stage": "timeout",
                         "progress": 0,
                         "message": "Connection timed out. Refresh to check status.",
-                        "status": "failed",
+                        "status": "timeout",
                     })
                     yield f"data: {timeout_data}\n\n"
                     break
@@ -436,12 +450,14 @@ async def stream_ai_scan_progress(
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            # Streaming transport error (Redis/network/etc). Do NOT mark the scan as failed.
+            # Emit a non-terminal "error" event so the client can retry.
             error_data = json.dumps({
                 "analysis_id": str(analysis_id),
                 "stage": "error",
                 "progress": 0,
                 "message": f"Stream error: {str(e)}",
-                "status": "failed",
+                "status": "error",
             })
             yield f"data: {error_data}\n\n"
         finally:
