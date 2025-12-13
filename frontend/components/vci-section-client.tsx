@@ -93,15 +93,11 @@ function VCISectionClientComponent({
     )
   }
 
-  // Show loading state if analysis is still running
+  // While analysis is running, avoid duplicating progress UI (use bottom-right progress overlay)
   if (derivedData && derivedData.status !== 'completed') {
     return (
-      <div className="glass-panel border border-border/50 rounded-xl p-3 flex flex-col items-center justify-center h-[120px]">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground mb-2" />
-        <p className="text-xs text-muted-foreground">Analysis in progress...</p>
-        {derivedData.stage && (
-          <p className="text-[10px] text-muted-foreground/60 mt-1">{derivedData.stage}</p>
-        )}
+      <div className="glass-panel border border-border/50 rounded-xl p-3 flex items-center justify-center h-[120px]">
+        <p className="text-xs text-muted-foreground">VCI will appear when analysis completes</p>
       </div>
     )
   }

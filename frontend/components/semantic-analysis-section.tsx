@@ -400,38 +400,15 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
     }
 
     if (isEmbeddingsInProgress || isSemanticCacheComputing) {
-      const isGeneratingInsights = analysisStatus?.semantic_cache_status === 'generating_insights'
-      const progressMessage = isGeneratingInsights
-        ? 'Generating AI insights...'
-        : isSemanticCacheComputing
-          ? 'Computing semantic analysis...'
-          : analysisStatus?.embeddings_message || 'Processing embeddings...'
-
-      const progressPercent = isGeneratingInsights
-        ? 98  // Almost done
-        : isSemanticCacheComputing
-          ? 90  // Semantic cache computing
-          : analysisStatus?.embeddings_progress || 0
-
       return (
         <Card className="glass-panel border-border/50">
           <CardContent className="p-6">
             <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-              <h3 className="text-base font-semibold mb-2">Generating Semantic Analysis</h3>
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
+              <h3 className="text-base font-semibold mb-2">Semantic analysis in progress</h3>
               <p className="text-sm text-muted-foreground text-center max-w-sm">
-                {progressMessage}
+                Check the progress popup in the bottom-right corner for details.
               </p>
-              {progressPercent > 0 && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  {Math.round(progressPercent)}% complete
-                </p>
-              )}
-              {analysisStatus?.embeddings_stage && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Stage: {analysisStatus.embeddings_stage}
-                </p>
-              )}
             </div>
           </CardContent>
         </Card>

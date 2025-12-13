@@ -296,40 +296,12 @@ export function useAnalysisStatusWithStore(
     import("@/lib/stores/analysis-progress-store").then(
       ({ useAnalysisProgressStore, getAnalysisTaskId, getEmbeddingsTaskId, getSemanticCacheTaskId, getAIScanTaskId }) => {
         const store = useAnalysisProgressStore.getState();
-        const analysisTaskId = getAnalysisTaskId(repositoryId);
+        void getAnalysisTaskId; // analysis task is SSE-driven via useAnalysisStream
         const embeddingsTaskId = getEmbeddingsTaskId(repositoryId);
         const semanticCacheTaskId = getSemanticCacheTaskId(repositoryId);
         const aiScanTaskId = getAIScanTaskId(repositoryId);
 
         const data = result.data!;
-
-        // Sync analysis task
-        if (data.analysis_status === "running" || data.analysis_status === "pending") {
-          if (store.hasTask(analysisTaskId)) {
-            store.updateTask(analysisTaskId, {
-              status: data.analysis_status === "running" ? "running" : "pending",
-              progress: data.analysis_status === "running" ? 50 : 0,
-              stage: data.analysis_status,
-              message: data.overall_stage,
-            });
-          }
-        } else if (data.analysis_status === "completed") {
-          if (store.hasTask(analysisTaskId)) {
-            store.updateTask(analysisTaskId, {
-              status: "completed",
-              progress: 100,
-              stage: "completed",
-              message: "Analysis complete",
-            });
-          }
-        } else if (data.analysis_status === "failed") {
-          if (store.hasTask(analysisTaskId)) {
-            store.updateTask(analysisTaskId, {
-              status: "failed",
-              message: "Analysis failed",
-            });
-          }
-        }
 
         // Sync embeddings task
         if (data.embeddings_status === "running" || data.embeddings_status === "pending") {

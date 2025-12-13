@@ -230,7 +230,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
 
                                     if (update.status === 'completed') {
                                         console.log('[SSE] Analysis completed! VCI:', update.vci_score)
-                                        setStatus('idle') // Reset to idle or completed? The original code reset to idle.
+                                        setStatus('completed')
                                         // Actually, original code set status to 'idle' but showed 'completed' UI momentarily?
                                         // Wait, original code:
                                         // if (update.status === 'completed') {
@@ -293,13 +293,12 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         // setStatus('idle')
                                         // revalidate...
 
-                                        setStatus('idle')
-                                        setProgress(0)
-                                        setStage('')
-                                        setMessage('')
+                                        setProgress(100)
+                                        setStage('completed')
+                                        setMessage('Analysis complete')
                                         
                                         // Update global store - mark analysis as completed
-                                        updateTask(taskId, { status: 'completed', progress: 100 })
+                                        updateTask(taskId, { status: 'completed', progress: 100, stage: 'completed', message: 'Analysis complete' })
                                         
                                         // NOTE: We do NOT add embeddings task here anymore.
                                         // The useAnalysisStatus hook (via useAnalysisStatusWithStore) handles
