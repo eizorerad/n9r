@@ -278,15 +278,8 @@ export function ChatPanel({
     }
     setMessages(prev => [...prev, tempUserMsg])
 
-    // Add a lightweight "thinking" event (UI only; not model chain-of-thought)
-    const thinkingMsg: Message = {
-      id: `thinking-${Date.now()}`,
-      role: 'assistant',
-      content: 'Thinking…',
-      created_at: new Date().toISOString(),
-      meta: { type: 'thinking', title: 'Thinking' },
-    }
-    if (showAgentLogInChat) setMessages(prev => [...prev, thinkingMsg])
+    // Note: We no longer add a fake "Thinking…" placeholder here.
+    // Real backend events (Reasoning, context_source, etc.) will drive the UI states.
 
     try {
       // Create thread if needed

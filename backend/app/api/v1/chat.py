@@ -824,7 +824,8 @@ Rules:
         # =====================================================
         # Phase 1: Gather context with real-time visibility
         # =====================================================
-        yield _emit_step("Gathering context", "Loading RAG + IDE context")
+        # Note: Individual context_source events provide granular visibility,
+        # so we don't emit a generic "Gathering context" step here.
 
         # --- RAG Context (commit-aware) ---
         filter_detail = f"commit={resolved_commit_sha[:7]}" if resolved_commit_sha else "repo-wide"
@@ -981,13 +982,17 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
         # =====================================================
         tool_messages = [{"role": "system", "content": tool_system}] + list(messages)
 
-        yield _emit_step("Planning", "Deciding whether to use tools")
         tool_calls_used = 0
         total_tool_chars = 0
-
         final_answer_seed: str | None = None
 
         while tool_calls_used < MAX_TOOL_CALLS:
+            # Emit reasoning step with iteration counter for visibility
+            yield _emit_step(
+                f"Reasoning{f' ({tool_calls_used + 1})' if tool_calls_used > 0 else ''}",
+                "Processing with AI model"
+            )
+            
             resp = await llm.chat(
                 messages=tool_messages,
                 model=model,
@@ -1037,10 +1042,9 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
                 }
             )
 
-        yield _emit_step("Answering", "Streaming final response")
-
         # If the model already produced a plain-text answer, stream it directly (no second model call)
         if final_answer_seed:
+            yield _emit_step("Formatting", "Preparing response")
             for chunk in [final_answer_seed[i:i+200] for i in range(0, len(final_answer_seed), 200)]:
                 full_response.append(chunk)
                 yield "event: token\n"
@@ -1052,6 +1056,7 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
             final_model = model
         else:
             # Otherwise, ask for a final answer explicitly and stream it
+            yield _emit_step("Answering", "Streaming final response")
             tool_messages.append(
                 {
                     "role": "user",
