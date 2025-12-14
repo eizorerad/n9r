@@ -919,9 +919,12 @@ async def generate_semantic_cache(
         )
 
     try:
-        # Compute semantic analysis using ClusterAnalyzer
+        # Compute semantic analysis using ClusterAnalyzer (commit-aware)
         analyzer = ClusterAnalyzer()
-        health = await analyzer.analyze(str(analysis.repository_id))
+        health = await analyzer.analyze(
+            str(analysis.repository_id),
+            commit_sha=analysis.commit_sha,  # Pass commit_sha for commit-aware filtering
+        )
 
         # Convert to JSON-serializable dict using the built-in method
         cache_data = health.to_cacheable_dict()

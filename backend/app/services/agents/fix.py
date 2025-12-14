@@ -4,11 +4,9 @@ import logging
 import re
 from dataclasses import dataclass
 
-from qdrant_client import QdrantClient
-
-from app.core.config import settings
 from app.services.agents.diagnosis import DiagnosisResult, FixPath
 from app.services.llm_gateway import get_llm_gateway
+from app.services.vector_store import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +27,14 @@ class FixResult:
 
 
 class FixAgent:
-    """Agent that generates code fixes for issues with retry support."""
-
-    COLLECTION_NAME = "code_embeddings"
+    """Agent that generates code fixes for issues with retry support.
+    
+    Uses VectorStoreService for commit-aware RAG context retrieval.
+    """
 
     def __init__(self):
         self.llm = get_llm_gateway()
-        self.qdrant = QdrantClient(
-            host=settings.qdrant_host,
-            port=settings.qdrant_port,
-            timeout=settings.qdrant_timeout,
-        )
+        self.vector_store = VectorStoreService()
 
     async def generate_fix(
         self,
@@ -47,6 +42,7 @@ class FixAgent:
         issue: dict,
         file_content: str,
         repository_id: str,
+        commit_sha: str | None = None,
         previous_error: str | None = None,
         iteration: int = 1,
     ) -> FixResult:
@@ -58,6 +54,7 @@ class FixAgent:
             issue: Original issue dict
             file_content: Content of the file to fix
             repository_id: Repository UUID for RAG context
+            commit_sha: Optional commit SHA for commit-aware RAG context
             previous_error: Error from previous fix attempt (for retry)
             iteration: Current iteration number (1-based)
 
@@ -66,11 +63,12 @@ class FixAgent:
         """
         logger.info(f"Generating fix for issue {diagnosis.issue_id} (iteration {iteration})")
 
-        # Get RAG context for related code
+        # Get RAG context for related code (commit-aware)
         rag_context = await self._get_rag_context(
             repository_id,
             issue,
             diagnosis.context_needed,
+            commit_sha=commit_sha,
         )
 
         # Generate fix based on fix path
@@ -106,8 +104,19 @@ class FixAgent:
         repository_id: str,
         issue: dict,
         context_files: list[str],
+        commit_sha: str | None = None,
     ) -> str:
-        """Retrieve relevant code context from Qdrant."""
+        """Retrieve relevant code context from Qdrant using VectorStoreService.
+        
+        Args:
+            repository_id: Repository UUID
+            issue: Issue dict with type, title, description
+            context_files: List of context file paths
+            commit_sha: Optional commit SHA for commit-aware filtering
+            
+        Returns:
+            Formatted context string for LLM prompt
+        """
         context_parts = []
 
         # Build query from issue
@@ -117,20 +126,16 @@ class FixAgent:
             # Generate embedding for query
             query_embedding = await self.llm.embed([query])
 
-            # Search for relevant code
-            results = self.qdrant.search(
-                collection_name=self.COLLECTION_NAME,
+            # Search for relevant code using VectorStoreService (commit-aware)
+            results = self.vector_store.query_similar_chunks(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
                 query_vector=query_embedding[0],
-                query_filter={
-                    "must": [
-                        {"key": "repository_id", "match": {"value": repository_id}}
-                    ]
-                },
                 limit=5,
             )
 
             for hit in results:
-                payload = hit.payload
+                payload = hit.payload or {}
                 context_parts.append(f"### {payload.get('file_path', 'unknown')}")
                 if payload.get("name"):
                     context_parts.append(f"Function/Class: {payload['name']}")

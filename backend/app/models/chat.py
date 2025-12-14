@@ -45,6 +45,11 @@ class ChatThread(BaseModel):
         String(255),
         nullable=True,
     )
+    # Default model for this thread (provider-prefixed, e.g. "gemini/gemini-3-pro-preview")
+    model: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     message_count: Mapped[int] = mapped_column(
         Integer,
         default=0,
@@ -95,8 +100,10 @@ class ChatMessage(BaseModel):
         nullable=False,
         index=True,
     )
-    role: Mapped[MessageRole] = mapped_column(
-        Enum(MessageRole),
+    # Store as plain string to avoid Postgres enum drift across environments.
+    # Valid values are enforced at the application layer via MessageRole.
+    role: Mapped[str] = mapped_column(
+        String(32),
         nullable=False,
     )
     content: Mapped[str] = mapped_column(

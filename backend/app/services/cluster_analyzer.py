@@ -868,17 +868,21 @@ class ClusterAnalyzer:
             timeout=settings.qdrant_timeout,
         )
 
-    async def analyze(self, repo_id: str, include_similar_code: bool = True) -> ArchitectureHealth:
+    async def analyze(
+        self, repo_id: str, commit_sha: str | None = None, include_similar_code: bool = True
+    ) -> ArchitectureHealth:
         """Run full architecture analysis on a repository.
 
         Args:
             repo_id: Repository ID to analyze
+            commit_sha: Optional commit SHA for commit-aware filtering.
+                        When provided, only vectors for that commit are analyzed.
             include_similar_code: Whether to compute similar code detection (default True)
         """
-        logger.info(f"Starting cluster analysis for repo {repo_id}")
+        logger.info(f"Starting cluster analysis for repo {repo_id}, commit={commit_sha or 'ALL'}")
 
-        # Fetch all vectors
-        vectors, payloads = self._fetch_vectors(repo_id)
+        # Fetch all vectors (commit-aware when commit_sha provided)
+        vectors, payloads = self._fetch_vectors(repo_id, commit_sha=commit_sha)
 
         if len(vectors) < 5:
             logger.warning(f"Not enough vectors for clustering: {len(vectors)}")
@@ -942,21 +946,29 @@ class ClusterAnalyzer:
             }
         )
 
-    def _fetch_vectors(self, repo_id: str) -> tuple[np.ndarray, list[dict]]:
-        """Fetch all vectors and payloads for a repository."""
+    def _fetch_vectors(
+        self, repo_id: str, commit_sha: str | None = None
+    ) -> tuple[np.ndarray, list[dict]]:
+        """Fetch all vectors and payloads for a repository.
+        
+        Args:
+            repo_id: Repository ID to fetch vectors for
+            commit_sha: Optional commit SHA for commit-aware filtering.
+                        When provided, only vectors for that commit are fetched.
+        """
+        from app.services.vector_store import VectorStoreService
+
         vectors = []
         payloads = []
 
-        # Scroll through all points
+        vs = VectorStoreService(qdrant=self.qdrant)
+
+        # Scroll through all points using VectorStoreService (commit-aware)
         offset = None
         while True:
-            results, offset = self.qdrant.scroll(
-                collection_name=COLLECTION_NAME,
-                scroll_filter={
-                    "must": [
-                        {"key": "repository_id", "match": {"value": repo_id}}
-                    ]
-                },
+            results, offset = vs.scroll_vectors(
+                repository_id=repo_id,
+                commit_sha=commit_sha,
                 limit=100,
                 offset=offset,
                 with_vectors=True,
@@ -970,7 +982,7 @@ class ClusterAnalyzer:
             if offset is None:
                 break
 
-        logger.info(f"Fetched {len(vectors)} vectors for repo {repo_id}")
+        logger.info(f"Fetched {len(vectors)} vectors for repo {repo_id}, commit={commit_sha or 'ALL'}")
         return np.array(vectors) if vectors else np.array([]), payloads
 
     def _run_clustering(self, vectors: np.ndarray) -> np.ndarray:

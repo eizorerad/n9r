@@ -1,8 +1,34 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { ChevronRight, ChevronDown, File, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, Folder, FolderOpen, Loader2 } from 'lucide-react'
+import { Icon } from '@iconify/react'
 import { cn } from '@/lib/utils'
+
+// Import specific icons to bundle them
+import fileTypeTs from '@iconify/icons-vscode-icons/file-type-typescript'
+import fileTypeTsOfficial from '@iconify/icons-vscode-icons/file-type-typescript-official'
+import fileTypeReactTs from '@iconify/icons-vscode-icons/file-type-reactts'
+import fileTypeJs from '@iconify/icons-vscode-icons/file-type-js-official'
+import fileTypeJsOfficial from '@iconify/icons-vscode-icons/file-type-js-official' // or light
+import fileTypeReactjs from '@iconify/icons-vscode-icons/file-type-reactjs'
+import fileTypePython from '@iconify/icons-vscode-icons/file-type-python'
+import fileTypeHtml from '@iconify/icons-vscode-icons/file-type-html'
+import fileTypeCss from '@iconify/icons-vscode-icons/file-type-css'
+import fileTypeScss from '@iconify/icons-vscode-icons/file-type-scss'
+import fileTypeJson from '@iconify/icons-vscode-icons/file-type-json'
+import fileTypeMarkdown from '@iconify/icons-vscode-icons/file-type-markdown'
+import fileTypeYaml from '@iconify/icons-vscode-icons/file-type-yaml'
+import fileTypeXml from '@iconify/icons-vscode-icons/file-type-xml'
+import fileTypeEnv from '@iconify/icons-vscode-icons/file-type-dotenv'
+import fileTypeGit from '@iconify/icons-vscode-icons/file-type-git'
+import fileTypeDocker from '@iconify/icons-vscode-icons/file-type-docker'
+import fileTypeGo from '@iconify/icons-vscode-icons/file-type-go'
+import fileTypeRust from '@iconify/icons-vscode-icons/file-type-rust'
+import fileTypeRuby from '@iconify/icons-vscode-icons/file-type-ruby'
+import fileTypePhP from '@iconify/icons-vscode-icons/file-type-php'
+import fileTypeShell from '@iconify/icons-vscode-icons/file-type-shell'
+import defaultFile from '@iconify/icons-vscode-icons/default-file'
 
 export interface FileNode {
   name: string
@@ -32,28 +58,39 @@ interface FileTreeItemProps {
   isLoading?: (path: string) => boolean
 }
 
-// File icon based on extension
-const fileIcons: Record<string, { color: string }> = {
-  '.ts': { color: 'text-blue-400' },
-  '.tsx': { color: 'text-blue-400' },
-  '.js': { color: 'text-yellow-400' },
-  '.jsx': { color: 'text-yellow-400' },
-  '.py': { color: 'text-green-400' },
-  '.json': { color: 'text-yellow-300' },
-  '.md': { color: 'text-gray-400' },
-  '.css': { color: 'text-purple-400' },
-  '.scss': { color: 'text-pink-400' },
-  '.html': { color: 'text-orange-400' },
-  '.yaml': { color: 'text-red-400' },
-  '.yml': { color: 'text-red-400' },
-  '.go': { color: 'text-cyan-400' },
-  '.rs': { color: 'text-orange-500' },
-  '.rb': { color: 'text-red-500' },
-}
+function getFileIcon(name: string): any {
+  const lowerName = name.toLowerCase()
 
-function getFileColor(name: string): string {
+  // Specific filenames
+  if (lowerName === 'dockerfile') return fileTypeDocker
+  if (lowerName === '.gitignore') return fileTypeGit
+  if (lowerName === '.env' || lowerName.startsWith('.env.')) return fileTypeEnv
+
   const ext = name.substring(name.lastIndexOf('.')).toLowerCase()
-  return fileIcons[ext]?.color || 'text-gray-400'
+
+  switch (ext) {
+    case '.ts': return fileTypeTsOfficial
+    case '.tsx': return fileTypeReactTs
+    case '.js': return fileTypeJsOfficial
+    case '.jsx': return fileTypeReactjs
+    case '.py': return fileTypePython
+    case '.html': return fileTypeHtml
+    case '.css': return fileTypeCss
+    case '.scss': return fileTypeScss
+    case '.json': return fileTypeJson
+    case '.md': return fileTypeMarkdown
+    case '.yaml':
+    case '.yml': return fileTypeYaml
+    case '.xml': return fileTypeXml
+    case '.go': return fileTypeGo
+    case '.rs': return fileTypeRust
+    case '.rb': return fileTypeRuby
+    case '.php': return fileTypePhP
+    case '.sh':
+    case '.bash':
+    case '.zsh': return fileTypeShell
+    default: return defaultFile
+  }
 }
 
 function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading }: FileTreeItemProps) {
@@ -78,48 +115,56 @@ function FileTreeItem({ node, level, selectedPath, onSelect, onExpand, isLoading
 
   return (
     <div>
-      <button
-        onClick={handleClick}
-        className={cn(
-          'w-full flex items-center gap-1 px-2 py-1 text-[13px] rounded-sm transition-colors text-left group select-none',
-          isSelected ? 'bg-[#37373d] text-white' : 'text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white'
-        )}
-        style={{ paddingLeft: `${level * 12 + 8}px` }}
-        title={node.path}
-      >
-        {/* Expand/collapse icon for directories */}
-        {isDirectory ? (
-          <span className="w-4 h-4 flex items-center justify-center flex-shrink-0">
-            {isCurrentlyLoading ? (
-              <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
-            ) : isOpen ? (
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+      <div className="relative">
+        {/* Indentation guides would go here if we were drawing them purely with CSS lines,
+             but typical VS Code structure often just uses padding.
+             We can simulate the "active indent guide" if we want, but simple padding is often enough.
+             For true VS Code look, typically there is hover effect that spans full width or
+             stops at some point. Here we make the button span full width.
+          */}
+        <button
+          onClick={handleClick}
+          className={cn(
+            'w-full flex items-center gap-1.5 py-[3px] text-[13px] transition-colors text-left group select-none border-l-2 border-transparent',
+            isSelected
+              ? 'bg-[#37373d] text-white border-l-[#007fd4]' // VS Code style: dark blue-grey bg, brighter white text
+              : 'text-[#cccccc] hover:bg-[#2a2d2e] hover:text-white'
+          )}
+          style={{ paddingLeft: `${level * 12 + 10}px` }}
+          title={node.path}
+        >
+          {/* Expand/collapse icon for directories */}
+          <span className="flex items-center justify-center w-4 h-4 flex-shrink-0">
+            {isDirectory ? (
+              isCurrentlyLoading ? (
+                <Loader2 className="h-3 w-3 text-muted-foreground animate-spin" />
+              ) : isOpen ? (
+                <ChevronDown className="h-3.5 w-3.5 text-[#cccccc]" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-[#cccccc]" />
+              )
             ) : (
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              // Spacer for files matching the chevron width
+              <span className="w-4" />
             )}
           </span>
-        ) : (
-          <span className="w-4 flex-shrink-0" />
-        )}
 
-        {/* Icon */}
-        {isDirectory ? (
-          isOpen ? (
-            <FolderOpen className="h-4 w-4 text-yellow-500 flex-shrink-0" />
-          ) : (
-            <Folder className="h-4 w-4 text-yellow-500 flex-shrink-0" />
-          )
-        ) : (
-          <File className={cn('h-4 w-4 flex-shrink-0', getFileColor(node.name))} />
-        )}
+          {/* Icon - Only for files now, folders just use arrows as requested */}
+          {!isDirectory && (
+            <Icon icon={getFileIcon(node.name)} className="h-4 w-4 flex-shrink-0" />
+          )}
 
-        {/* Name */}
-        <span className="truncate">{node.name}</span>
-      </button>
+          {/* Name */}
+          <span className="truncate leading-none pt-[1px]">{node.name}</span>
+        </button>
+      </div>
 
       {/* Children */}
       {isDirectory && isOpen && hasChildren && (
-        <div>
+        <div className="relative">
+          {/* Optional: Add a vertical line for the tree structure here if desired, 
+               but VS Code default is often clean unless configured otherwise. 
+           */}
           {node.children!.map((child) => (
             <FileTreeItem
               key={child.path}
@@ -153,7 +198,7 @@ export function FileTree({ files, selectedPath, onSelect, onExpand, isLoading, c
   })
 
   return (
-    <div className={cn('py-2', className)}>
+    <div className={cn('pt-0 pb-2', className)}>
       {sortedFiles.map((node) => (
         <FileTreeItem
           key={node.path}

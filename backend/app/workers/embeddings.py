@@ -3,7 +3,7 @@
 This module handles code embedding generation for semantic search.
 State is managed through AnalysisStateService with PostgreSQL as the single source of truth.
 
-**Feature: progress-tracking-refactor**
+**Feature: progress-tracking-refactor, commit-aware-rag**
 **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3**
 """
 
@@ -20,6 +20,7 @@ from app.core.celery import celery_app
 from app.core.config import settings
 from app.core.redis import publish_embedding_progress
 from app.services.code_chunker import CodeChunk, get_code_chunker
+from app.services.vector_store import stable_int64_hash
 
 # Note: LLMGateway is imported lazily inside functions to avoid fork-safety issues
 # with LiteLLM/aiohttp when used with Celery prefork pool on macOS.
@@ -163,7 +164,7 @@ def _compute_and_store_semantic_cache(
 def generate_embeddings(
     self,
     repository_id: str,
-    commit_sha: str | None = None,
+    commit_sha: str,
     files: list[dict] | None = None,
     analysis_id: str | None = None,
 ) -> dict:
@@ -176,16 +177,18 @@ def generate_embeddings(
 
     Args:
         repository_id: UUID of the repository
-        commit_sha: Optional specific commit
+        commit_sha: Commit SHA (required, must be concrete 40-hex)
         files: List of {path: str, content: str} dicts to process
         analysis_id: Optional analysis ID to update with semantic cache
 
     Returns:
         dict with embedding generation results
 
-    **Feature: progress-tracking-refactor**
+    **Feature: progress-tracking-refactor, commit-aware-rag**
     **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
     """
+    if not commit_sha:
+        raise ValueError("commit_sha is required for generate_embeddings")
     logger.info(f"Generating embeddings for repository {repository_id}")
 
     def publish_progress(stage: str, progress: int, message: str | None = None,
@@ -370,12 +373,14 @@ def generate_embeddings(
         # Run parallel embedding
         chunk_embedding_pairs = run_async(process_all_batches())
 
-        # Create Qdrant points from results
+        # Create Qdrant points from results with deterministic commit-aware IDs
         for chunk, embedding in chunk_embedding_pairs:
-            point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
+            # Deterministic ID includes commit_sha for commit isolation
+            point_key = f"{repository_id}:{commit_sha}:{chunk.file_path}:{chunk.line_start}"
+            point_id = stable_int64_hash(point_key)
 
             points.append(PointStruct(
-                id=hash(point_id) % (2**63),  # Convert to int64
+                id=point_id,
                 vector=embedding,
                 payload={
                     "repository_id": repository_id,
@@ -406,7 +411,7 @@ def generate_embeddings(
 
         if points:
             try:
-                # Delete old embeddings for this repo first
+                # Delete old embeddings for this (repo, commit) only - commit-aware isolation
                 qdrant.delete(
                     collection_name=COLLECTION_NAME,
                     points_selector=FilterSelector(
@@ -415,10 +420,25 @@ def generate_embeddings(
                                 FieldCondition(
                                     key="repository_id",
                                     match=MatchValue(value=repository_id)
-                                )
+                                ),
+                                FieldCondition(
+                                    key="commit_sha",
+                                    match=MatchValue(value=commit_sha)
+                                ),
                             ]
                         )
                     )
+                )
+
+                # Telemetry: log delete operation
+                logger.info(
+                    "embeddings_delete",
+                    extra={
+                        "telemetry": True,
+                        "operation": "embeddings_delete_before_upsert",
+                        "repository_id": repository_id,
+                        "commit_sha": commit_sha[:8] if commit_sha else None,
+                    },
                 )
 
                 # Upsert new points in batches
@@ -430,6 +450,18 @@ def generate_embeddings(
                         points=batch,
                     )
 
+                # Telemetry: log upsert operation
+                logger.info(
+                    "embeddings_upsert",
+                    extra={
+                        "telemetry": True,
+                        "operation": "embeddings_upsert",
+                        "repository_id": repository_id,
+                        "commit_sha": commit_sha[:8] if commit_sha else None,
+                        "vectors_count": len(points),
+                        "chunks_count": len(all_chunks),
+                    },
+                )
                 logger.info(f"Stored {len(points)} vectors in Qdrant")
 
             except Exception as e:
@@ -547,9 +579,21 @@ def compute_semantic_cache(
             state_service = AnalysisStateService(session, publish_events=True)
             state_service.start_semantic_cache(UUID(analysis_id))
 
-        # Run cluster analysis
+        # Get commit_sha from the Analysis record for commit-aware filtering
+        commit_sha = None
+        with _get_db_session() as session:
+            from sqlalchemy import select
+            from app.models.analysis import Analysis
+            result = session.execute(
+                select(Analysis.commit_sha).where(Analysis.id == UUID(analysis_id))
+            )
+            commit_sha = result.scalar_one_or_none()
+        
+        logger.info(f"Running cluster analysis for repo {repository_id}, commit={commit_sha or 'ALL'}")
+
+        # Run cluster analysis (commit-aware when commit_sha available)
         analyzer = get_cluster_analyzer()
-        health = run_async(analyzer.analyze(repository_id))
+        health = run_async(analyzer.analyze(repository_id, commit_sha=commit_sha))
 
         # Convert to cacheable dict
         semantic_cache = health.to_cacheable_dict()
@@ -753,21 +797,28 @@ def _generate_semantic_ai_insights(
 @celery_app.task(name="app.workers.embeddings.update_embeddings")
 def update_embeddings(
     repository_id: str,
+    commit_sha: str,
     changed_files: list[dict],
 ) -> dict:
     """
-    Update embeddings for specific changed files.
+    Update embeddings for specific changed files within a commit snapshot.
 
     Args:
         repository_id: UUID of the repository
+        commit_sha: Commit SHA (required for commit-aware isolation)
         changed_files: List of {path: str, content: str} dicts
 
     Returns:
         dict with update results
+
+    **Feature: commit-aware-rag**
     """
+    if not commit_sha:
+        raise ValueError("commit_sha is required for update_embeddings")
+
     logger.info(
         f"Updating embeddings for {len(changed_files)} files "
-        f"in repository {repository_id}"
+        f"in repository {repository_id} at commit {commit_sha[:7]}"
     )
 
     get_code_chunker()
@@ -776,7 +827,7 @@ def update_embeddings(
     get_llm_gateway()
     qdrant = get_qdrant_client()
 
-    # Delete existing embeddings for changed files
+    # Delete existing embeddings for changed files (commit-aware)
     for file_info in changed_files:
         file_path = file_info.get("path", "")
         try:
@@ -786,6 +837,7 @@ def update_embeddings(
                     filter=Filter(
                         must=[
                             FieldCondition(key="repository_id", match=MatchValue(value=repository_id)),
+                            FieldCondition(key="commit_sha", match=MatchValue(value=commit_sha)),
                             FieldCondition(key="file_path", match=MatchValue(value=file_path)),
                         ]
                     )
@@ -794,53 +846,77 @@ def update_embeddings(
         except Exception as e:
             logger.warning(f"Failed to delete old embeddings for {file_path}: {e}")
 
-    # Generate new embeddings
-    return generate_embeddings(repository_id, files=changed_files)
+    # Generate new embeddings with commit_sha
+    return generate_embeddings(repository_id, commit_sha=commit_sha, files=changed_files)
 
 
 @celery_app.task(name="app.workers.embeddings.delete_embeddings")
-def delete_embeddings(repository_id: str) -> dict:
+def delete_embeddings(
+    repository_id: str,
+    commit_sha: str | None = None,
+) -> dict:
     """
-    Delete all embeddings for a repository.
+    Delete embeddings for a repository.
+
+    If commit_sha is provided, only vectors for that commit are deleted.
+    If commit_sha is None, ALL vectors for the repo are deleted (admin operation).
 
     Args:
         repository_id: UUID of the repository
+        commit_sha: Optional commit SHA to delete only that snapshot
 
     Returns:
         dict with deletion results
+
+    **Feature: commit-aware-rag**
     """
-    logger.info(f"Deleting embeddings for repository {repository_id}")
+    scope = f"commit {commit_sha[:7]}" if commit_sha else "ALL commits (admin)"
+    logger.info(f"Deleting embeddings for repository {repository_id}, scope: {scope}")
 
     qdrant = get_qdrant_client()
 
     try:
+        # Build filter based on scope
+        filter_conditions = [
+            FieldCondition(key="repository_id", match=MatchValue(value=repository_id))
+        ]
+        if commit_sha:
+            filter_conditions.append(
+                FieldCondition(key="commit_sha", match=MatchValue(value=commit_sha))
+            )
+
         # Count before deletion
         count_result = qdrant.count(
             collection_name=COLLECTION_NAME,
-            count_filter=Filter(
-                must=[
-                    FieldCondition(key="repository_id", match=MatchValue(value=repository_id))
-                ]
-            )
+            count_filter=Filter(must=filter_conditions)
         )
         vectors_count = count_result.count
 
-        # Delete all vectors for this repository
+        # Delete vectors
         qdrant.delete(
             collection_name=COLLECTION_NAME,
             points_selector=FilterSelector(
-                filter=Filter(
-                    must=[
-                        FieldCondition(key="repository_id", match=MatchValue(value=repository_id))
-                    ]
-                )
+                filter=Filter(must=filter_conditions)
             )
         )
 
-        logger.info(f"Deleted {vectors_count} vectors for repository {repository_id}")
+        # Telemetry: log delete operation
+        logger.info(
+            "embeddings_delete",
+            extra={
+                "telemetry": True,
+                "operation": "embeddings_delete_task",
+                "repository_id": repository_id,
+                "commit_sha": commit_sha[:8] if commit_sha else None,
+                "vectors_deleted": vectors_count,
+                "scope": "single_commit" if commit_sha else "all_commits",
+            },
+        )
+        logger.info(f"Deleted {vectors_count} vectors for repository {repository_id} ({scope})")
 
         return {
             "repository_id": repository_id,
+            "commit_sha": commit_sha,
             "vectors_deleted": vectors_count,
             "status": "completed",
         }
@@ -849,6 +925,7 @@ def delete_embeddings(repository_id: str) -> dict:
         logger.error(f"Failed to delete embeddings: {e}")
         return {
             "repository_id": repository_id,
+            "commit_sha": commit_sha,
             "status": "error",
             "error": str(e),
         }
@@ -1149,12 +1226,14 @@ def generate_embeddings_parallel(
 
         chunk_embedding_pairs = run_async(process_all_batches())
 
-        # Create Qdrant points from results
+        # Create Qdrant points from results with deterministic commit-aware IDs
         for chunk, embedding in chunk_embedding_pairs:
-            point_id = f"{repository_id}_{chunk.file_path}_{chunk.line_start}".replace("/", "_").replace(".", "_")
+            # Deterministic ID includes commit_sha for commit isolation
+            point_key = f"{repository_id}:{commit_sha}:{chunk.file_path}:{chunk.line_start}"
+            point_id = stable_int64_hash(point_key)
 
             points.append(PointStruct(
-                id=hash(point_id) % (2**63),
+                id=point_id,
                 vector=embedding,
                 payload={
                     "repository_id": repository_id,
@@ -1184,7 +1263,7 @@ def generate_embeddings_parallel(
 
         if points:
             try:
-                # Delete old embeddings for this repo first
+                # Delete old embeddings for this (repo, commit) only - commit-aware isolation
                 qdrant.delete(
                     collection_name=COLLECTION_NAME,
                     points_selector=FilterSelector(
@@ -1193,10 +1272,26 @@ def generate_embeddings_parallel(
                                 FieldCondition(
                                     key="repository_id",
                                     match=MatchValue(value=repository_id)
-                                )
+                                ),
+                                FieldCondition(
+                                    key="commit_sha",
+                                    match=MatchValue(value=commit_sha)
+                                ),
                             ]
                         )
                     )
+                )
+
+                # Telemetry: log delete operation
+                logger.info(
+                    "embeddings_delete",
+                    extra={
+                        "telemetry": True,
+                        "operation": "embeddings_delete_before_upsert",
+                        "repository_id": repository_id,
+                        "commit_sha": commit_sha[:8],
+                        "analysis_id": analysis_id,
+                    },
                 )
 
                 # Upsert new points in batches
@@ -1208,6 +1303,19 @@ def generate_embeddings_parallel(
                         points=batch,
                     )
 
+                # Telemetry: log upsert operation
+                logger.info(
+                    "embeddings_upsert",
+                    extra={
+                        "telemetry": True,
+                        "operation": "embeddings_upsert",
+                        "repository_id": repository_id,
+                        "commit_sha": commit_sha[:8],
+                        "analysis_id": analysis_id,
+                        "vectors_count": len(points),
+                        "chunks_count": len(all_chunks),
+                    },
+                )
                 logger.info(f"Stored {len(points)} vectors in Qdrant")
 
             except Exception as e:

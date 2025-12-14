@@ -10,6 +10,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeft,
+  PanelRight,
   AlertCircle,
   Loader2,
   RefreshCw,
@@ -171,8 +172,13 @@ export function IDEClient({ id, token }: IDEClientProps) {
   const [openTabs, setOpenTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState<string | null>(null)
 
-  const [showChat, setShowChat] = useState(false)
+  const [showChat, setShowChat] = useState(true)
   const [showFileTree, setShowFileTree] = useState(true)
+
+  // Resizable chat panel width (px)
+  const [chatWidth, setChatWidth] = useState<number>(360)
+  const [isResizing, setIsResizing] = useState(false)
+  const isResizingChatRef = useRef(false)
 
   const [selectedBranch, setSelectedBranch] = useState<string>('')
 
@@ -339,6 +345,29 @@ export function IDEClient({ id, token }: IDEClientProps) {
     return isDirectoryLoading(path)
   }, [isDirectoryLoading])
 
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isResizingChatRef.current) return
+      // Chat is on the right; width is distance from right edge
+      const next = Math.round(window.innerWidth - e.clientX)
+      const clamped = Math.max(280, Math.min(900, next))
+      setChatWidth(clamped)
+    }
+    const onUp = () => {
+      if (!isResizingChatRef.current) return
+      isResizingChatRef.current = false
+      setIsResizing(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
   // Loading state for the whole page
   if (repoLoading) {
     return (
@@ -407,7 +436,7 @@ export function IDEClient({ id, token }: IDEClientProps) {
                 onSelect={handleFileSelect}
                 onExpand={handleDirectoryExpand}
                 isLoading={checkDirectoryLoading}
-                className="px-2"
+                className=""
               />
             )}
           </div>
@@ -422,7 +451,10 @@ export function IDEClient({ id, token }: IDEClientProps) {
           <div className="flex-1 flex overflow-x-auto scrollbar-hide">
             {!showFileTree && (
               <button
-                onClick={() => setShowFileTree(true)}
+                onClick={() => {
+                  setShowFileTree(true)
+                  setShowChat(true)
+                }}
                 className="h-full px-3 hover:bg-[#2a2d2e] flex items-center justify-center border-r border-[#2b2b2b]"
                 title="Show Explorer"
               >
@@ -463,19 +495,16 @@ export function IDEClient({ id, token }: IDEClientProps) {
 
           {/* Editor Actions (Diff, Chat) */}
           <div className="flex items-center px-2 gap-1 bg-[#252526]">
-            <Button
-              variant="ghost"
-              size="sm"
+            <button
               onClick={() => setShowChat(!showChat)}
               className={cn(
-                "h-6 px-2 text-xs hover:bg-[#3c3c3c] text-[#cccccc]",
-                showChat && "bg-[#3c3c3c] text-white"
+                "h-full px-3 hover:bg-[#2a2d2e] flex items-center justify-center border-l border-[#2b2b2b]",
+                showChat && "bg-[#2a2d2e] text-white"
               )}
               title="Toggle Chat"
             >
-              <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
-              Chat
-            </Button>
+              <PanelRight className={cn("h-4 w-4", showChat ? "text-white" : "text-[#858585]")} />
+            </button>
           </div>
         </div>
 
@@ -508,15 +537,36 @@ export function IDEClient({ id, token }: IDEClientProps) {
       </main>
 
       {/* Chat Panel */}
-      {showChat && (
-        <aside className="w-80 border-l border-[#2b2b2b] flex-shrink-0 bg-[#252526]">
+      <aside
+        className={cn(
+          "border-l border-[#2b2b2b] flex-shrink-0 bg-[#252526] relative overflow-hidden",
+          !isResizing && "transition-[width] duration-300 ease-in-out"
+        )}
+        style={{ width: showChat ? chatWidth : 0 }}
+      >
+        <div style={{ width: chatWidth, height: '100%' }} className="relative flex flex-col">
+          {/* Resize handle */}
+          <div
+            className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-[#007fd4]/40 z-10"
+            onMouseDown={() => {
+              isResizingChatRef.current = true
+              setIsResizing(true)
+              document.body.style.cursor = 'col-resize'
+              document.body.style.userSelect = 'none'
+            }}
+            title="Drag to resize chat"
+          />
           <ChatPanel
             repositoryId={id}
+            token={token}
             contextFile={selectedFile || undefined}
+            ref={currentRef || undefined}
+            activeFile={activeTab || undefined}
+            openFiles={openTabs.map(t => t.path)}
             onClose={() => setShowChat(false)}
           />
-        </aside>
-      )}
+        </div>
+      </aside>
     </div>
   )
 }

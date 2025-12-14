@@ -378,3 +378,41 @@ Complete UI overhaul to VS Code-style dark theme layout:
 6. **Commit Timeline**: Integrated in sidebar with branch selector. Shows historical commits with VCI scores and analysis status badges.
 
 7. **Analysis Folders Concept**: Analysis results organized by type (AI Scan, Semantic, Static) accessible from the interface.
+
+
+# 14-dec-2025 - Commit-Aware RAG (Qdrant Vector Filtering)
+
+## Files Created
+- `backend/app/services/vector_store.py` - VectorStoreService (368 lines) with stable hashing, filter building, ref resolution, query/scroll/delete operations
+- `backend/scripts/migrate_qdrant_commit_aware.py` - Non-destructive migration adding repository_id, commit_sha, file_path indexes
+- `backend/scripts/delete_vectors.py` - Admin CLI for manual vector deletion by repo/commit
+- `backend/alembic/versions/017_add_analysis_pinned_column.py` - Migration adding pinned boolean to Analysis
+- `backend/tests/test_vector_store.py` - 18 test cases covering hashing, filtering, ref resolution
+
+## Files Modified
+- `backend/scripts/init_qdrant.py` - Standardized to repository_id, added commit_sha KEYWORD index
+- `backend/scripts/recreate_qdrant_collection.py` - Standardized to repository_id, added commit_sha index
+- `backend/scripts/init_all.py` - Updated for consistency with new indexes
+- `backend/app/workers/embeddings.py` - Deterministic point IDs (blake2b), delete by (repository_id, commit_sha), require concrete commit_sha
+- `backend/app/api/v1/chat.py` - Added commit_sha param to _get_rag_context(), Phase 0 commit resolution, SSE context_source events
+- `backend/app/api/v1/semantic.py` - Added ref param to all endpoints, _resolve_commit_sha() helper, VectorStoreService queries
+- `backend/app/services/cluster_analyzer.py` - Added commit_sha param to analyze(), _fetch_vectors uses VectorStoreService.scroll_vectors
+- `backend/app/services/agents/fix.py` - Updated to use VectorStoreService.query_similar_chunks with commit filter
+- `backend/app/workers/scheduled.py` - Added cleanup_vector_retention Celery task (daily 3:00 AM)
+- `backend/app/core/config.py` - Added vector_retention_max_analyses (20), vector_retention_max_days (90), vector_retention_enabled
+- `backend/app/models/analysis.py` - Added pinned boolean column for retention exemption
+
+## What Was Done
+Made all vector-backed features (chat RAG, semantic endpoints, cluster analysis, agents) commit-aware so IDE context.ref determines which commit's vectors are queried.
+
+**VectorStoreService**: Centralized vector access with blake2b-based stable point IDs (deterministic across processes), in-memory TTL cache for ref→SHA resolution, async+sync DB paths. Supports 40-hex SHA passthrough, branch name resolution via GitHub API, fallback to latest completed Analysis commit.
+
+**Embeddings Pipeline**: Changed delete filter from repository_id-only to (repository_id, commit_sha), enabling multiple commit snapshots per repo. Point IDs include commit_sha for uniqueness. update_embeddings and delete_embeddings accept optional commit_sha.
+
+**Chat RAG**: Phase 0 commit resolution before RAG queries. SSE emits context_source events showing filter mode (commit vs repo-only). semantic_search tool passes resolved commit to queries.
+
+**Semantic Endpoints**: All vector-backed endpoints (/semantic-search, /related-code, /similar-code, /style-consistency) accept optional ref param. Default is commit-centric (latest completed Analysis) rather than repo-wide.
+
+**Retention**: Configurable policy (N analyses / X days), pinned column for manual retention, cleanup task prunes vectors for old unpinned analyses.
+
+**Telemetry**: Structured logs with `extra={"telemetry": True}` for all vector operations including repository_id, commit_sha, filter_mode, hits, avg_score.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { request as apiRequest } from "@/lib/api";
 
 /**
  * Architecture findings hook for fetching dead code, hot spots, and AI insights.
@@ -9,16 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
  * **Validates: Requirements 6.1, 6.2**
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/v1";
-
-/**
- * Handle 401 Unauthorized by redirecting to login.
- */
-function handleUnauthorized() {
-  if (typeof window !== "undefined") {
-    window.location.href = "/login?error=session_expired";
-  }
-}
+// Note: API_BASE_URL + 401 redirect handling is centralized in `@/lib/api`.
 
 // ============================================================================
 // Types
@@ -100,27 +92,10 @@ async function fetchArchitectureFindings(
   }
   const query = params.toString();
 
-  const url = `${API_BASE_URL}/repositories/${repositoryId}/architecture-findings${query ? `?${query}` : ""}`;
-  console.log('[useArchitectureFindings] Fetching:', url);
+  const endpoint = `/repositories/${repositoryId}/architecture-findings${query ? `?${query}` : ""}`;
+  console.log('[useArchitectureFindings] Fetching:', endpoint);
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    console.error('[useArchitectureFindings] Fetch failed:', response.status);
-    if (response.status === 401) {
-      handleUnauthorized();
-      throw new Error("Session expired. Please log in again.");
-    }
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to fetch architecture findings: ${response.status}`);
-  }
-
-  const data = await response.json();
+  const data = await apiRequest<ArchitectureFindingsResponse>(endpoint, { token });
   console.log('[useArchitectureFindings] Fetch success:', {
     insightsCount: data.insights?.length,
     deadCodeCount: data.dead_code?.length,
@@ -135,27 +110,10 @@ async function dismissDeadCode(
   repositoryId: string,
   deadCodeId: string
 ): Promise<{ id: string; is_dismissed: boolean; dismissed_at: string | null }> {
-  const response = await fetch(
-    `${API_BASE_URL}/repositories/${repositoryId}/dead-code/${deadCodeId}/dismiss`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      handleUnauthorized();
-      throw new Error("Session expired. Please log in again.");
-    }
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to dismiss dead code: ${response.status}`);
-  }
-
-  return response.json();
+  return apiRequest(`/repositories/${repositoryId}/dead-code/${deadCodeId}/dismiss`, {
+    method: "POST",
+    token,
+  });
 }
 
 async function dismissInsight(
@@ -163,27 +121,10 @@ async function dismissInsight(
   repositoryId: string,
   insightId: string
 ): Promise<{ id: string; is_dismissed: boolean; dismissed_at: string | null }> {
-  const response = await fetch(
-    `${API_BASE_URL}/repositories/${repositoryId}/insights/${insightId}/dismiss`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      handleUnauthorized();
-      throw new Error("Session expired. Please log in again.");
-    }
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to dismiss insight: ${response.status}`);
-  }
-
-  return response.json();
+  return apiRequest(`/repositories/${repositoryId}/insights/${insightId}/dismiss`, {
+    method: "POST",
+    token,
+  });
 }
 
 // ============================================================================

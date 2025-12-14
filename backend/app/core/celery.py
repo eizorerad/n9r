@@ -76,6 +76,12 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/10"),  # Every 10 minutes
             "options": {"queue": "default"},
         },
+        # Daily vector retention cleanup (commit-aware RAG)
+        "daily-vector-retention-cleanup": {
+            "task": "app.workers.scheduled.cleanup_vector_retention",
+            "schedule": crontab(hour=3, minute=0),  # Run at 3:00 AM UTC daily
+            "options": {"queue": "default"},
+        },
     },
 )
 

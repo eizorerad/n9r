@@ -88,7 +88,7 @@ def init_qdrant() -> None:
     Creates:
     - Collection with 3072-dimensional vectors (text-embedding-3-large)
     - COSINE distance metric for similarity search
-    - Payload indexes for repo_id, file_path, language
+    - Payload indexes for repository_id, commit_sha, file_path, language
     """
     print_header("Initializing Qdrant Collection")
 
@@ -133,7 +133,12 @@ def init_qdrant() -> None:
         )
 
         # Create payload indexes for efficient filtering
-        for field in ["repo_id", "file_path", "language"]:
+        for field in [
+            "repository_id",  # runtime payload key
+            "commit_sha",     # commit-aware filtering
+            "file_path",
+            "language",
+        ]:
             client.create_payload_index(
                 collection_name=collection_name,
                 field_name=field,
@@ -143,7 +148,7 @@ def init_qdrant() -> None:
         print_success(f"Collection '{collection_name}' created successfully")
         print_info("Vector size: 3072 (text-embedding-3-large)")
         print_info("Distance metric: COSINE")
-        print_info("Payload indexes: repo_id, file_path, language")
+        print_info("Payload indexes: repository_id, commit_sha, file_path, language")
 
     except Exception as e:
         print_error(f"Qdrant initialization failed: {e}")
@@ -321,7 +326,7 @@ async def main() -> None:
         print("📊 Infrastructure Status:")
         print("  ✅ PostgreSQL — Database ready with latest schema")
         print("  ✅ Redis — Caching, OAuth, Pub/Sub, Rate limiting")
-        print("  ✅ Qdrant — Vector search with 3072-dim embeddings")
+        print("  ✅ Qdrant — Vector search with commit-aware payload indexing")
         print("  ✅ MinIO — Object storage for reports/logs/artifacts")
 
         print("\n🚀 Next Steps:")

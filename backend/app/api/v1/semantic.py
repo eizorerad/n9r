@@ -9,6 +9,9 @@ Provides vector-based code understanding features:
 - Refactoring suggestions
 - Technical debt heatmap
 - Code style consistency
+
+All endpoints support commit-aware filtering via optional `ref` parameter.
+When `ref` is not provided, defaults to the latest completed analysis commit.
 """
 
 import logging
@@ -16,12 +19,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from qdrant_client import QdrantClient
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, DbSession
-from app.core.config import settings
 from app.models.repository import Repository
+from app.services.vector_store import VectorStoreService, get_qdrant_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,13 +31,30 @@ router = APIRouter()
 COLLECTION_NAME = "code_embeddings"
 
 
-def get_qdrant_client() -> QdrantClient:
-    """Get Qdrant client with configured timeout."""
-    return QdrantClient(
-        host=settings.qdrant_host,
-        port=settings.qdrant_port,
-        timeout=settings.qdrant_timeout,
+def _get_vector_store_service() -> VectorStoreService:
+    """Get VectorStoreService instance."""
+    return VectorStoreService()
+
+
+async def _resolve_commit_sha(
+    db,
+    repository_id: UUID,
+    user_id: UUID,
+    ref: str | None,
+) -> tuple[str | None, str]:
+    """Resolve ref to commit SHA, return (sha, source).
+    
+    Returns:
+        Tuple of (commit_sha or None, source description)
+    """
+    vs = _get_vector_store_service()
+    resolution = await vs.resolve_ref_to_commit_sha_async(
+        db=db,
+        repository_id=repository_id,
+        user_id=user_id,
+        ref=ref,
     )
+    return resolution.resolved_commit_sha, resolution.source
 
 
 # ============================================================================
@@ -69,9 +88,13 @@ async def semantic_search(
     user: CurrentUser,
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(10, ge=1, le=50, description="Max results"),
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> SemanticSearchResponse:
     """
     Search code using natural language.
+
+    Supports commit-aware filtering via optional `ref` parameter.
+    When `ref` is not provided, defaults to the latest completed analysis commit.
 
     Examples:
     - "user authentication"
@@ -93,23 +116,21 @@ async def semantic_search(
     from app.services.llm_gateway import get_llm_gateway
 
     try:
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"semantic-search: resolved ref={ref} -> sha={commit_sha} (source={source})")
+
         llm = get_llm_gateway()
-        qdrant = get_qdrant_client()
+        vs = _get_vector_store_service()
 
         # Generate embedding for query
         query_embedding = await llm.embed([q])
 
-        # Search in Qdrant using query_points (new API)
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-        query_result = qdrant.query_points(
-            collection_name=COLLECTION_NAME,
-            query=query_embedding[0],
-            query_filter=Filter(
-                must=[
-                    FieldCondition(key="repository_id", match=MatchValue(value=str(repository_id)))
-                ]
-            ),
+        # Search using VectorStoreService (commit-aware)
+        points = vs.query_similar_chunks(
+            repository_id=repository_id,
+            commit_sha=commit_sha,
+            query_vector=query_embedding[0],
             limit=limit,
         )
 
@@ -125,7 +146,7 @@ async def semantic_search(
                 qualified_name=hit.payload.get("qualified_name"),
                 language=hit.payload.get("language"),
             )
-            for hit in query_result.points
+            for hit in points
         ]
 
         return SemanticSearchResponse(
@@ -169,9 +190,12 @@ async def get_related_code(
     user: CurrentUser,
     file: str = Query(..., description="File path to find related code for"),
     limit: int = Query(10, ge=1, le=50, description="Max results"),
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> RelatedCodeResponse:
     """
     Find code semantically related to a given file.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Useful for:
     - Impact analysis: "What might break if I change this?"
@@ -189,20 +213,22 @@ async def get_related_code(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
-        qdrant = get_qdrant_client()
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"related-code: resolved ref={ref} -> sha={commit_sha} (source={source})")
 
-        # First, get embeddings for the query file
-        file_chunks = qdrant.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}},
-                    {"key": "file_path", "match": {"value": file}},
-                ]
-            },
+        vs = _get_vector_store_service()
+
+        # First, get embeddings for the query file (commit-aware scroll)
+        file_chunks, _ = vs.scroll_vectors(
+            repository_id=repository_id,
+            commit_sha=commit_sha,
             limit=10,
             with_vectors=True,
-        )[0]
+        )
+
+        # Filter to only the target file
+        file_chunks = [c for c in file_chunks if c.payload and c.payload.get("file_path") == file]
 
         if not file_chunks:
             raise HTTPException(status_code=404, detail=f"No embeddings found for file: {file}")
@@ -215,21 +241,13 @@ async def get_related_code(
 
         avg_vector = np.mean(vectors, axis=0).tolist()
 
-        # Search for similar code, excluding the query file
-        from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-        query_result = qdrant.query_points(
-            collection_name=COLLECTION_NAME,
-            query=avg_vector,
-            query_filter=Filter(
-                must=[
-                    FieldCondition(key="repository_id", match=MatchValue(value=str(repository_id))),
-                ],
-                must_not=[
-                    FieldCondition(key="file_path", match=MatchValue(value=file)),
-                ]
-            ),
+        # Search for similar code, excluding the query file (commit-aware)
+        points = vs.query_similar_chunks(
+            repository_id=repository_id,
+            commit_sha=commit_sha,
+            query_vector=avg_vector,
             limit=limit,
+            exclude_file_path=file,
         )
 
         related = [
@@ -243,7 +261,7 @@ async def get_related_code(
                 cluster=None,  # Will be populated by cluster analysis
                 qualified_name=hit.payload.get("qualified_name"),
             )
-            for hit in query_result.points
+            for hit in points
         ]
 
         return RelatedCodeResponse(
@@ -313,9 +331,12 @@ async def get_architecture_health(
     repository_id: UUID,
     db: DbSession,
     user: CurrentUser,
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> ArchitectureHealthResponse:
     """
     Get architecture health analysis for a repository.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Includes:
     - Detected clusters with cohesion scores
@@ -335,10 +356,14 @@ async def get_architecture_health(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"architecture-health: resolved ref={ref} -> sha={commit_sha} (source={source})")
+
         from app.services.cluster_analyzer import get_cluster_analyzer
 
         analyzer = get_cluster_analyzer()
-        health = await analyzer.analyze(str(repository_id))
+        health = await analyzer.analyze(str(repository_id), commit_sha=commit_sha)
 
         return ArchitectureHealthResponse(
             overall_score=health.overall_score,
@@ -400,9 +425,12 @@ async def get_outliers(
     repository_id: UUID,
     db: DbSession,
     user: CurrentUser,
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> OutliersResponse:
     """
     Get outliers (potential dead/misplaced code) for a repository.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Outliers are code chunks that don't belong to any cluster,
     indicating they may be:
@@ -422,10 +450,14 @@ async def get_outliers(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"outliers: resolved ref={ref} -> sha={commit_sha} (source={source})")
+
         from app.services.cluster_analyzer import get_cluster_analyzer
 
         analyzer = get_cluster_analyzer()
-        health = await analyzer.analyze(str(repository_id))
+        health = await analyzer.analyze(str(repository_id), commit_sha=commit_sha)
 
         return OutliersResponse(
             outliers=[
@@ -471,9 +503,12 @@ async def suggest_placement(
     db: DbSession,
     user: CurrentUser,
     file: str = Query(..., description="File path to analyze"),
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> PlacementSuggestionResponse:
     """
     Suggest better placement for a file based on semantic similarity.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Useful for:
     - Finding misplaced files
@@ -491,13 +526,14 @@ async def suggest_placement(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
-        # Get related code first
+        # Get related code first (pass ref for commit-awareness)
         related_response = await get_related_code(
             repository_id=repository_id,
             db=db,
             user=user,
             file=file,
             limit=10,
+            ref=ref,
         )
 
         if not related_response.related:
@@ -571,9 +607,12 @@ async def find_similar_code(
     user: CurrentUser,
     threshold: float = Query(0.85, ge=0.5, le=0.99, description="Similarity threshold"),
     limit: int = Query(20, ge=1, le=100, description="Max groups to return"),
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> SimilarCodeResponse:
     """
     Find groups of similar code (potential duplicates).
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Uses vector similarity to find code that is semantically similar,
     even if the syntax differs.
@@ -593,21 +632,21 @@ async def find_similar_code(
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity
 
-        qdrant = get_qdrant_client()
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"similar-code: resolved ref={ref} -> sha={commit_sha} (source={source})")
 
-        # Fetch all vectors
+        vs = _get_vector_store_service()
+
+        # Fetch all vectors (commit-aware scroll)
         vectors = []
         payloads = []
         offset = None
 
         while True:
-            results, offset = qdrant.scroll(
-                collection_name=COLLECTION_NAME,
-                scroll_filter={
-                    "must": [
-                        {"key": "repository_id", "match": {"value": str(repository_id)}}
-                    ]
-                },
+            results, new_offset = vs.scroll_vectors(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
                 limit=100,
                 offset=offset,
                 with_vectors=True,
@@ -618,8 +657,9 @@ async def find_similar_code(
                     vectors.append(point.vector)
                     payloads.append(point.payload or {})
 
-            if offset is None:
+            if new_offset is None:
                 break
+            offset = new_offset
 
         if len(vectors) < 2:
             return SimilarCodeResponse(groups=[], total_groups=0, potential_loc_reduction=0)
@@ -713,9 +753,12 @@ async def get_refactoring_suggestions(
     repository_id: UUID,
     db: DbSession,
     user: CurrentUser,
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> RefactoringSuggestionsResponse:
     """
     Get refactoring suggestions based on semantic analysis.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Combines cluster analysis, similarity detection, and complexity metrics
     to suggest actionable refactoring opportunities.
@@ -732,13 +775,17 @@ async def get_refactoring_suggestions(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"refactoring-suggestions: resolved ref={ref} -> sha={commit_sha} (source={source})")
+
         from app.services.cluster_analyzer import get_cluster_analyzer
 
         suggestions = []
 
-        # Get architecture health
+        # Get architecture health (commit-aware)
         analyzer = get_cluster_analyzer()
-        health = await analyzer.analyze(str(repository_id))
+        health = await analyzer.analyze(str(repository_id), commit_sha=commit_sha)
 
         # Suggestion 1: Split god files (coupling hotspots)
         for hotspot in health.coupling_hotspots:
@@ -775,13 +822,14 @@ async def get_refactoring_suggestions(
                     details={"files": cluster.top_files},
                 ))
 
-        # Get similar code for extract_utility suggestions
+        # Get similar code for extract_utility suggestions (commit-aware)
         similar_response = await find_similar_code(
             repository_id=repository_id,
             db=db,
             user=user,
             threshold=0.85,
             limit=5,
+            ref=ref,
         )
 
         for group in similar_response.groups:
@@ -844,9 +892,12 @@ async def get_tech_debt_heatmap(
     repository_id: UUID,
     db: DbSession,
     user: CurrentUser,
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> TechDebtHeatmapResponse:
     """
     Get technical debt heatmap combining complexity and architecture metrics.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Identifies files that are both complex and poorly integrated,
     making them high-priority refactoring targets.
@@ -863,10 +914,14 @@ async def get_tech_debt_heatmap(
         raise HTTPException(status_code=404, detail="Repository not found")
 
     try:
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"tech-debt-heatmap: resolved ref={ref} -> sha={commit_sha} (source={source})")
+
         from app.services.cluster_analyzer import get_cluster_analyzer
 
         analyzer = get_cluster_analyzer()
-        health = await analyzer.analyze(str(repository_id))
+        health = await analyzer.analyze(str(repository_id), commit_sha=commit_sha)
 
         hotspots = []
 
@@ -946,9 +1001,12 @@ async def check_style_consistency(
     db: DbSession,
     user: CurrentUser,
     file: str = Query(..., description="File path to check"),
+    ref: str | None = Query(None, description="Git ref (branch name or SHA). Defaults to latest analyzed commit."),
 ) -> StyleConsistencyResponse:
     """
     Check code style consistency for a file.
+
+    Supports commit-aware filtering via optional `ref` parameter.
 
     Compares the file's patterns against the rest of the codebase
     to detect style drift and inconsistencies.
@@ -968,20 +1026,30 @@ async def check_style_consistency(
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity
 
-        qdrant = get_qdrant_client()
+        # Resolve commit SHA (commit-centric by default)
+        commit_sha, source = await _resolve_commit_sha(db, repository_id, user.id, ref)
+        logger.debug(f"style-consistency: resolved ref={ref} -> sha={commit_sha} (source={source})")
 
-        # Get file's embeddings
-        file_results, _ = qdrant.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}},
-                    {"key": "file_path", "match": {"value": file}},
-                ]
-            },
-            limit=20,
-            with_vectors=True,
-        )
+        vs = _get_vector_store_service()
+
+        # Get file's embeddings (commit-aware scroll)
+        # First scroll to get file vectors
+        file_results = []
+        offset = None
+        while True:
+            results, new_offset = vs.scroll_vectors(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
+                limit=100,
+                offset=offset,
+                with_vectors=True,
+            )
+            for p in results:
+                if p.payload and p.payload.get("file_path") == file:
+                    file_results.append(p)
+            if new_offset is None or len(file_results) >= 20:
+                break
+            offset = new_offset
 
         if not file_results:
             raise HTTPException(status_code=404, detail=f"No embeddings found for file: {file}")
@@ -992,20 +1060,23 @@ async def check_style_consistency(
 
         file_avg = np.mean(file_vectors, axis=0)
 
-        # Get all other embeddings grouped by directory
-        all_results, _ = qdrant.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter={
-                "must": [
-                    {"key": "repository_id", "match": {"value": str(repository_id)}},
-                ],
-                "must_not": [
-                    {"key": "file_path", "match": {"value": file}},
-                ]
-            },
-            limit=500,
-            with_vectors=True,
-        )
+        # Get all other embeddings grouped by directory (commit-aware scroll)
+        all_results = []
+        offset = None
+        while True:
+            results, new_offset = vs.scroll_vectors(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
+                limit=100,
+                offset=offset,
+                with_vectors=True,
+            )
+            for p in results:
+                if p.payload and p.payload.get("file_path") != file:
+                    all_results.append(p)
+            if new_offset is None or len(all_results) >= 500:
+                break
+            offset = new_offset
 
         # Group by directory
         dir_vectors = {}

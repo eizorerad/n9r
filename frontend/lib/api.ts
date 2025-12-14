@@ -1,6 +1,6 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/v1";
 
-interface RequestOptions extends RequestInit {
+export interface RequestOptions extends RequestInit {
   token?: string;
   /** Skip automatic redirect on 401 errors */
   skipAuthRedirect?: boolean;
@@ -54,7 +54,7 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(
+export async function request<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {

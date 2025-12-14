@@ -50,7 +50,12 @@ def recreate_collection(vector_size: int = 1536):
     )
 
     # Create payload indexes
-    for field in ["repo_id", "file_path", "language"]:
+    for field in [
+        "repository_id",  # runtime payload key
+        "commit_sha",     # commit-aware filtering
+        "file_path",
+        "language",
+    ]:
         client.create_payload_index(
             collection_name=collection_name,
             field_name=field,
@@ -60,7 +65,7 @@ def recreate_collection(vector_size: int = 1536):
     print(f"✅ Collection '{collection_name}' created successfully")
     print(f"   Vector size: {vector_size}")
     print("   Distance metric: COSINE")
-    print("   Payload indexes: repo_id, file_path, language")
+    print("   Payload indexes: repository_id, commit_sha, file_path, language")
 
 
 if __name__ == "__main__":

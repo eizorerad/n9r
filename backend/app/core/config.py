@@ -135,6 +135,13 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Rate limiting (basic in-memory; for multi-instance use Redis-backed limiter)
+    rate_limit_enabled: bool = True
+    # Requests per minute per user (fallback to IP if unauthenticated)
+    rate_limit_per_minute: int = 60
+    # Chat streaming is expensive; keep it lower
+    rate_limit_chat_per_minute: int = 20
+
     # Sandbox Settings (for Docker deployment)
     # When running Celery inside Docker, these paths must be configured correctly:
     # - sandbox_root_dir: Base directory for sandbox workdirs (inside Celery container)
@@ -142,6 +149,17 @@ class Settings(BaseSettings):
     # For local development, leave host_sandbox_path empty to use sandbox_root_dir directly.
     sandbox_root_dir: str = "/tmp"  # Override via SANDBOX_ROOT_DIR
     host_sandbox_path: str = ""  # Override via HOST_SANDBOX_PATH (empty = local dev mode)
+
+    # Vector Retention Policy (commit-aware RAG cleanup)
+    # ⚠️  DISABLED BY DEFAULT - Enable only if you understand the implications!
+    # When enabled, old analysis vectors are automatically deleted to save storage.
+    # Vectors are retained for analyses that pass EITHER condition (not both):
+    # - Within the last N completed analyses per repository
+    # - Created within the last X days
+    # Set to 0 to disable that condition (e.g., retention_max_analyses=0 means time-only)
+    vector_retention_max_analyses: int = 50  # Keep last N analyses per repo (0 = unlimited)
+    vector_retention_max_days: int = 180  # Keep analyses newer than X days (0 = unlimited)
+    vector_retention_enabled: bool = False  # ⚠️  Master switch - DISABLED by default
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

@@ -378,6 +378,90 @@ class LLMGateway:
             logger.error(f"LLM streaming failed: {e}")
             raise LLMError(f"Streaming failed: {str(e)}")
 
+    async def chat_stream_with_usage(
+        self,
+        messages: list[dict],
+        model: str | None = None,
+        temperature: float = 0.2,
+        max_tokens: int = 4096,
+        **kwargs,
+    ) -> tuple[AsyncIterator[str], "asyncio.Future[dict[str, Any]]"]:
+        """
+        Stream chat response while also collecting final usage/cost.
+
+        Returns:
+            (token_iterator, final_stats_future)
+
+        final_stats_future resolves to:
+            {
+              "model": str,
+              "usage": {"prompt_tokens": int, "completion_tokens": int, "total_tokens": int} | None,
+              "cost": float | None,
+            }
+        """
+        import asyncio
+
+        _ensure_litellm()
+        from litellm import acompletion, completion_cost
+
+        model = model or self.DEFAULT_MODELS["chat"]
+
+        loop = asyncio.get_running_loop()
+        final_future: "asyncio.Future[dict[str, Any]]" = loop.create_future()
+
+        async def _iterator() -> AsyncIterator[str]:
+            try:
+                response = await acompletion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    **kwargs,
+                )
+
+                final_model: str | None = None
+                final_usage: dict[str, int] | None = None
+                final_cost: float | None = None
+
+                async for chunk in response:
+                    # Some providers include usage only on the final chunk
+                    if getattr(chunk, "model", None):
+                        final_model = chunk.model
+
+                    usage_obj = getattr(chunk, "usage", None)
+                    if usage_obj is not None:
+                        # LiteLLM usage object mirrors OpenAI usage fields
+                        final_usage = {
+                            "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(usage_obj, "completion_tokens", 0) or 0,
+                            "total_tokens": getattr(usage_obj, "total_tokens", 0) or 0,
+                        }
+                        try:
+                            final_cost = completion_cost(chunk)
+                        except Exception:
+                            final_cost = None
+
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        yield chunk.choices[0].delta.content
+
+                if not final_future.done():
+                    final_future.set_result(
+                        {
+                            "model": final_model or model,
+                            "usage": final_usage,
+                            "cost": final_cost,
+                        }
+                    )
+            except Exception as e:
+                if not final_future.done():
+                    final_future.set_exception(e)
+                logger.error(f"LLM streaming failed: {e}")
+                raise LLMError(f"Streaming failed: {str(e)}")
+
+        return _iterator(), final_future
+
     def _get_embedding_model(self) -> str:
         """Determine the best embedding model based on configured providers.
 

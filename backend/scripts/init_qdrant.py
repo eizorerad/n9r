@@ -27,35 +27,31 @@ async def init_qdrant():
         return
 
     # Create collection with proper configuration
+    # NOTE: vector size must match the embedding model in runtime.
+    # In this repo, the default is commonly 3072 (text-embedding-3-large).
     client.create_collection(
         collection_name=collection_name,
         vectors_config=VectorParams(
-            size=1536,  # OpenAI text-embedding-3-small dimension
+            size=3072,  # OpenAI/Azure text-embedding-3-large dimension
             distance=Distance.COSINE,
         ),
     )
 
     # Create payload indexes for efficient filtering
-    client.create_payload_index(
-        collection_name=collection_name,
-        field_name="repo_id",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
-
-    client.create_payload_index(
-        collection_name=collection_name,
-        field_name="file_path",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
-
-    client.create_payload_index(
-        collection_name=collection_name,
-        field_name="language",
-        field_schema=PayloadSchemaType.KEYWORD,
-    )
+    for field in [
+        "repository_id",  # runtime payload key
+        "commit_sha",     # commit-aware filtering
+        "file_path",
+        "language",
+    ]:
+        client.create_payload_index(
+            collection_name=collection_name,
+            field_name=field,
+            field_schema=PayloadSchemaType.KEYWORD,
+        )
 
     print(f"Collection '{collection_name}' created successfully.")
-    print("Payload indexes created for: repo_id, file_path, language")
+    print("Payload indexes created for: repository_id, commit_sha, file_path, language")
 
 
 if __name__ == "__main__":

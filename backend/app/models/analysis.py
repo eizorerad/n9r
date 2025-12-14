@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -175,6 +175,13 @@ class Analysis(BaseModelNoUpdate):
     state_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+        nullable=False,
+    )
+
+    # Retention policy: pinned analyses are never auto-deleted by cleanup tasks
+    pinned: Mapped[bool] = mapped_column(
+        Boolean,
+        server_default="false",
         nullable=False,
     )
 

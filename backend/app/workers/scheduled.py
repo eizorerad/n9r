@@ -193,6 +193,208 @@ def cleanup_old_data() -> dict:
     return result
 
 
+@celery_app.task(name="app.workers.scheduled.cleanup_vector_retention")
+def cleanup_vector_retention() -> dict:
+    """
+    Clean up vectors for analyses that exceed the retention policy.
+
+    Retention policy (configurable via settings):
+    - Keep last N completed analyses per repository (vector_retention_max_analyses)
+    - Keep analyses newer than X days (vector_retention_max_days)
+    - Never delete pinned analyses
+
+    An analysis is pruned if it exceeds BOTH conditions (i.e., it's outside
+    the top N AND older than X days). This OR logic means generous retention.
+
+    This task runs daily via Celery Beat.
+
+    Returns:
+        dict with cleanup statistics.
+    """
+    from uuid import UUID
+
+    from sqlalchemy import and_, delete, func, or_, select
+    from sqlalchemy.orm import Session
+
+    from app.core.config import settings
+    from app.core.database import get_sync_session
+    from app.models.analysis import Analysis
+    from app.models.repository import Repository
+    from app.services.vector_store import VectorStoreService
+
+    logger.info("Starting vector retention cleanup")
+
+    if not settings.vector_retention_enabled:
+        logger.info("Vector retention cleanup is disabled")
+        return {
+            "status": "skipped",
+            "reason": "retention disabled",
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    max_analyses = settings.vector_retention_max_analyses
+    max_days = settings.vector_retention_max_days
+
+    # If both are 0 (unlimited), skip cleanup
+    if max_analyses == 0 and max_days == 0:
+        logger.info("Vector retention: both limits are unlimited, skipping cleanup")
+        return {
+            "status": "skipped",
+            "reason": "unlimited retention",
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    cutoff_date = datetime.now(UTC) - timedelta(days=max_days) if max_days > 0 else None
+
+    pruned_count = 0
+    vectors_deleted = 0
+    repos_processed = 0
+    errors: list[str] = []
+
+    try:
+        vs = VectorStoreService()
+
+        with get_sync_session() as db:
+            # Get all repositories
+            repos = db.execute(select(Repository.id)).scalars().all()
+
+            for repo_id in repos:
+                repos_processed += 1
+                try:
+                    analyses_to_prune = _find_analyses_to_prune(
+                        db=db,
+                        repository_id=repo_id,
+                        max_analyses=max_analyses,
+                        cutoff_date=cutoff_date,
+                    )
+
+                    for analysis in analyses_to_prune:
+                        if not analysis.commit_sha:
+                            logger.warning(
+                                f"Analysis {analysis.id} has no commit_sha, skipping vector delete"
+                            )
+                            continue
+
+                        try:
+                            # Count vectors before delete for telemetry
+                            count_before = vs.count_vectors(
+                                repository_id=str(repo_id),
+                                commit_sha=analysis.commit_sha,
+                            )
+
+                            if count_before > 0:
+                                vs.delete_vectors(
+                                    repository_id=str(repo_id),
+                                    commit_sha=analysis.commit_sha,
+                                )
+                                vectors_deleted += count_before
+                                logger.info(
+                                    f"Deleted {count_before} vectors for analysis {analysis.id} "
+                                    f"(repo={repo_id}, commit={analysis.commit_sha[:8]})"
+                                )
+
+                            # Reset vectors_count on the analysis record
+                            analysis.vectors_count = 0
+                            pruned_count += 1
+
+                        except Exception as e:
+                            error_msg = (
+                                f"Failed to delete vectors for analysis {analysis.id}: {e}"
+                            )
+                            logger.error(error_msg)
+                            errors.append(error_msg)
+
+                    db.commit()
+
+                except Exception as e:
+                    error_msg = f"Failed to process repository {repo_id}: {e}"
+                    logger.error(error_msg)
+                    errors.append(error_msg)
+                    db.rollback()
+
+    except Exception as e:
+        logger.error(f"Vector retention cleanup failed: {e}")
+        raise
+
+    result = {
+        "status": "completed" if not errors else "completed_with_errors",
+        "repos_processed": repos_processed,
+        "analyses_pruned": pruned_count,
+        "vectors_deleted": vectors_deleted,
+        "errors": errors[:10] if errors else [],  # Limit error list size
+        "error_count": len(errors),
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    logger.info(f"Vector retention cleanup completed: {result}")
+    return result
+
+
+def _find_analyses_to_prune(
+    db,
+    repository_id,
+    max_analyses: int,
+    cutoff_date: datetime | None,
+) -> list:
+    """Find analyses that should have their vectors pruned.
+
+    Logic:
+    - Never prune pinned analyses
+    - Keep the most recent N completed analyses (if max_analyses > 0)
+    - Keep analyses newer than cutoff_date (if cutoff_date is set)
+    - Prune analyses that fail BOTH conditions (outside top N AND older than cutoff)
+
+    Args:
+        db: Database session
+        repository_id: Repository UUID
+        max_analyses: Number of recent analyses to keep (0 = no limit)
+        cutoff_date: Prune analyses older than this (None = no time limit)
+
+    Returns:
+        List of Analysis objects to prune
+    """
+    from sqlalchemy import and_, select
+
+    from app.models.analysis import Analysis
+
+    # Build base query for completed, non-pinned analyses with vectors
+    base_query = (
+        select(Analysis)
+        .where(
+            Analysis.repository_id == repository_id,
+            Analysis.status == "completed",
+            Analysis.pinned == False,  # Never prune pinned
+            Analysis.vectors_count > 0,  # Only consider analyses with vectors
+        )
+        .order_by(Analysis.created_at.desc())
+    )
+
+    all_eligible = db.execute(base_query).scalars().all()
+
+    if not all_eligible:
+        return []
+
+    # Determine which analyses to keep
+    to_keep_ids = set()
+
+    # Keep top N if max_analyses > 0
+    if max_analyses > 0:
+        top_n = all_eligible[:max_analyses]
+        to_keep_ids.update(a.id for a in top_n)
+
+    # Keep analyses newer than cutoff_date
+    if cutoff_date:
+        for a in all_eligible:
+            if a.created_at and a.created_at >= cutoff_date:
+                to_keep_ids.add(a.id)
+
+    # If both limits are set, we keep the UNION (OR logic = generous retention)
+    # Prune = those NOT in to_keep
+    to_prune = [a for a in all_eligible if a.id not in to_keep_ids]
+
+    return to_prune
+
+
 @celery_app.task(name="app.workers.scheduled.health_check")
 def health_check() -> dict:
     """
