@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.dead_code import DeadCode
     from app.models.issue import Issue
     from app.models.organization import Organization
+    from app.models.repo_content_cache import RepoContentCache
     from app.models.semantic_ai_insight import SemanticAIInsight
     from app.models.user import User
 
@@ -150,6 +151,11 @@ class Repository(BaseModel):
     )
     semantic_ai_insights: Mapped[list["SemanticAIInsight"]] = relationship(
         "SemanticAIInsight",
+        back_populates="repository",
+        cascade="all, delete-orphan",
+    )
+    content_caches: Mapped[list["RepoContentCache"]] = relationship(
+        "RepoContentCache",
         back_populates="repository",
         cascade="all, delete-orphan",
     )

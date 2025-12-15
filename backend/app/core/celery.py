@@ -82,6 +82,12 @@ celery_app.conf.update(
             "schedule": crontab(hour=3, minute=0),  # Run at 3:00 AM UTC daily
             "options": {"queue": "default"},
         },
+        # Repository content cache garbage collection (every 6 hours)
+        "repo-content-cache-gc": {
+            "task": "app.workers.repo_content_gc.cleanup_repo_content_cache",
+            "schedule": crontab(hour="*/6", minute=30),  # Every 6 hours at :30
+            "options": {"queue": "default"},
+        },
     },
 )
 
@@ -94,4 +100,5 @@ import app.workers.analysis  # noqa: F401, E402
 import app.workers.embeddings  # noqa: F401, E402
 import app.workers.healing  # noqa: F401, E402
 import app.workers.notifications  # noqa: F401, E402
+import app.workers.repo_content_gc  # noqa: F401, E402
 import app.workers.scheduled  # noqa: F401, E402

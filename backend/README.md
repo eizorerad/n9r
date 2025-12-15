@@ -14,8 +14,13 @@ uv sync
 # Start infrastructure
 docker compose up -d
 
-# Initialize database and services
+# Initialize database, Qdrant, and MinIO buckets
 uv run python scripts/init_all.py
+
+# This creates:
+# - PostgreSQL schema (all migrations)
+# - Qdrant collection with payload indexes
+# - MinIO buckets: n9r-dev, repo-content
 
 # Run server
 uv run uvicorn main:app --reload --port 8000
@@ -86,6 +91,23 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | `redis` | Redis cache/broker | 6379 |
 | `qdrant` | Vector database | 6333 |
 | `minio` | Object storage | 9000 |
+
+### Initialize Services (Required on First Deploy)
+
+After starting the stack, run initialization to create database schema and storage buckets:
+
+```bash
+# From inside the backend container or with PYTHONPATH set
+docker compose exec backend python scripts/init_all.py
+
+# Or if running locally
+cd backend && PYTHONPATH=. uv run python scripts/init_all.py
+```
+
+This creates:
+- PostgreSQL tables via Alembic migrations
+- Qdrant collection with commit-aware payload indexes
+- MinIO buckets: `n9r-dev` (reports/logs) and `repo-content` (cached repository files for chat)
 
 ### Sandbox & Docker-in-Docker
 

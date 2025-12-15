@@ -989,6 +989,140 @@ def search_similar(
         return []
 
 
+def _populate_content_cache(
+    repository_id: str,
+    commit_sha: str,
+    repo_path,
+) -> dict:
+    """Populate repository content cache during analysis.
+
+    This function caches repository file contents in MinIO for fast
+    retrieval during chat. It runs after clone, before embedding generation.
+
+    Errors are handled gracefully - cache failures don't fail the analysis.
+
+    Args:
+        repository_id: UUID of the repository (as string)
+        commit_sha: Git commit SHA
+        repo_path: Path to the cloned repository
+
+    Returns:
+        dict with cache population results
+
+    **Feature: repo-content-cache**
+    **Validates: Requirements 2.1, 2.4, 2.5, 3.3**
+    """
+    from pathlib import Path
+    from uuid import UUID
+
+    from app.core.database import async_session_maker
+    from app.services.repo_content import RepoContentService
+
+    logger.info(f"Populating content cache for {commit_sha[:7]}")
+
+    async def _do_cache_population():
+        service = RepoContentService()
+
+        async with async_session_maker() as db:
+            try:
+                # 1. Get or create cache entry
+                cache = await service.get_or_create_cache(
+                    db,
+                    UUID(repository_id),
+                    commit_sha,
+                )
+
+                # If cache is already ready, skip
+                if cache.status == "ready":
+                    logger.info(f"Cache already ready for {commit_sha[:7]}")
+                    return {
+                        "status": "skipped",
+                        "reason": "cache_already_ready",
+                    }
+
+                # If cache is uploading (another process is working on it), skip
+                if cache.status == "uploading":
+                    logger.info(f"Cache already uploading for {commit_sha[:7]}")
+                    return {
+                        "status": "skipped",
+                        "reason": "cache_uploading",
+                    }
+
+                # 2. Collect files from cloned repo
+                files = service.collect_files_from_repo(Path(repo_path))
+
+                if not files:
+                    logger.info(f"No files to cache for {commit_sha[:7]}")
+                    # Mark as ready with 0 files
+                    await service.mark_cache_ready(db, cache.id)
+                    await db.commit()
+                    return {
+                        "status": "completed",
+                        "files_cached": 0,
+                    }
+
+                # 3. Upload to MinIO + record in PostgreSQL
+                result = await service.upload_files(db, cache, files)
+
+                if result.failed > 0 and result.uploaded == 0:
+                    # All files failed - mark cache as failed
+                    await service.mark_cache_failed(
+                        db,
+                        cache.id,
+                        f"All {result.failed} files failed to upload",
+                    )
+                    await db.commit()
+                    return {
+                        "status": "failed",
+                        "error": f"All {result.failed} files failed to upload",
+                        "errors": result.errors[:5],  # First 5 errors
+                    }
+
+                # 4. Build and save tree structure
+                tree = [f.path for f in files]
+                await service.save_tree(db, cache.id, tree)
+
+                # 5. Mark cache as ready
+                await service.mark_cache_ready(db, cache.id)
+                await db.commit()
+
+                logger.info(
+                    f"Content cache populated for {commit_sha[:7]}: "
+                    f"{result.uploaded} uploaded, {result.skipped} skipped, "
+                    f"{result.failed} failed"
+                )
+
+                return {
+                    "status": "completed",
+                    "files_cached": result.uploaded + result.skipped,
+                    "uploaded": result.uploaded,
+                    "skipped": result.skipped,
+                    "failed": result.failed,
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to populate content cache: {e}")
+                # Try to mark cache as failed
+                try:
+                    await service.mark_cache_failed(db, cache.id, str(e))
+                    await db.commit()
+                except Exception:
+                    pass
+                return {
+                    "status": "failed",
+                    "error": str(e),
+                }
+
+    try:
+        return run_async(_do_cache_population())
+    except Exception as e:
+        logger.error(f"Content cache population failed: {e}")
+        return {
+            "status": "failed",
+            "error": str(e),
+        }
+
+
 @celery_app.task(bind=True, name="app.workers.embeddings.generate_embeddings_parallel")
 def generate_embeddings_parallel(
     self,
@@ -1006,6 +1140,9 @@ def generate_embeddings_parallel(
     Unlike generate_embeddings which receives files from Static Analysis,
     this task clones the repo itself and collects files for embedding.
 
+    Also populates the repository content cache for fast file retrieval
+    during chat (Requirements 2.1, 2.4, 2.5, 3.3).
+
     Args:
         repository_id: UUID of the repository
         analysis_id: UUID of the analysis
@@ -1014,7 +1151,7 @@ def generate_embeddings_parallel(
     Returns:
         dict with embedding generation results
 
-    **Feature: parallel-analysis-pipeline**
+    **Feature: parallel-analysis-pipeline, repo-content-cache**
     **Validates: Requirements 5.1, 5.4, 6.1**
     """
     from app.services.repo_analyzer import RepoAnalyzer
@@ -1087,6 +1224,22 @@ def generate_embeddings_parallel(
             logger.info(f"Cloned repository to {repo_path}")
 
             publish_progress("cloning", 15, "Repository cloned successfully")
+
+            # Step 2.5: Populate content cache (for fast chat file retrieval)
+            # This runs after clone, before embedding generation
+            # Errors are handled gracefully - cache failures don't fail analysis
+            # **Feature: repo-content-cache**
+            # **Validates: Requirements 2.1, 2.4, 2.5, 3.3**
+            try:
+                cache_result = _populate_content_cache(
+                    repository_id=repository_id,
+                    commit_sha=commit_sha,
+                    repo_path=repo_path,
+                )
+                logger.info(f"Content cache result: {cache_result}")
+            except Exception as e:
+                # Don't fail analysis if cache fails
+                logger.warning(f"Content cache population failed (non-fatal): {e}")
 
             # Step 3: Collect files for embedding
             publish_progress("collecting", 20, "Collecting code files...")

@@ -161,6 +161,7 @@ def init_minio() -> None:
     Creates:
     - Main bucket for storing reports, logs, and artifacts
     - Folder structure: reports/, logs/, artifacts/
+    - repo-content bucket for caching repository files (chat feature)
     """
     print_header("Initializing MinIO Buckets")
 
@@ -181,12 +182,20 @@ def init_minio() -> None:
 
         bucket_name = settings.minio_bucket
 
-        # Create bucket
+        # Create main bucket
         if not client.bucket_exists(bucket_name):
             client.make_bucket(bucket_name)
             print_success(f"Bucket '{bucket_name}' created")
         else:
             print_success(f"Bucket '{bucket_name}' already exists")
+
+        # Create repo-content bucket for repository file caching
+        repo_content_bucket = "repo-content"
+        if not client.bucket_exists(repo_content_bucket):
+            client.make_bucket(repo_content_bucket)
+            print_success(f"Bucket '{repo_content_bucket}' created")
+        else:
+            print_success(f"Bucket '{repo_content_bucket}' already exists")
 
         # Create folder markers for organized storage
         folders = ["reports/.gitkeep", "logs/.gitkeep", "artifacts/.gitkeep"]
@@ -202,6 +211,7 @@ def init_minio() -> None:
 
         print_success("MinIO initialization complete")
         print_info(f"Endpoint: {settings.minio_endpoint}")
+        print_info(f"Buckets: {bucket_name}, {repo_content_bucket}")
 
     except Exception as e:
         print_error(f"MinIO initialization failed: {e}")

@@ -186,7 +186,7 @@ class TestEmbeddingsSemanticCacheChainProperty:
 
             # Call the task
             generate_embeddings.apply(
-                args=[repository_id],
+                args=[repository_id, "abc123def456789012345678901234567890abcd"],
                 kwargs={
                     "files": mock_files,
                     "analysis_id": analysis_id,
@@ -261,7 +261,7 @@ class TestEmbeddingsSemanticCacheChainProperty:
             mock_health.to_cacheable_dict.return_value = cache_data
             mock_analyzer_instance = MagicMock()
 
-            async def mock_analyze(repo_id):
+            async def mock_analyze(repo_id, commit_sha=None):
                 return mock_health
             mock_analyzer_instance.analyze = mock_analyze
             mock_analyzer.return_value = mock_analyzer_instance
@@ -496,7 +496,7 @@ class TestComputeSemanticCacheReturnValue:
             mock_health.to_cacheable_dict.return_value = cache_data
             mock_analyzer_instance = MagicMock()
 
-            async def mock_analyze(repo_id):
+            async def mock_analyze(repo_id, commit_sha=None):
                 return mock_health
             mock_analyzer_instance.analyze = mock_analyze
             mock_analyzer.return_value = mock_analyzer_instance

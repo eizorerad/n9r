@@ -278,10 +278,9 @@ class TestResolveRefToCommitSha:
         """Branch name should be resolved via GitHub API."""
         vs = VectorStoreService(qdrant=MagicMock())
 
-        mock_db = MagicMock()
-        # First call: get_default_commit_sha (for cache miss fallback setup)
-        # Second call: get Repository
-        # Third call: get User
+        mock_db = AsyncMock()
+        # First call: get Repository
+        # Second call: get User
         mock_repo = MagicMock()
         mock_repo.full_name = "owner/repo"
         mock_repo_result = MagicMock()
@@ -305,25 +304,29 @@ class TestResolveRefToCommitSha:
 
         mock_db.execute = mock_execute
 
-        # Mock GitHub service
-        with patch("app.services.vector_store.decrypt_token_or_none") as mock_decrypt:
+        # Clear the ref cache to ensure we hit GitHub
+        from app.services.vector_store import _ref_cache
+        _ref_cache._data.clear()
+
+        # Mock GitHub service - patch at the module where it's imported
+        mock_github = MagicMock()
+        mock_github.get_branch = AsyncMock(return_value={
+            "commit": {"sha": "abcd1234567890abcdef1234567890abcdef1234"}
+        })
+
+        with patch("app.core.encryption.decrypt_token_or_none") as mock_decrypt, \
+             patch("app.services.github.GitHubService") as MockGitHub:
             mock_decrypt.return_value = "decrypted_token"
+            MockGitHub.return_value = mock_github
 
-            with patch("app.services.github.GitHubService") as MockGitHub:
-                mock_github = MagicMock()
-                mock_github.get_branch = AsyncMock(return_value={
-                    "commit": {"sha": "githubsha1234567890123456789012345678"}
-                })
-                MockGitHub.return_value = mock_github
+            result = await vs.resolve_ref_to_commit_sha_async(
+                db=mock_db,
+                repository_id=UUID("12345678-1234-5678-1234-567812345678"),
+                user_id=UUID("12345678-1234-5678-1234-567812345679"),
+                ref="main",
+            )
 
-                result = await vs.resolve_ref_to_commit_sha_async(
-                    db=mock_db,
-                    repository_id=UUID("12345678-1234-5678-1234-567812345678"),
-                    user_id=UUID("12345678-1234-5678-1234-567812345679"),
-                    ref="main",
-                )
-
-        assert result.resolved_commit_sha == "githubsha1234567890123456789012345678"
+        assert result.resolved_commit_sha == "abcd1234567890abcdef1234567890abcdef1234"
         assert result.source == "github_branch"
 
 

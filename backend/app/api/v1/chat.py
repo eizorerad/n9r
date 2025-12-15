@@ -117,21 +117,28 @@ async def _get_repo_tree_lines(
     ref: str | None,
     depth: int,
     max_entries: int,
-) -> list[str]:
-    """Best-effort tree snapshot using GitHub contents API.
+) -> tuple[list[str], str]:
+    """Best-effort tree snapshot using cache first, then GitHub contents API.
 
     This is not a full agent tool. It is used to reduce hallucinations by giving
     the model a partial view of the repo structure.
+    
+    Returns:
+        Tuple of (tree_lines, source) where source is "cache" or "github_api"
+        
+    **Feature: repo-content-cache**
+    **Validates: Requirements 1.1, 6.1**
     """
     if depth <= 0:
-        return []
+        return [], "none"
     if max_entries <= 0:
-        return []
+        return [], "none"
 
     # Verify repository ownership and get full_name/default_branch + user token
     from app.core.database import async_session_maker
     from app.core.encryption import decrypt_token_or_none
     from app.models.user import User
+    from app.services.repo_content import RepoContentService
 
     async with async_session_maker() as db:
         result = await db.execute(
@@ -142,20 +149,49 @@ async def _get_repo_tree_lines(
         )
         repo = result.scalar_one_or_none()
         if not repo:
-            return []
+            return [], "none"
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         if not user:
-            return []
+            return [], "none"
 
         github_token = decrypt_token_or_none(user.access_token_encrypted)
         if not github_token:
-            return []
+            return [], "none"
 
+        target_ref = ref or repo.default_branch
+
+        # Try cache first (fast path)
+        # **Feature: repo-content-cache**
+        # **Validates: Requirements 1.1, 6.1**
+        if target_ref:
+            try:
+                repo_content_service = RepoContentService()
+                cached_tree = await repo_content_service.get_tree(
+                    db=db,
+                    repository_id=repository_id,
+                    commit_sha=target_ref,
+                )
+                if cached_tree:
+                    # Format cached tree into lines with proper indentation
+                    lines = _format_cached_tree_lines(
+                        cached_tree,
+                        path=path or "",
+                        depth=depth,
+                        max_entries=max_entries,
+                    )
+                    if lines:
+                        logger.debug(
+                            f"Cache hit for tree {target_ref[:7]}: {len(lines)} lines"
+                        )
+                        return lines, "cache"
+            except Exception as e:
+                logger.warning(f"Cache tree retrieval failed, falling back to GitHub: {e}")
+
+    # Fall back to GitHub API (slow path)
     github = GitHubService(github_token)
     owner, repo_name = repo.full_name.split("/")
-    target_ref = ref or repo.default_branch
 
     # BFS traversal with depth limit
     lines: list[str] = []
@@ -202,6 +238,96 @@ async def _get_repo_tree_lines(
             else:
                 lines.append(f"{indent}- {name}")
 
+    return lines, "github_api"
+
+
+def _format_cached_tree_lines(
+    cached_tree: list[str],
+    path: str,
+    depth: int,
+    max_entries: int,
+) -> list[str]:
+    """Format cached tree paths into indented lines.
+    
+    The cached tree is a flat list of file paths. This function filters
+    by the requested path prefix and formats with proper indentation.
+    
+    Args:
+        cached_tree: List of file paths from cache
+        path: Path prefix to filter by (empty string for root)
+        depth: Maximum depth to display
+        max_entries: Maximum number of entries to return
+        
+    Returns:
+        List of formatted tree lines with indentation
+    """
+    if not cached_tree:
+        return []
+    
+    # Normalize path prefix
+    path_prefix = path.rstrip("/") + "/" if path else ""
+    
+    # Filter paths by prefix and build directory structure
+    entries: dict[str, set[str]] = {}  # dir_path -> set of immediate children
+    
+    for file_path in cached_tree:
+        # Skip if doesn't match prefix
+        if path_prefix and not file_path.startswith(path_prefix):
+            continue
+        
+        # Get relative path from the prefix
+        rel_path = file_path[len(path_prefix):] if path_prefix else file_path
+        
+        # Split into parts and track directory structure
+        parts = rel_path.split("/")
+        
+        # Track each level of the path
+        current_dir = ""
+        for i, part in enumerate(parts):
+            if i >= depth:
+                break
+            
+            parent_dir = current_dir
+            current_dir = f"{current_dir}/{part}" if current_dir else part
+            
+            # Add to parent's children
+            if parent_dir not in entries:
+                entries[parent_dir] = set()
+            
+            # Mark as directory if not the last part
+            if i < len(parts) - 1:
+                entries[parent_dir].add(f"{part}/")
+            else:
+                entries[parent_dir].add(part)
+    
+    # Build formatted lines using BFS
+    lines: list[str] = []
+    queue: list[tuple[str, int]] = [("", 0)]
+    
+    while queue and len(lines) < max_entries:
+        current_dir, level = queue.pop(0)
+        
+        if current_dir not in entries:
+            continue
+        
+        # Sort: directories first, then alphabetically
+        children = sorted(
+            entries[current_dir],
+            key=lambda x: (not x.endswith("/"), x.lower()),
+        )
+        
+        indent = "  " * level
+        for child in children:
+            if len(lines) >= max_entries:
+                break
+            
+            lines.append(f"{indent}- {child}")
+            
+            # Queue subdirectories for traversal
+            if child.endswith("/") and level + 1 < depth:
+                child_path = f"{current_dir}/{child[:-1]}" if current_dir else child[:-1]
+                queue.append((child_path, level + 1))
+    
     return lines
 
 
@@ -211,17 +337,25 @@ async def _read_repo_file_text(
     file_path: str,
     ref: str | None,
     max_chars: int,
-) -> str:
-    """Read a repo file via GitHub contents API with basic safety checks."""
+) -> tuple[str, str]:
+    """Read a repo file using cache first, then GitHub contents API.
+    
+    Returns:
+        Tuple of (content, source) where source is "cache" or "github_api"
+        
+    **Feature: repo-content-cache**
+    **Validates: Requirements 1.2, 1.3, 6.1**
+    """
     if not file_path:
-        return ""
+        return "", "none"
     if _is_sensitive_repo_path(file_path):
-        return ""
+        return "", "blocked"
 
     # Verify repository ownership and get full_name/default_branch + user token
     from app.core.database import async_session_maker
     from app.core.encryption import decrypt_token_or_none
     from app.models.user import User
+    from app.services.repo_content import RepoContentService
 
     async with async_session_maker() as db:
         result = await db.execute(
@@ -232,20 +366,44 @@ async def _read_repo_file_text(
         )
         repo = result.scalar_one_or_none()
         if not repo:
-            return ""
+            return "", "none"
 
         user_result = await db.execute(select(User).where(User.id == user_id))
         user = user_result.scalar_one_or_none()
         if not user:
-            return ""
+            return "", "none"
 
         github_token = decrypt_token_or_none(user.access_token_encrypted)
         if not github_token:
-            return ""
+            return "", "none"
 
+        target_ref = ref or repo.default_branch
+
+        # Try cache first (fast path)
+        # **Feature: repo-content-cache**
+        # **Validates: Requirements 1.2, 1.3, 6.1**
+        if target_ref:
+            try:
+                repo_content_service = RepoContentService()
+                cached_content = await repo_content_service.get_file(
+                    db=db,
+                    repository_id=repository_id,
+                    commit_sha=target_ref,
+                    file_path=file_path,
+                )
+                if cached_content is not None:
+                    logger.debug(
+                        f"Cache hit for file {file_path} at {target_ref[:7]}"
+                    )
+                    if len(cached_content) > max_chars:
+                        return cached_content[:max_chars] + "\n\n[... truncated ...]", "cache"
+                    return cached_content, "cache"
+            except Exception as e:
+                logger.warning(f"Cache file retrieval failed, falling back to GitHub: {e}")
+
+    # Fall back to GitHub API (slow path)
     github = GitHubService(github_token)
     owner, repo_name = repo.full_name.split("/")
-    target_ref = ref or repo.default_branch
 
     # Metadata check (size/binary) similar to repositories.py
     try:
@@ -256,13 +414,13 @@ async def _read_repo_file_text(
             ref=target_ref,
         )
         if isinstance(file_info, list):
-            return ""
+            return "", "github_api"
         file_size = int(file_info.get("size", 0) or 0)
         if file_size > _MAX_FILE_BYTES:
-            return ""
+            return "", "github_api"
         file_content = file_info.get("content", "")
         if not file_content and file_size > 0:
-            return ""
+            return "", "github_api"
     except Exception:
         # fall back to direct read
         pass
@@ -275,13 +433,13 @@ async def _read_repo_file_text(
             ref=target_ref,
         )
     except Exception:
-        return ""
+        return "", "github_api"
 
     if not content:
-        return ""
+        return "", "github_api"
     if len(content) > max_chars:
-        return content[:max_chars] + "\n\n[... truncated ...]"
-    return content
+        return content[:max_chars] + "\n\n[... truncated ...]", "github_api"
+    return content, "github_api"
 
 
 class CreateThreadRequest(BaseModel):
@@ -690,7 +848,7 @@ async def _stream_response(
         tool_ref = str(requested_ref) if requested_ref else None
         resolved_ref = tool_ref or (context.ref if context else None)
 
-        lines = await _get_repo_tree_lines(
+        lines, source = await _get_repo_tree_lines(
             repository_id=thread.repository_id,
             user_id=thread.user_id,
             path=path,
@@ -703,6 +861,7 @@ async def _stream_response(
             "depth": depth,
             "ref": resolved_ref,
             "lines": lines[:_MAX_TREE_LINES],
+            "source": source,
         }
 
     async def _tool_read_file(args: dict[str, Any]) -> dict[str, Any]:
@@ -714,14 +873,14 @@ async def _stream_response(
         tool_ref = str(requested_ref) if requested_ref else None
         resolved_ref = tool_ref or (context.ref if context else None)
 
-        content = await _read_repo_file_text(
+        content, source = await _read_repo_file_text(
             repository_id=thread.repository_id,
             user_id=thread.user_id,
             file_path=file_path,
             ref=resolved_ref,
             max_chars=max_chars,
         )
-        return {"path": file_path, "ref": resolved_ref, "content": content}
+        return {"path": file_path, "ref": resolved_ref, "content": content, "source": source}
 
     async def _tool_semantic_search(args: dict[str, Any]) -> dict[str, Any]:
         q = str(args.get("query") or args.get("q") or "")
@@ -877,11 +1036,14 @@ Rules:
                 ide_section += "\n- open_files:\n" + "\n".join(f"  - {p}" for p in open_files)
 
             # --- Repository Tree ---
+            # **Feature: repo-content-cache**
+            # **Validates: Requirements 1.1, 6.1**
             tree_lines: list[str] = []
+            tree_source: str = "none"
             if context.tree:
-                yield _emit_context_source("tree", "loading", "Fetching repository structure via GitHub API")
+                yield _emit_context_source("tree", "loading", "Fetching repository structure")
                 try:
-                    tree_lines = await _get_repo_tree_lines(
+                    tree_lines, tree_source = await _get_repo_tree_lines(
                         repository_id=thread.repository_id,
                         user_id=thread.user_id,
                         path=context.tree.path or "",
@@ -890,10 +1052,11 @@ Rules:
                         max_entries=max(50, min(context.tree.max_entries, _MAX_TREE_ENTRIES)),
                     )
                     if tree_lines:
+                        source_label = "cache" if tree_source == "cache" else "GitHub API"
                         yield _emit_context_source(
                             "tree",
                             "found",
-                            f"Loaded {len(tree_lines)} entries from GitHub API",
+                            f"Loaded {len(tree_lines)} entries from {source_label}",
                             count=len(tree_lines),
                         )
                     else:
@@ -904,17 +1067,20 @@ Rules:
                     tree_lines = []
 
             if tree_lines:
-                ide_section += "\n\n## Repository Tree (partial, via GitHub API)\n" + "\n".join(tree_lines[:2000])
+                source_label = "cache" if tree_source == "cache" else "GitHub API"
+                ide_section += f"\n\n## Repository Tree (partial, via {source_label})\n" + "\n".join(tree_lines[:2000])
 
             # --- Active File Content ---
+            # **Feature: repo-content-cache**
+            # **Validates: Requirements 1.2, 1.3, 6.1**
             if context.active_file:
                 yield _emit_context_source(
                     "active_file",
                     "loading",
-                    f"Reading {context.active_file} via GitHub API",
+                    f"Reading {context.active_file}",
                 )
                 try:
-                    active_content = await _read_repo_file_text(
+                    active_content, file_source = await _read_repo_file_text(
                         repository_id=thread.repository_id,
                         user_id=thread.user_id,
                         file_path=context.active_file,
@@ -922,14 +1088,15 @@ Rules:
                         max_chars=_MAX_ACTIVE_FILE_CHARS,
                     )
                     if active_content:
+                        source_label = "cache" if file_source == "cache" else "GitHub API"
                         yield _emit_context_source(
                             "active_file",
                             "found",
-                            f"Loaded {len(active_content)} chars from GitHub API",
+                            f"Loaded {len(active_content)} chars from {source_label}",
                             count=len(active_content),
                         )
                         ide_section += (
-                            f"\n\n## Active File Content: {context.active_file} (via GitHub API)\n"
+                            f"\n\n## Active File Content: {context.active_file} (via {source_label})\n"
                             f"```text\n{active_content}\n```"
                         )
                     else:
@@ -1251,10 +1418,13 @@ async def _build_chat_messages(
             ide_section += "\n- open_files:\n" + "\n".join(f"  - {p}" for p in open_files)
 
         # Best-effort: include a bounded tree snapshot to reduce hallucinations
+        # **Feature: repo-content-cache**
+        # **Validates: Requirements 1.1, 6.1**
         tree_lines: list[str] = []
+        tree_source: str = "none"
         if context.tree:
             try:
-                tree_lines = await _get_repo_tree_lines(
+                tree_lines, tree_source = await _get_repo_tree_lines(
                     repository_id=thread.repository_id,
                     user_id=thread.user_id,
                     path=context.tree.path or "",
@@ -1267,12 +1437,15 @@ async def _build_chat_messages(
                 tree_lines = []
 
         if tree_lines:
-            ide_section += "\n\n## Repository Tree (partial)\n" + "\n".join(tree_lines[:2000])
+            source_label = "cache" if tree_source == "cache" else "GitHub API"
+            ide_section += f"\n\n## Repository Tree (partial, via {source_label})\n" + "\n".join(tree_lines[:2000])
 
         # Best-effort: include active file content (bounded) to reduce hallucinations
+        # **Feature: repo-content-cache**
+        # **Validates: Requirements 1.2, 1.3, 6.1**
         if context.active_file:
             try:
-                active_content = await _read_repo_file_text(
+                active_content, file_source = await _read_repo_file_text(
                     repository_id=thread.repository_id,
                     user_id=thread.user_id,
                     file_path=context.active_file,
@@ -1280,8 +1453,9 @@ async def _build_chat_messages(
                     max_chars=_MAX_ACTIVE_FILE_CHARS,
                 )
                 if active_content:
+                    source_label = "cache" if file_source == "cache" else "GitHub API"
                     ide_section += (
-                        f"\n\n## Active File Content: {context.active_file}\n"
+                        f"\n\n## Active File Content: {context.active_file} (via {source_label})\n"
                         f"```text\n{active_content}\n```"
                     )
             except Exception as e:

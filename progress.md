@@ -416,3 +416,38 @@ Made all vector-backed features (chat RAG, semantic endpoints, cluster analysis,
 **Retention**: Configurable policy (N analyses / X days), pinned column for manual retention, cleanup task prunes vectors for old unpinned analyses.
 
 **Telemetry**: Structured logs with `extra={"telemetry": True}` for all vector operations including repository_id, commit_sha, filter_mode, hits, avg_score.
+
+
+# 15-dec-2025 - Repository Content Cache (MinIO + PostgreSQL)
+
+## Files Created
+- `backend/app/models/repo_content_cache.py` - RepoContentCache SQLAlchemy model (status, file_count, total_size_bytes)
+- `backend/app/models/repo_content_object.py` - RepoContentObject model (path, object_key, content_hash)
+- `backend/app/models/repo_content_tree.py` - RepoContentTree model (JSONB tree structure)
+- `backend/alembic/versions/018_add_repo_content_cache.py` - Migration for all three tables with indexes
+- `backend/app/services/object_storage.py` - ObjectStorageClient interface + MinIOClient implementation
+- `backend/app/services/repo_content.py` - RepoContentService (cache management, file collection, upload, retrieval)
+- `backend/app/workers/repo_content_gc.py` - GC worker for cleanup of failed/old caches
+- `backend/tests/test_repo_content_cache.py` - Property tests for cache operations
+- `backend/tests/test_object_storage.py` - Unit tests for MinIO client
+- `backend/tests/test_chat_cache_integration.py` - Integration tests for chat cache usage
+
+## Files Modified
+- `backend/app/workers/embeddings.py` - Added cache population after clone (collect files → upload to MinIO → save tree)
+- `backend/app/api/v1/chat.py` - Updated `_get_repo_tree_lines` and `_read_repo_file_text` to try cache first, fallback to GitHub API
+- `backend/scripts/init_minio.py` - Added `repo-content` bucket creation
+- `backend/scripts/init_all.py` - Added `repo-content` bucket to initialization
+- `backend/README.md` - Added deployment instructions for MinIO bucket initialization
+
+## What Was Done
+Implemented production-grade content cache for repository files using PostgreSQL for metadata and MinIO for file storage. Cache is commit-centric (tied to specific commit SHA) ensuring consistency with analysis results.
+
+**Architecture**: PostgreSQL stores metadata (cache status, file paths, content hashes), MinIO stores actual file bytes with UUID-based object keys. Stable keys avoid path encoding issues and enable efficient storage.
+
+**Cache Population**: During embeddings worker clone phase, files are collected (same filters as embeddings: code extensions, 50B-100KB size), SHA-256 hashed, uploaded to MinIO, and recorded in PostgreSQL. Tree structure saved as JSONB for fast directory listings.
+
+**Chat Integration**: `_get_repo_tree_lines` and `_read_repo_file_text` try cache first (1-10ms latency) before falling back to GitHub API (100-500ms). Content hash verified on retrieval for integrity.
+
+**GC Worker**: Celery task cleans up failed caches (24h threshold), old commits (keep 5 most recent per repo), and orphaned MinIO objects for deleted repositories.
+
+**Idempotency**: Upload operations check content_hash before uploading, PostgreSQL UNIQUE constraints prevent duplicate entries, optimistic locking via version column.

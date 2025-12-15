@@ -5,6 +5,10 @@ from minio.error import S3Error
 
 from app.core.config import settings
 
+# Bucket names
+MAIN_BUCKET = settings.minio_bucket
+REPO_CONTENT_BUCKET = "repo-content"
+
 
 def init_minio():
     """Create the required bucket structure in MinIO."""
@@ -15,14 +19,20 @@ def init_minio():
         secure=settings.minio_secure,
     )
 
-    bucket_name = settings.minio_bucket
-
     # Create main bucket if it doesn't exist
+    bucket_name = MAIN_BUCKET
     if not client.bucket_exists(bucket_name):
         client.make_bucket(bucket_name)
         print(f"Bucket '{bucket_name}' created successfully.")
     else:
         print(f"Bucket '{bucket_name}' already exists.")
+
+    # Create repo-content bucket for repository file caching
+    if not client.bucket_exists(REPO_CONTENT_BUCKET):
+        client.make_bucket(REPO_CONTENT_BUCKET)
+        print(f"Bucket '{REPO_CONTENT_BUCKET}' created successfully.")
+    else:
+        print(f"Bucket '{REPO_CONTENT_BUCKET}' already exists.")
 
     # Create folder structure by uploading empty placeholder files
     # MinIO doesn't have real folders, but we can create the structure
@@ -58,6 +68,8 @@ def init_minio():
     print("    ├── reports/      # Analysis reports (JSON, HTML)")
     print("    ├── logs/         # Agent and analysis logs")
     print("    └── artifacts/    # Code artifacts and diffs")
+    print(f"  {REPO_CONTENT_BUCKET}/")
+    print("    └── <repo_id>/<commit_sha>/<object_id>  # Cached repository files")
 
 
 if __name__ == "__main__":
