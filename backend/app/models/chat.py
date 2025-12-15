@@ -114,6 +114,11 @@ class ChatMessage(BaseModel):
         Integer,
         nullable=True,
     )
+    # Git reference (branch name or commit SHA) for this message
+    context_ref: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
 
     # Relationships
     thread: Mapped["ChatThread"] = relationship(

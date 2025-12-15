@@ -451,3 +451,28 @@ Implemented production-grade content cache for repository files using PostgreSQL
 **GC Worker**: Celery task cleans up failed caches (24h threshold), old commits (keep 5 most recent per repo), and orphaned MinIO objects for deleted repositories.
 
 **Idempotency**: Upload operations check content_hash before uploading, PostgreSQL UNIQUE constraints prevent duplicate entries, optimistic locking via version column.
+
+
+# 15-dec-2025 - Chat Branch Context Awareness
+
+## Files Created
+- `backend/alembic/versions/019_add_chat_message_context_ref.py` - Migration adding context_ref VARCHAR(255) column to chat_messages with index
+
+## Files Modified
+- `backend/app/models/chat.py` - Added `context_ref: Mapped[str | None]` field to ChatMessage model
+- `backend/app/api/v1/chat.py` - Added `_detect_ref_change()` for ref comparison, `_build_context_switch_notification()` for system message injection, updated `_build_chat_messages()` and `_stream_response()` to inject notifications, save context_ref with user/assistant messages
+- `frontend/lib/api.ts` - Added `context_ref?: string` to message interface
+- `frontend/components/chat-panel.tsx` - Added branch indicator badge showing shortened ref when different from current context
+
+## What Was Done
+Implemented branch/commit context awareness for chat conversations. When users switch branches or commits mid-conversation, the system detects the change and injects a system notification to inform the LLM about the context switch.
+
+**Context Detection**: Compares current `context.ref` with last message's stored `context_ref`. Handles null refs and empty message history gracefully.
+
+**System Notification**: Injects clear message explaining the switch (previous ref → current ref) so LLM understands earlier messages were about different code version.
+
+**Message Persistence**: Both user and assistant messages store their `context_ref` in PostgreSQL, enabling conversation history to show which branch/commit each message was about.
+
+**Frontend Display**: Messages show branch indicator badge when their ref differs from current context. Shortened display (first 7 chars for commit SHAs).
+
+**Cache Integration**: Works with existing repo content cache - cached commits get fast responses, uncached branches fall back to GitHub API.

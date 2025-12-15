@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect, memo } from 'react'
-import { Send, X, MessageSquare, Loader2, Plus, Settings2 } from 'lucide-react'
+import { Send, X, MessageSquare, Loader2, Plus, Settings2, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -124,6 +125,19 @@ const MarkdownContent = memo(function MarkdownContent({ children }: { children: 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/v1'
 
+/**
+ * Format a git ref for display.
+ * Shows first 7 chars for commit SHAs (40 hex chars), full name for branches.
+ * Requirements: 2.3
+ */
+function formatRef(ref: string): string {
+  // Check if it looks like a commit SHA (40 hex characters)
+  if (/^[a-f0-9]{40}$/i.test(ref)) {
+    return ref.substring(0, 7)
+  }
+  return ref
+}
+
 function withIpv4Localhost(url: string): string {
   return url.replace('://localhost', '://127.0.0.1')
 }
@@ -149,6 +163,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  context_ref?: string  // Git ref (branch/commit) for this message (Requirements: 2.2)
   meta?: {
     type?: ChatEventType
     title?: string
@@ -762,8 +777,21 @@ export function ChatPanel({
                         : 'bg-[#1e1e1e] border-[#2b2b2b] text-[#cccccc]'
                 )}
               >
-                <div className="text-[10px] uppercase tracking-wide opacity-70 mb-1">
-                  {isUser ? 'You' : (message.meta?.title || 'N9R')}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] uppercase tracking-wide opacity-70">
+                    {isUser ? 'You' : (message.meta?.title || 'N9R')}
+                  </span>
+                  {/* Branch indicator badge - show when message ref differs from current (Requirements: 2.3) */}
+                  {message.context_ref && message.context_ref !== ref && (
+                    <Badge 
+                      variant="outline" 
+                      className="text-[9px] px-1.5 py-0 h-4 bg-[#2d2d2d] border-[#3c3c3c] text-[#9cdcfe] font-normal"
+                      title={`Message was about: ${message.context_ref}`}
+                    >
+                      <GitBranch className="h-2.5 w-2.5 mr-1" />
+                      {formatRef(message.context_ref)}
+                    </Badge>
+                  )}
                 </div>
                 {/* Render markdown for assistant messages, plain text for others */}
                 {isUser || isTool || isThinking ? (

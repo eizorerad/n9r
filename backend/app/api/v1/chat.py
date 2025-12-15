@@ -442,6 +442,84 @@ async def _read_repo_file_text(
     return content, "github_api"
 
 
+# ---------------------------------------------------------------------------
+# Context Switch Detection (Feature: chat-branch-context)
+# ---------------------------------------------------------------------------
+
+
+def _detect_ref_change(
+    messages: list[ChatMessage],
+    current_ref: str | None,
+) -> tuple[str | None, str | None]:
+    """Detect if ref changed from last message.
+
+    Compares the current context.ref with the most recent message's context_ref
+    to determine if a branch/commit switch occurred.
+
+    Args:
+        messages: List of ChatMessage objects from the thread (any order)
+        current_ref: The current context.ref from the user's request
+
+    Returns:
+        Tuple of (previous_ref, current_ref) if changed, (None, None) if no change.
+        Returns (None, None) for first message or when refs match.
+
+    **Feature: chat-branch-context**
+    **Validates: Requirements 1.1, 1.4, 3.1, 3.2**
+    """
+    if not messages:
+        # First message in thread - no context switch
+        return None, None
+
+    if not current_ref:
+        # No current ref provided - cannot detect change
+        return None, None
+
+    # Sort messages by created_at to find the most recent one
+    sorted_messages = sorted(messages, key=lambda x: x.created_at, reverse=True)
+
+    # Find the last message with a context_ref
+    for msg in sorted_messages:
+        if msg.context_ref:
+            # Compare refs (handles both branch names and commit SHAs)
+            if msg.context_ref != current_ref:
+                return msg.context_ref, current_ref
+            # Refs match - no change
+            return None, None
+
+    # No previous messages had a ref - this is effectively the first ref
+    return None, None
+
+
+def _build_context_switch_notification(prev_ref: str, new_ref: str) -> str:
+    """Build system notification for context switch.
+
+    Generates a clear system message explaining the context switch to the LLM,
+    so it understands that earlier messages may reference different code versions.
+
+    Args:
+        prev_ref: The previous git reference (branch name or commit SHA)
+        new_ref: The new git reference (branch name or commit SHA)
+
+    Returns:
+        A formatted system message string explaining the context switch.
+
+    **Feature: chat-branch-context**
+    **Validates: Requirements 1.2**
+    """
+    return f"""[CONTEXT SWITCH NOTICE]
+The user has switched their viewing context:
+- Previous: {prev_ref}
+- Current: {new_ref}
+
+Earlier messages in this conversation were about '{prev_ref}'. 
+The user is now viewing '{new_ref}'. Code references, file contents, 
+and RAG results from this point forward are from '{new_ref}'.
+
+If the user asks about code that was discussed earlier, clarify which 
+version you're referring to."""
+
+
 class CreateThreadRequest(BaseModel):
     """Create chat thread request."""
     title: str | None = None
@@ -576,6 +654,8 @@ async def get_thread(
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
+    # **Feature: chat-branch-context**
+    # **Validates: Requirements 2.2**
     return {
         "id": str(thread.id),
         "title": thread.title,
@@ -586,6 +666,7 @@ async def get_thread(
                 "id": str(m.id),
                 "role": m.role,
                 "content": m.content,
+                "context_ref": m.context_ref,
                 "created_at": m.created_at.isoformat(),
             }
             for m in sorted(thread.messages, key=lambda x: x.created_at)
@@ -623,11 +704,14 @@ async def send_message(
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    # Save user message
+    # Save user message with context_ref
+    # **Feature: chat-branch-context**
+    # **Validates: Requirements 2.1**
     user_message = ChatMessage(
         thread_id=thread_id,
         role="user",
         content=payload.content,
+        context_ref=payload.context.ref if payload.context else None,
     )
     db.add(user_message)
     await db.commit()
@@ -654,12 +738,15 @@ async def send_message(
         llm = get_llm_gateway()
         response = await llm.chat(messages=messages, model=resolved_model)
 
-        # Save assistant message
+        # Save assistant message with context_ref
+        # **Feature: chat-branch-context**
+        # **Validates: Requirements 2.1**
         assistant_message = ChatMessage(
             thread_id=thread_id,
             role="assistant",
             content=response["content"],
             tokens_used=response.get("usage", {}).get("total_tokens"),
+            context_ref=payload.context.ref if payload.context else None,
         )
         db.add(assistant_message)
         thread.message_count += 2
@@ -671,6 +758,7 @@ async def send_message(
                 "role": "assistant",
                 "content": response["content"],
                 "model": response.get("model"),
+                "context_ref": assistant_message.context_ref,
             }
         }
 
@@ -1138,8 +1226,18 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
         messages.append({"role": "system", "content": system_prompt})
 
         # Add conversation history (last 10 messages)
-        for msg in sorted(thread.messages, key=lambda x: x.created_at)[-10:]:
+        sorted_messages = sorted(thread.messages, key=lambda x: x.created_at)[-10:]
+        for msg in sorted_messages:
             messages.append({"role": msg.role, "content": msg.content})
+
+        # Detect ref change and inject context switch notification if needed
+        # **Feature: chat-branch-context**
+        # **Validates: Requirements 1.1, 1.3**
+        current_ref = context.ref if context else None
+        prev_ref, new_ref = _detect_ref_change(sorted_messages, current_ref)
+        if prev_ref and new_ref:
+            notification = _build_context_switch_notification(prev_ref, new_ref)
+            messages.append({"role": "system", "content": notification})
 
         # Add current message
         messages.append({"role": "user", "content": user_message})
@@ -1258,11 +1356,15 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
                 tokens_used = usage.get("total_tokens")
                 cost = final_stats.get("cost")
 
+        # Save assistant message with context_ref
+        # **Feature: chat-branch-context**
+        # **Validates: Requirements 2.1**
         assistant_message = ChatMessage(
             thread_id=thread.id,
             role="assistant",
             content=content,
             tokens_used=tokens_used,
+            context_ref=context.ref if context else None,
         )
         db.add(assistant_message)
         thread.message_count += 1
@@ -1277,6 +1379,7 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
                     "model": final_model or model,
                     "usage": (final_stats or {}).get("usage") if 'final_stats' in locals() else None,
                     "cost": cost,
+                    "context_ref": assistant_message.context_ref,
                 }
             )
             + "\n\n"
@@ -1488,8 +1591,18 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
     messages.append({"role": "system", "content": system_prompt})
 
     # Add conversation history (last 10 messages)
-    for msg in sorted(thread.messages, key=lambda x: x.created_at)[-10:]:
+    sorted_messages = sorted(thread.messages, key=lambda x: x.created_at)[-10:]
+    for msg in sorted_messages:
         messages.append({"role": msg.role, "content": msg.content})
+
+    # Detect ref change and inject context switch notification if needed
+    # **Feature: chat-branch-context**
+    # **Validates: Requirements 1.1, 1.3**
+    current_ref = context.ref if context else None
+    prev_ref, new_ref = _detect_ref_change(sorted_messages, current_ref)
+    if prev_ref and new_ref:
+        notification = _build_context_switch_notification(prev_ref, new_ref)
+        messages.append({"role": "system", "content": notification})
 
     # Add current message
     messages.append({"role": "user", "content": user_message})

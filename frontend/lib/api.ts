@@ -530,4 +530,14 @@ export const commitApi = {
     }),
 };
 
+// Chat Message Types (Requirements: 2.2)
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  context_ref?: string;  // Git ref (branch/commit) for this message
+  created_at: string;
+  tokens_used?: number;
+}
+
 export { ApiError };

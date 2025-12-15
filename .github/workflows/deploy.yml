@@ -165,8 +165,11 @@ jobs:
             cd ~/n9r/backend
             uv sync
 
-            echo "🗄️ Running database migrations..."
+            echo "🗄️ Running database migrations and initializing services..."
             uv run alembic upgrade head
+            
+            echo "🔧 Initializing Qdrant and MinIO..."
+            PYTHONPATH=. uv run python scripts/init_all.py || echo "⚠️ init_all.py had warnings (may be OK if services already initialized)"
 
             echo "🔄 Restarting backend..."
             tmux send-keys -t backend C-c
