@@ -24,7 +24,6 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.core.config import settings
 from app.models.repo_content_cache import RepoContentCache
 from app.models.repo_content_object import RepoContentObject
 from app.models.repo_content_tree import RepoContentTree
@@ -191,11 +190,11 @@ class RepoContentService:
             )
         )
         cache = result.scalar_one_or_none()
-        
+
         if cache:
             logger.debug(f"Found existing cache for {commit_sha[:7]}: {cache.status}")
             return cache
-        
+
         # Create new cache entry
         cache = RepoContentCache(
             repository_id=repository_id,
@@ -205,7 +204,7 @@ class RepoContentService:
             total_size_bytes=0,
             version=1,
         )
-        
+
         try:
             db.add(cache)
             await db.flush()
@@ -257,10 +256,10 @@ class RepoContentService:
             )
         )
         row = result.one_or_none()
-        
+
         if not row:
             return None
-        
+
         return CacheStatus(
             status=row.status,
             file_count=row.file_count,
@@ -296,25 +295,25 @@ class RepoContentService:
         """
         if not repo_path:
             return []
-        
+
         repo_path = Path(repo_path)
         if not repo_path.exists():
             logger.warning(f"Repository path does not exist: {repo_path}")
             return []
-        
+
         files: list[FileToUpload] = []
-        
+
         for root, dirs, filenames in repo_path.walk():
             # Skip excluded directories (modify in-place to prevent descent)
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-            
+
             for filename in filenames:
                 file_path = root / filename
-                
+
                 # Check extension
                 if file_path.suffix.lower() not in CODE_EXTENSIONS:
                     continue
-                
+
                 # Check file size
                 try:
                     file_size = file_path.stat().st_size
@@ -327,21 +326,21 @@ class RepoContentService:
                 except OSError as e:
                     logger.debug(f"Could not stat {file_path}: {e}")
                     continue
-                
+
                 # Read content
                 try:
                     content = file_path.read_bytes()
-                    
+
                     # Double-check size after reading (in case of race)
                     if len(content) < MIN_FILE_SIZE:
                         continue
-                    
+
                     # Compute hash
                     content_hash = compute_content_hash(content)
-                    
+
                     # Get relative path
                     rel_path = str(file_path.relative_to(repo_path))
-                    
+
                     files.append(FileToUpload(
                         path=rel_path,
                         content=content,
@@ -350,9 +349,86 @@ class RepoContentService:
                 except Exception as e:
                     logger.debug(f"Could not read {file_path}: {e}")
                     continue
-        
+
         logger.info(f"Collected {len(files)} files for caching")
         return files
+
+    def collect_full_tree(
+        self,
+        repo_path: Path | str,
+    ) -> list[dict]:
+        """Collect complete directory tree from cloned repository.
+        
+        Unlike collect_files_from_repo which only collects code files,
+        this method collects ALL files and directories for the file explorer.
+        
+        Args:
+            repo_path: Path to the cloned repository
+            
+        Returns:
+            List of file/directory entries with metadata:
+            [{"name": "src", "path": "src", "type": "directory", "size": null}, ...]
+            
+        **Feature: commit-centric-explorer**
+        """
+        if not repo_path:
+            return []
+
+        repo_path = Path(repo_path)
+        if not repo_path.exists():
+            logger.warning(f"Repository path does not exist: {repo_path}")
+            return []
+
+        entries: list[dict] = []
+        seen_dirs: set[str] = set()
+
+        for root, dirs, filenames in repo_path.walk():
+            # Skip .git and other specific system directories
+            # We want to show .github, .vscode, etc., so only exclude .git and noise
+            dirs[:] = [d for d in dirs if d not in {".git", "__pycache__"}]
+
+            rel_root = root.relative_to(repo_path)
+
+            # Add directories
+            for dirname in dirs:
+                dir_path = rel_root / dirname if str(rel_root) != "." else Path(dirname)
+                dir_path_str = str(dir_path)
+
+                if dir_path_str not in seen_dirs:
+                    seen_dirs.add(dir_path_str)
+                    entries.append({
+                        "name": dirname,
+                        "path": dir_path_str,
+                        "type": "directory",
+                        "size": None,
+                    })
+
+            # Add files
+            for filename in filenames:
+                # Skip specific system files, but allow .gitignore, .env, .github/*
+                if filename in {".DS_Store"}:
+                    continue
+
+                file_path = root / filename
+                rel_file_path = file_path.relative_to(repo_path)
+
+                try:
+                    file_size = file_path.stat().st_size
+                except OSError:
+                    file_size = None
+
+                entries.append({
+                    "name": filename,
+                    "path": str(rel_file_path),
+                    "type": "file",
+                    "size": file_size,
+                })
+
+        # Sort: directories first, then by path
+        entries.sort(key=lambda x: (x["type"] != "directory", x["path"].lower()))
+
+        logger.info(f"Collected full tree: {len(entries)} entries")
+        return entries
 
 
     # =========================================================================
@@ -383,7 +459,7 @@ class RepoContentService:
         """
         if not files:
             return UploadResult(uploaded=0, skipped=0, failed=0, errors=[])
-        
+
         # Update cache status to 'uploading'
         await db.execute(
             update(RepoContentCache)
@@ -391,19 +467,19 @@ class RepoContentService:
             .values(status="uploading")
         )
         await db.flush()
-        
+
         uploaded = 0
         skipped = 0
         failed = 0
         errors: list[str] = []
-        
+
         # Get existing objects for this cache to check for duplicates
         result = await db.execute(
             select(RepoContentObject.path, RepoContentObject.content_hash)
             .where(RepoContentObject.cache_id == cache.id)
         )
         existing_objects = {row.path: row.content_hash for row in result.all()}
-        
+
         for file in files:
             try:
                 # Check if file already exists with same hash (idempotency)
@@ -420,10 +496,10 @@ class RepoContentService:
                         )
                         skipped += 1
                         continue
-                
+
                 # Generate object key
                 object_key = generate_object_key(cache.repository_id, cache.commit_sha)
-                
+
                 # Upload to MinIO
                 await self._storage.put_object(
                     bucket=REPO_CONTENT_BUCKET,
@@ -431,7 +507,7 @@ class RepoContentService:
                     data=file.content,
                     content_type="application/octet-stream",
                 )
-                
+
                 # Record in PostgreSQL
                 obj = RepoContentObject(
                     cache_id=cache.id,
@@ -442,29 +518,29 @@ class RepoContentService:
                     status="ready",
                 )
                 db.add(obj)
-                
+
                 uploaded += 1
                 logger.debug(f"Uploaded file: {file.path}")
-                
+
             except ObjectStorageError as e:
                 failed += 1
                 error_msg = f"Failed to upload {file.path}: {e}"
                 errors.append(error_msg)
                 logger.error(error_msg)
-                
+
             except Exception as e:
                 failed += 1
                 error_msg = f"Unexpected error uploading {file.path}: {e}"
                 errors.append(error_msg)
                 logger.error(error_msg)
-        
+
         # Flush to ensure all objects are persisted
         await db.flush()
-        
+
         logger.info(
             f"Upload complete: {uploaded} uploaded, {skipped} skipped, {failed} failed"
         )
-        
+
         return UploadResult(
             uploaded=uploaded,
             skipped=skipped,
@@ -496,7 +572,7 @@ class RepoContentService:
         """
         # Compute metadata from 'ready' objects
         from sqlalchemy import func
-        
+
         result = await db.execute(
             select(
                 func.count(RepoContentObject.id).label("file_count"),
@@ -507,7 +583,7 @@ class RepoContentService:
             )
         )
         row = result.one()
-        
+
         # Update cache with computed metadata
         await db.execute(
             update(RepoContentCache)
@@ -520,7 +596,7 @@ class RepoContentService:
             )
         )
         await db.flush()
-        
+
         logger.info(
             f"Cache {cache_id} marked ready: {row.file_count} files, "
             f"{row.total_size} bytes"
@@ -551,7 +627,7 @@ class RepoContentService:
             )
         )
         await db.flush()
-        
+
         logger.error(f"Cache {cache_id} marked failed: {error}")
 
     async def save_tree(
@@ -559,6 +635,7 @@ class RepoContentService:
         db: AsyncSession,
         cache_id: uuid.UUID,
         tree: list[str],
+        full_tree: list[dict] | None = None,
     ) -> None:
         """Save tree structure for fast directory listings.
         
@@ -567,25 +644,31 @@ class RepoContentService:
         Args:
             db: Database session
             cache_id: Cache UUID
-            tree: List of file paths (e.g., ["src/main.py", "src/utils.py"])
+            tree: List of code file paths (e.g., ["src/main.py", "src/utils.py"])
+            full_tree: Complete directory tree with metadata for file explorer
             
         **Feature: repo-content-cache**
         **Validates: Requirements 1.1**
         """
         # Use upsert to handle concurrent saves
-        stmt = pg_insert(RepoContentTree).values(
-            cache_id=cache_id,
-            tree=tree,
-        )
+        values = {"cache_id": cache_id, "tree": tree}
+        update_values = {"tree": tree}
+
+        if full_tree is not None:
+            values["full_tree"] = full_tree
+            update_values["full_tree"] = full_tree
+
+        stmt = pg_insert(RepoContentTree).values(**values)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_repo_content_tree_cache",
-            set_={"tree": tree},
+            set_=update_values,
         )
-        
+
         await db.execute(stmt)
         await db.flush()
-        
-        logger.debug(f"Saved tree for cache {cache_id}: {len(tree)} entries")
+
+        full_tree_len = len(full_tree) if full_tree else 0
+        logger.debug(f"Saved tree for cache {cache_id}: {len(tree)} code files, {full_tree_len} full tree entries")
 
     # =========================================================================
     # File Retrieval
@@ -622,29 +705,133 @@ class RepoContentService:
             )
         )
         cache_row = result.one_or_none()
-        
+
         if not cache_row:
             logger.debug(f"No cache found for {commit_sha[:7]}")
             return None
-        
+
         # Return None if cache is not ready (pending, uploading, or failed)
         if cache_row.status != "ready":
             logger.debug(f"Cache not ready for {commit_sha[:7]}: {cache_row.status}")
             return None
-        
+
         # Fetch tree from repo_content_tree
         result = await db.execute(
             select(RepoContentTree.tree)
             .where(RepoContentTree.cache_id == cache_row.id)
         )
         tree_row = result.scalar_one_or_none()
-        
+
         if tree_row is None:
             logger.warning(f"Cache ready but no tree found for {commit_sha[:7]}")
             return None
-        
+
         logger.debug(f"Retrieved tree for {commit_sha[:7]}: {len(tree_row)} entries")
         return tree_row
+
+    async def has_full_tree(
+        self,
+        db: AsyncSession,
+        cache_id: uuid.UUID,
+    ) -> bool:
+        """Check if cache has full_tree populated.
+        
+        Args:
+            db: Database session
+            cache_id: Cache UUID
+            
+        Returns:
+            True if full_tree is not null, False otherwise
+        """
+        result = await db.execute(
+            select(RepoContentTree.full_tree)
+            .where(RepoContentTree.cache_id == cache_id)
+        )
+        row = result.one_or_none()
+        return row is not None and row.full_tree is not None
+
+    async def get_full_tree(
+        self,
+        db: AsyncSession,
+        repository_id: uuid.UUID,
+        commit_sha: str,
+        path: str = "",
+    ) -> list[dict] | None:
+        """Get full directory tree for file explorer.
+        
+        Returns the complete directory structure with metadata for the
+        commit-centric file explorer. Optionally filters by path prefix.
+        
+        Args:
+            db: Database session
+            repository_id: Repository UUID
+            commit_sha: Git commit SHA
+            path: Optional path prefix to filter (e.g., "src" for src/ contents)
+            
+        Returns:
+            List of file/directory entries if cache is ready, None otherwise
+            
+        **Feature: commit-centric-explorer**
+        """
+        # First check if cache exists and is ready
+        result = await db.execute(
+            select(RepoContentCache.id, RepoContentCache.status)
+            .where(
+                RepoContentCache.repository_id == repository_id,
+                RepoContentCache.commit_sha == commit_sha,
+            )
+        )
+        cache_row = result.one_or_none()
+
+        if not cache_row:
+            logger.debug(f"No cache found for {commit_sha[:7]}")
+            return None
+
+        # Return None if cache is not ready
+        if cache_row.status != "ready":
+            logger.debug(f"Cache not ready for {commit_sha[:7]}: {cache_row.status}")
+            return None
+
+        # Fetch full_tree from repo_content_tree
+        result = await db.execute(
+            select(RepoContentTree.full_tree)
+            .where(RepoContentTree.cache_id == cache_row.id)
+        )
+        full_tree = result.scalar_one_or_none()
+
+        if full_tree is None:
+            logger.debug(f"No full_tree found for {commit_sha[:7]}")
+            return None
+
+        # Filter by path if specified
+        if path:
+            # Normalize path (remove trailing slash)
+            path = path.rstrip("/")
+
+            # Filter entries that are direct children of the path
+            filtered = []
+            for entry in full_tree:
+                entry_path = entry["path"]
+
+                # Check if entry is a direct child of the requested path
+                if "/" in entry_path:
+                    parent = entry_path.rsplit("/", 1)[0]
+                else:
+                    parent = ""
+
+                if parent == path:
+                    filtered.append(entry)
+
+            logger.debug(f"Retrieved full_tree for {commit_sha[:7]} path={path}: {len(filtered)} entries")
+            return filtered
+        else:
+            # Return root level entries only
+            root_entries = [
+                entry for entry in full_tree
+                if "/" not in entry["path"]
+            ]
+            logger.debug(f"Retrieved full_tree for {commit_sha[:7]} (root): {len(root_entries)} entries")
+            return root_entries
 
     async def get_file(
         self,
@@ -679,16 +866,16 @@ class RepoContentService:
             )
         )
         cache_row = result.one_or_none()
-        
+
         if not cache_row:
             logger.debug(f"No cache found for {commit_sha[:7]}")
             return None
-        
+
         # Return None if cache is not ready
         if cache_row.status != "ready":
             logger.debug(f"Cache not ready for {commit_sha[:7]}: {cache_row.status}")
             return None
-        
+
         # Find the file object
         result = await db.execute(
             select(
@@ -702,27 +889,27 @@ class RepoContentService:
             )
         )
         obj_row = result.one_or_none()
-        
+
         if not obj_row:
             logger.debug(f"File not found in cache: {file_path}")
             return None
-        
+
         # Check object status
         if obj_row.status != "ready":
             logger.debug(f"File object not ready: {file_path} ({obj_row.status})")
             return None
-        
+
         # Fetch content from MinIO
         try:
             content_bytes = await self._storage.get_object(
                 bucket=REPO_CONTENT_BUCKET,
                 key=obj_row.object_key,
             )
-            
+
             if content_bytes is None:
                 logger.warning(f"File not found in MinIO: {file_path}")
                 return None
-            
+
             # Verify content hash for integrity
             actual_hash = compute_content_hash(content_bytes)
             if actual_hash != obj_row.content_hash:
@@ -731,17 +918,17 @@ class RepoContentService:
                     f"expected {obj_row.content_hash}, got {actual_hash}"
                 )
                 return None
-            
+
             # Decode content as UTF-8 (code files are text)
             try:
                 content = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 # Try with latin-1 as fallback
                 content = content_bytes.decode("latin-1")
-            
+
             logger.debug(f"Retrieved file from cache: {file_path}")
             return content
-            
+
         except ObjectStorageError as e:
             logger.error(f"Failed to retrieve file from MinIO: {file_path}: {e}")
             return None
@@ -771,10 +958,10 @@ class RepoContentService:
         **Validates: Requirements 1.2**
         """
         import asyncio
-        
+
         if not file_paths:
             return {}
-        
+
         # First check if cache exists and is ready
         result = await db.execute(
             select(RepoContentCache.id, RepoContentCache.status)
@@ -784,16 +971,16 @@ class RepoContentService:
             )
         )
         cache_row = result.one_or_none()
-        
+
         if not cache_row:
             logger.debug(f"No cache found for {commit_sha[:7]}")
             return {}
-        
+
         # Return empty if cache is not ready
         if cache_row.status != "ready":
             logger.debug(f"Cache not ready for {commit_sha[:7]}: {cache_row.status}")
             return {}
-        
+
         # Find all requested file objects
         result = await db.execute(
             select(
@@ -809,11 +996,11 @@ class RepoContentService:
             )
         )
         objects = {row.path: row for row in result.all()}
-        
+
         if not objects:
-            logger.debug(f"No files found in cache for batch request")
+            logger.debug("No files found in cache for batch request")
             return {}
-        
+
         async def fetch_single_file(path: str, obj) -> tuple[str, str | None]:
             """Fetch a single file from MinIO and verify hash."""
             try:
@@ -821,11 +1008,11 @@ class RepoContentService:
                     bucket=REPO_CONTENT_BUCKET,
                     key=obj.object_key,
                 )
-                
+
                 if content_bytes is None:
                     logger.warning(f"File not found in MinIO: {path}")
                     return path, None
-                
+
                 # Verify content hash
                 actual_hash = compute_content_hash(content_bytes)
                 if actual_hash != obj.content_hash:
@@ -834,33 +1021,33 @@ class RepoContentService:
                         f"expected {obj.content_hash}, got {actual_hash}"
                     )
                     return path, None
-                
+
                 # Decode content
                 try:
                     content = content_bytes.decode("utf-8")
                 except UnicodeDecodeError:
                     content = content_bytes.decode("latin-1")
-                
+
                 return path, content
-                
+
             except ObjectStorageError as e:
                 logger.error(f"Failed to retrieve file from MinIO: {path}: {e}")
                 return path, None
-        
+
         # Fetch all files in parallel
         tasks = [
             fetch_single_file(path, obj)
             for path, obj in objects.items()
         ]
         results = await asyncio.gather(*tasks)
-        
+
         # Build result dict (only successful retrievals)
         file_contents = {
             path: content
             for path, content in results
             if content is not None
         }
-        
+
         logger.debug(
             f"Retrieved {len(file_contents)}/{len(file_paths)} files from cache"
         )

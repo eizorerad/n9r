@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 class RepoContentTree(BaseModelNoUpdate):
     """Cached tree structure for fast directory listings.
     
-    Stores the complete file/directory tree as JSONB for fast retrieval
-    without needing to query individual file objects.
-    
-    Tree format: ["src/", "src/main.py", "src/utils/", ...]
+    Stores two tree formats:
+    - tree: List of code file paths for embeddings ["src/main.py", ...]
+    - full_tree: Complete directory structure with metadata for file explorer
+      [{"name": "src", "path": "src", "type": "directory", "size": null}, ...]
     """
 
     __tablename__ = "repo_content_tree"
@@ -33,9 +33,16 @@ class RepoContentTree(BaseModelNoUpdate):
         nullable=False,
         index=True,
     )
+    # Code file paths only (for embeddings)
     tree: Mapped[list[Any]] = mapped_column(
         JSONB,
         nullable=False,
+    )
+    # Full directory tree with metadata (for file explorer)
+    # Format: [{"name": str, "path": str, "type": "file"|"directory", "size": int|null}, ...]
+    full_tree: Mapped[list[Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
     )
 
     # Relationships
@@ -46,4 +53,5 @@ class RepoContentTree(BaseModelNoUpdate):
 
     def __repr__(self) -> str:
         tree_len = len(self.tree) if self.tree else 0
-        return f"<RepoContentTree cache_id={self.cache_id} entries={tree_len}>"
+        full_tree_len = len(self.full_tree) if self.full_tree else 0
+        return f"<RepoContentTree cache_id={self.cache_id} code_files={tree_len} full_tree={full_tree_len}>"

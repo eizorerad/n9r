@@ -9,6 +9,7 @@ const publicRoutes = ['/login', '/signup']
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
+  const errorParam = request.nextUrl.searchParams.get('error')
 
   // Skip middleware for API routes, static files, and auth callback
   if (
@@ -33,6 +34,14 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('redirect', path)
     return NextResponse.redirect(loginUrl)
+  }
+
+  // If we were redirected to login due to an expired token, clear the stale session cookie here.
+  // Cookie mutations are allowed in middleware responses (unlike Server Component render).
+  if (path === '/login' && errorParam === 'session_expired') {
+    const response = NextResponse.next()
+    response.cookies.delete('n9r_session')
+    return response
   }
 
   // Redirect authenticated users away from public routes

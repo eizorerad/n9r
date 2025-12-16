@@ -137,8 +137,6 @@ export async function validateSession(): Promise<boolean> {
     })
 
     if (!response.ok) {
-      // Token is invalid - clear the session
-      await deleteSession()
       return false
     }
 
@@ -166,9 +164,8 @@ export async function getValidatedSession() {
     })
 
     if (!response.ok) {
-      // Token is invalid - clear the session and redirect
-      await deleteSession()
-      redirect('/login')
+      // Token is invalid/expired - redirect to login; middleware clears stale cookie
+      redirect('/login?error=session_expired')
     }
 
     return session

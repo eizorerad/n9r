@@ -1632,3 +1632,172 @@ class TestCascadeDeleteIntegrityProperties:
             assert cache.repository_id == repo.repository_id, (
                 f"Cache {cache.id} belongs to wrong repository"
             )
+
+
+# =============================================================================
+# Tests for Full Tree (Commit-Centric File Explorer)
+# =============================================================================
+
+
+class TestFullTreeCollection:
+    """Tests for collect_full_tree method."""
+
+    def test_collect_full_tree_includes_directories(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Full tree should include directories, not just files.
+        """
+        files = {
+            "src/main.py": b"# main\nprint('hello')\n" * 5,
+            "src/utils/helpers.py": b"# helpers\ndef helper(): pass\n" * 5,
+            "README.md": b"# README\nThis is a readme file.\n" * 5,
+        }
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            # Should have directories
+            dir_entries = [e for e in full_tree if e["type"] == "directory"]
+            file_entries = [e for e in full_tree if e["type"] == "file"]
+            
+            assert len(dir_entries) >= 2, "Should have at least 'src' and 'src/utils' directories"
+            assert len(file_entries) >= 3, "Should have at least 3 files"
+            
+            # Check directory names
+            dir_paths = {e["path"] for e in dir_entries}
+            assert "src" in dir_paths, "Should have 'src' directory"
+            assert "src/utils" in dir_paths, "Should have 'src/utils' directory"
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_includes_all_file_types(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Full tree should include ALL files, not just code files.
+        """
+        files = {
+            "main.py": b"# main\nprint('hello')\n" * 5,
+            "config.json": b'{"key": "value"}\n' * 5,
+            "README.md": b"# README\nThis is a readme.\n" * 5,
+            "data.csv": b"a,b,c\n1,2,3\n" * 10,
+        }
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            file_paths = {e["path"] for e in full_tree if e["type"] == "file"}
+            
+            # All files should be included
+            assert "main.py" in file_paths
+            assert "config.json" in file_paths
+            assert "README.md" in file_paths
+            assert "data.csv" in file_paths
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_excludes_hidden_files(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Full tree should exclude hidden files and .git directory.
+        """
+        files = {
+            "main.py": b"# main\nprint('hello')\n" * 5,
+            ".hidden": b"hidden content\n" * 5,
+            ".gitignore": b"*.pyc\n" * 5,
+        }
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            file_paths = {e["path"] for e in full_tree if e["type"] == "file"}
+            
+            # Hidden files should be excluded
+            assert ".hidden" not in file_paths
+            assert ".gitignore" not in file_paths
+            
+            # Regular files should be included
+            assert "main.py" in file_paths
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_has_size_metadata(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: File entries should have size metadata.
+        """
+        content = b"# main\nprint('hello')\n" * 5
+        files = {"main.py": content}
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            file_entry = next(e for e in full_tree if e["path"] == "main.py")
+            
+            assert file_entry["size"] is not None
+            assert file_entry["size"] == len(content)
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_directories_have_null_size(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Directory entries should have null size.
+        """
+        files = {"src/main.py": b"# main\nprint('hello')\n" * 5}
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            dir_entry = next(e for e in full_tree if e["path"] == "src")
+            
+            assert dir_entry["type"] == "directory"
+            assert dir_entry["size"] is None
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_is_sorted(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Full tree should be sorted with directories first.
+        """
+        files = {
+            "zebra.py": b"# zebra\n" * 10,
+            "alpha/main.py": b"# alpha\n" * 10,
+            "beta.py": b"# beta\n" * 10,
+        }
+        repo_path = create_temp_repo(files)
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            # First entry should be directory
+            assert full_tree[0]["type"] == "directory"
+            assert full_tree[0]["path"] == "alpha"
+        finally:
+            cleanup_temp_repo(repo_path)
+
+    def test_collect_full_tree_empty_repo(self):
+        """
+        **Feature: commit-centric-explorer**
+        
+        Property: Empty repo should return empty list.
+        """
+        repo_path = create_temp_repo({})
+        try:
+            service = RepoContentService()
+            full_tree = service.collect_full_tree(repo_path)
+            
+            assert full_tree == []
+        finally:
+            cleanup_temp_repo(repo_path)

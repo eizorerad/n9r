@@ -147,15 +147,27 @@ async def get_architecture_findings(
     # Requirements: 3.1, 3.2, 3.3, 3.4
     metrics = analysis.metrics or {}
     semantic_cache = analysis.semantic_cache or {}
+    cache_arch = {}
+    if isinstance(semantic_cache, dict):
+        cache_arch = semantic_cache.get("architecture_health") or {}
+        if not isinstance(cache_arch, dict):
+            cache_arch = {}
 
     # Get total_files from metrics or semantic_cache
-    total_files = metrics.get("total_files", 0) or semantic_cache.get("total_files", 0)
+    total_files = (
+        metrics.get("total_files", 0)
+        or cache_arch.get("total_files", 0)
+        or (semantic_cache.get("total_files", 0) if isinstance(semantic_cache, dict) else 0)
+    )
     if total_files == 0:
         # Fallback: use count of unique files from hot spots
         total_files = len({hs.file_path for hs in hot_spot_findings}) or 1
 
     # Get total_chunks from semantic_cache
-    total_chunks = semantic_cache.get("total_chunks", 0)
+    total_chunks = (
+        cache_arch.get("total_chunks", 0)
+        or (semantic_cache.get("total_chunks", 0) if isinstance(semantic_cache, dict) else 0)
+    )
     if total_chunks == 0:
         # Fallback: use vectors_count from analysis
         total_chunks = analysis.vectors_count or 1
@@ -165,7 +177,10 @@ async def get_architecture_findings(
     total_functions = total_chunks if total_chunks > 0 else max(total_files * 5, 1)
 
     # Get outlier count from semantic_cache
-    outliers = semantic_cache.get("outliers", [])
+    outliers = cache_arch.get("outliers")
+    if outliers is None and isinstance(semantic_cache, dict):
+        # Backward-compatibility: some legacy cache shapes may have outliers at top-level
+        outliers = semantic_cache.get("outliers")
     outlier_count = len(outliers) if isinstance(outliers, list) else 0
 
     # Calculate health score using penalty-based formula

@@ -810,6 +810,44 @@ async def _stream_response(
             payload["detail"] = detail
         return _sse("step", payload)
 
+    def _emit_thinking(content: str, iteration: int):
+        """Emit thinking event with truncated preview of LLM reasoning.
+        
+        Shows first sentence of each paragraph, truncated with "..." for long content.
+        This gives users visibility into the model's reasoning process.
+        """
+        if not content or not content.strip():
+            return ""
+        
+        # Extract preview: first sentence of each paragraph, max 3 paragraphs
+        paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
+        previews = []
+        
+        for para in paragraphs[:3]:
+            # Get first sentence (up to first period, question mark, or exclamation)
+            sentences = re.split(r'(?<=[.!?])\s+', para, maxsplit=1)
+            first_sentence = sentences[0] if sentences else para
+            
+            # Truncate long sentences
+            if len(first_sentence) > 120:
+                first_sentence = first_sentence[:117] + "..."
+            
+            previews.append(first_sentence)
+        
+        # Add "..." if there are more paragraphs
+        if len(paragraphs) > 3:
+            previews.append("...")
+        
+        preview_text = " • ".join(previews) if previews else content[:100] + "..."
+        
+        logger.info(f"[chat] Emitting thinking event: iteration={iteration}, preview_len={len(preview_text)}")
+        
+        return _sse("thinking", {
+            "content": preview_text,
+            "iteration": iteration,
+            "full_length": len(content),
+        })
+
     def _emit_context_source(
         source: str,
         status: str,
@@ -900,17 +938,17 @@ async def _stream_response(
                                         args = data.get("arguments", data.get("params", {}))
                                     
                                     if tool_name and isinstance(args, dict):
-                                        logger.debug(
+                                        logger.info(
                                             f"[tool_parse] Found tool call: {tool_name}",
                                             extra={"tool": tool_name, "args_keys": list(args.keys())},
                                         )
                                         tool_calls.append(ToolCall(name=str(tool_name), arguments=args))
                                     else:
-                                        logger.debug(
+                                        logger.info(
                                             f"[tool_parse] JSON object is not a tool call: tool_name={tool_name}, args_type={type(args).__name__}",
                                         )
                             except json.JSONDecodeError as e:
-                                logger.debug(f"[tool_parse] JSON decode error: {e}, content={json_str[:100]}")
+                                logger.info(f"[tool_parse] JSON decode error: {e}, content={json_str[:100]}")
                             i = j  # Continue after this JSON object
                             break
                     j += 1
@@ -919,7 +957,7 @@ async def _stream_response(
         if not tool_calls:
             # Log for debugging when no tool calls found
             preview = content[:200] if len(content) > 200 else content
-            logger.debug(f"[tool_parse] No tool calls found in content: {preview!r}")
+            logger.info(f"[tool_parse] No tool calls found in content: {preview!r}")
         
         return tool_calls
 
@@ -1251,6 +1289,7 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
         total_tool_chars = 0
         final_answer_seed: str | None = None
 
+        print(f"[chat] Entering tool loop, MAX_TOOL_CALLS={MAX_TOOL_CALLS}", flush=True)
         while tool_calls_used < MAX_TOOL_CALLS:
             # Emit reasoning step with iteration counter for visibility
             yield _emit_step(
@@ -1267,9 +1306,19 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
             )
             content = (resp.get("content") or "").strip()
 
+            # Emit thinking event with preview of LLM reasoning
+            # This shows users what the model is thinking about
+            print(f"[chat] LLM response received, content_len={len(content)}, preview={content[:100]!r}", flush=True)
+            if content:
+                thinking_event = _emit_thinking(content, tool_calls_used + 1)
+                print(f"[chat] thinking_event generated: {bool(thinking_event)}", flush=True)
+                if thinking_event:
+                    yield thinking_event
+
             # Parse tool calls from anywhere in the content (not just at start)
             # The model may output explanatory text before/after the JSON tool call
             calls = _parse_tool_calls(content)
+            print(f"[chat] Tool calls parsed: {len(calls)} found", flush=True)
             if not calls:
                 # No tool calls found - this is the final answer
                 final_answer_seed = content

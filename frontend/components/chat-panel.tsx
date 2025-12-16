@@ -225,6 +225,13 @@ export function ChatPanel({
   const [showContextPanel, setShowContextPanel] = useState(true)
   const [steeringDocs, setSteeringDocs] = useState<string[]>([])
   const [showAgentLogInChat, setShowAgentLogInChat] = useState(true)
+  
+  // Thinking tokens state - shows LLM reasoning in compact format
+  const [thinkingSteps, setThinkingSteps] = useState<Array<{
+    id: string
+    content: string
+    iteration: number
+  }>>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -282,6 +289,7 @@ export function ChatPanel({
     const userMessage = input.trim()
     setInput('')
     setIsLoading(true)
+    setThinkingSteps([]) // Clear previous thinking steps
 
     // Add user message immediately (styled bubble)
     const tempUserMsg: Message = {
@@ -463,8 +471,26 @@ export function ChatPanel({
           return
         }
 
+        // Handle thinking event - shows LLM reasoning in compact format
+        if (eventName === 'thinking') {
+          try {
+            const payload = JSON.parse(dataStr) as { content?: string; iteration?: number }
+            console.log('[chat] thinking event received:', payload)
+            if (payload.content) {
+              const content = payload.content // capture for type narrowing
+              setThinkingSteps(prev => [...prev, {
+                id: `thinking-${Date.now()}`,
+                content,
+                iteration: payload.iteration || 1,
+              }])
+            }
+          } catch { /* ignore malformed payload */ }
+          return
+        }
+
         if (eventName === 'done') {
-          // Streaming complete
+          // Streaming complete - clear thinking steps
+          setThinkingSteps([])
           setMessages(prev => [
             ...prev,
             {
@@ -808,6 +834,30 @@ export function ChatPanel({
             </div>
           )
         })}
+
+        {/* Thinking steps - compact preview of LLM reasoning */}
+        {thinkingSteps.length > 0 && (
+          <div className="flex justify-start">
+            <div className={cn(
+              "max-w-[92%] rounded px-2 py-1.5 text-[11px] bg-[#1a1a1a] border border-[#333] text-[#888]",
+              streamingContent && "opacity-50"
+            )}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Loader2 className={cn("h-3 w-3 text-[#666]", !streamingContent && "animate-spin")} />
+                <span className="text-[10px] uppercase tracking-wide text-[#666]">
+                  {streamingContent ? "Thought" : "Thinking"}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {thinkingSteps.slice(-3).map((step) => (
+                  <div key={step.id} className="text-[#777] leading-snug">
+                    {step.content}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Streaming message */}
         {streamingContent && (

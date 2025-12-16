@@ -583,12 +583,13 @@ def compute_semantic_cache(
         commit_sha = None
         with _get_db_session() as session:
             from sqlalchemy import select
+
             from app.models.analysis import Analysis
             result = session.execute(
                 select(Analysis.commit_sha).where(Analysis.id == UUID(analysis_id))
             )
             commit_sha = result.scalar_one_or_none()
-        
+
         logger.info(f"Running cluster analysis for repo {repository_id}, commit={commit_sha or 'ALL'}")
 
         # Run cluster analysis (commit-aware when commit_sha available)
@@ -1032,13 +1033,32 @@ def _populate_content_cache(
                     commit_sha,
                 )
 
-                # If cache is already ready, skip
+                # If cache is already ready, we update the full_tree to ensure dotfiles are visible
+                # (since we changed the filter logic), but we MUST return "skipped" to avoid
+                # triggering upload_files which sets status to "uploading" (causing GitHub fallback)
                 if cache.status == "ready":
-                    logger.info(f"Cache already ready for {commit_sha[:7]}")
-                    return {
-                        "status": "skipped",
-                        "reason": "cache_already_ready",
-                    }
+                    try:
+                        logger.info(f"Cache ready for {commit_sha[:7]}, updating full_tree for dotfiles...")
+                        # Collect full tree (fast, local disk walk)
+                        full_tree = service.collect_full_tree(repo_path)
+                        # Save tree (idempotent upsert)
+                        await service.save_tree(db, cache.id, [], full_tree=full_tree)
+                        
+                        logger.info(f"Updated full_tree for {commit_sha[:7]}")
+                        return {
+                            "status": "skipped",
+                            "reason": "cache_already_ready",
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to update full_tree for ready cache: {e}")
+                        # If tree update fails, still return skipped to keep system stable
+                        return {
+                            "status": "skipped",
+                            "reason": "cache_already_ready_tree_update_failed",
+                        }
+
+
+
 
                 # If cache is uploading (another process is working on it), skip
                 if cache.status == "uploading":
@@ -1048,10 +1068,13 @@ def _populate_content_cache(
                         "reason": "cache_uploading",
                     }
 
-                # 2. Collect files from cloned repo
+                # 2. Collect files from cloned repo (code files for MinIO)
                 files = service.collect_files_from_repo(Path(repo_path))
 
-                if not files:
+                # 2b. Collect full tree for file explorer (all files/dirs)
+                full_tree = service.collect_full_tree(Path(repo_path))
+
+                if not files and not full_tree:
                     logger.info(f"No files to cache for {commit_sha[:7]}")
                     # Mark as ready with 0 files
                     await service.mark_cache_ready(db, cache.id)
@@ -1061,10 +1084,10 @@ def _populate_content_cache(
                         "files_cached": 0,
                     }
 
-                # 3. Upload to MinIO + record in PostgreSQL
-                result = await service.upload_files(db, cache, files)
+                # 3. Upload code files to MinIO + record in PostgreSQL
+                result = await service.upload_files(db, cache, files) if files else None
 
-                if result.failed > 0 and result.uploaded == 0:
+                if result and result.failed > 0 and result.uploaded == 0:
                     # All files failed - mark cache as failed
                     await service.mark_cache_failed(
                         db,
@@ -1078,19 +1101,25 @@ def _populate_content_cache(
                         "errors": result.errors[:5],  # First 5 errors
                     }
 
-                # 4. Build and save tree structure
-                tree = [f.path for f in files]
-                await service.save_tree(db, cache.id, tree)
+                # 4. Build and save tree structures
+                tree = [f.path for f in files] if files else []
+                await service.save_tree(db, cache.id, tree, full_tree=full_tree)
 
                 # 5. Mark cache as ready
                 await service.mark_cache_ready(db, cache.id)
                 await db.commit()
 
-                logger.info(
-                    f"Content cache populated for {commit_sha[:7]}: "
-                    f"{result.uploaded} uploaded, {result.skipped} skipped, "
-                    f"{result.failed} failed"
-                )
+                if result:
+                    logger.info(
+                        f"Content cache populated for {commit_sha[:7]}: "
+                        f"{result.uploaded} uploaded, {result.skipped} skipped, "
+                        f"{result.failed} failed, {len(full_tree)} tree entries"
+                    )
+                else:
+                    logger.info(
+                        f"Content cache populated for {commit_sha[:7]}: "
+                        f"0 code files, {len(full_tree)} tree entries"
+                    )
 
                 return {
                     "status": "completed",

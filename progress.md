@@ -476,3 +476,33 @@ Implemented branch/commit context awareness for chat conversations. When users s
 **Frontend Display**: Messages show branch indicator badge when their ref differs from current context. Shortened display (first 7 chars for commit SHAs).
 
 **Cache Integration**: Works with existing repo content cache - cached commits get fast responses, uncached branches fall back to GitHub API.
+
+
+# 15-dec-2025 - Commit-Centric File Explorer
+
+## Files Created
+- `backend/alembic/versions/020_add_full_tree_to_content_cache.py` - Migration adding `full_tree` JSONB column to repo_content_tree
+
+## Files Modified
+- `backend/app/models/repo_content_tree.py` - Added `full_tree: Mapped[list[Any] | None]` field for complete directory structure
+- `backend/app/services/repo_content.py` - Added `collect_full_tree()` for all files/dirs, `get_full_tree()` with path filtering, updated `save_tree()` to accept full_tree
+- `backend/app/workers/embeddings.py` - Collects and saves full_tree during clone phase in `_populate_content_cache()`
+- `backend/app/api/v1/repositories.py` - Cache-first logic in `get_repository_files()` and `get_repository_file_content()` endpoints
+- `backend/tests/test_repo_content_cache.py` - Added 7 tests in `TestFullTreeCollection` class
+
+## What Was Done
+Made file explorer commit-centric by using PostgreSQL/MinIO cache instead of GitHub API when viewing analyzed commits.
+
+**Problem**: File explorer always called GitHub API even when viewing commits that had been analyzed and cached. This was slow (100-500ms) and consumed rate limits.
+
+**Solution**: Extended repo content cache to store complete directory tree (not just code files). Backend endpoints now detect commit SHAs and try cache first.
+
+**Database Schema**: Added `full_tree` JSONB column storing entries like `[{"name": "src", "path": "src", "type": "directory", "size": null}, ...]`
+
+**New Methods**:
+- `collect_full_tree()` - Collects ALL files and directories (unlike `collect_files_from_repo` which only collects code files)
+- `get_full_tree()` - Retrieves cached tree with optional path filtering for subdirectory navigation
+
+**Cache-First Flow**: Endpoints check if ref is 40-char hex (commit SHA), try cache, fallback to GitHub API. Response includes `source: "cache"` or `source: "github"` for debugging.
+
+**Performance**: Cache hits ~1-10ms vs GitHub API ~100-500ms. No rate limit consumption for cached commits.

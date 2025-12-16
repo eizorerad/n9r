@@ -404,7 +404,13 @@ async def get_repository_files(
     path: str = Query(default="", description="Path within the repository"),
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
 ) -> dict:
-    """Get file tree of a repository path."""
+    """Get file tree of a repository path.
+    
+    Commit-centric: If ref is a commit SHA with cached content, returns
+    files from PostgreSQL cache. Otherwise falls back to GitHub API.
+    """
+    from app.services.repo_content import RepoContentService
+
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -420,6 +426,32 @@ async def get_repository_files(
             detail="Repository not found",
         )
 
+    effective_ref = ref or repository.default_branch
+
+    # Try cache first if ref looks like a commit SHA (40 hex chars)
+    if effective_ref and len(effective_ref) == 40 and all(c in "0123456789abcdef" for c in effective_ref.lower()):
+        try:
+            service = RepoContentService()
+            cached_tree = await service.get_full_tree(db, repo_id, effective_ref, path)
+
+            if cached_tree is not None:
+                logger.debug(f"Serving files from cache for {effective_ref[:7]} path={path}")
+                items = [
+                    FileTreeItem(
+                        name=entry["name"],
+                        path=entry["path"],
+                        type=entry["type"],
+                        size=entry.get("size"),
+                    )
+                    for entry in cached_tree
+                ]
+                # Sort: directories first, then files
+                items.sort(key=lambda x: (x.type != "directory", x.name.lower()))
+                return {"data": items, "source": "cache"}
+        except Exception as e:
+            logger.warning(f"Cache lookup failed, falling back to GitHub: {e}")
+
+    # Fallback to GitHub API
     github_token = require_github_token(current_user)
 
     try:
@@ -432,7 +464,7 @@ async def get_repository_files(
             owner=owner,
             repo=repo_name,
             path=path,
-            ref=ref or repository.default_branch,
+            ref=effective_ref,
         )
 
         # Handle single file case
@@ -453,7 +485,7 @@ async def get_repository_files(
         # Sort: directories first, then files
         items.sort(key=lambda x: (x.type != "directory", x.name.lower()))
 
-        return {"data": items}
+        return {"data": items, "source": "github"}
 
     except Exception as e:
         logger.error(f"Failed to get repository files: {e}")
@@ -471,7 +503,13 @@ async def get_repository_file_content(
     db: DbSession,
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
 ) -> FileContent:
-    """Get content of a specific file."""
+    """Get content of a specific file.
+    
+    Commit-centric: If ref is a commit SHA with cached content, returns
+    file from MinIO cache. Otherwise falls back to GitHub API.
+    """
+    from app.services.repo_content import RepoContentService
+
     # Get repository
     result = await db.execute(
         select(Repository).where(
@@ -487,6 +525,44 @@ async def get_repository_file_content(
             detail="Repository not found",
         )
 
+    effective_ref = ref or repository.default_branch
+
+    # Helper to detect language from file extension
+    def get_language(path: str) -> str | None:
+        if "." not in path:
+            return None
+        ext = path.rsplit(".", 1)[1].lower()
+        language_map = {
+            "py": "python", "js": "javascript", "ts": "typescript",
+            "tsx": "typescript", "jsx": "javascript", "java": "java",
+            "rb": "ruby", "go": "go", "rs": "rust", "c": "c",
+            "cpp": "cpp", "h": "c", "hpp": "cpp", "cs": "csharp",
+            "php": "php", "swift": "swift", "kt": "kotlin", "scala": "scala",
+            "sql": "sql", "html": "html", "css": "css", "scss": "scss",
+            "json": "json", "yaml": "yaml", "yml": "yaml", "xml": "xml",
+            "md": "markdown", "sh": "shell", "bash": "shell",
+        }
+        return language_map.get(ext)
+
+    # Try cache first if ref looks like a commit SHA (40 hex chars)
+    if effective_ref and len(effective_ref) == 40 and all(c in "0123456789abcdef" for c in effective_ref.lower()):
+        try:
+            service = RepoContentService()
+            cached_content = await service.get_file(db, repo_id, effective_ref, file_path)
+
+            if cached_content is not None:
+                logger.debug(f"Serving file from cache: {file_path} @ {effective_ref[:7]}")
+                return FileContent(
+                    path=file_path,
+                    content=cached_content,
+                    encoding="utf-8",
+                    size=len(cached_content.encode("utf-8")),
+                    language=get_language(file_path),
+                )
+        except Exception as e:
+            logger.warning(f"Cache lookup failed for {file_path}, falling back to GitHub: {e}")
+
+    # Fallback to GitHub API
     github_token = require_github_token(current_user)
 
     try:
@@ -501,7 +577,7 @@ async def get_repository_file_content(
                 owner=owner,
                 repo=repo_name,
                 path=file_path,
-                ref=ref or repository.default_branch,
+                ref=effective_ref,
             )
 
             # Check if path is a directory
@@ -537,53 +613,15 @@ async def get_repository_file_content(
             owner=owner,
             repo=repo_name,
             path=file_path,
-            ref=ref or repository.default_branch,
+            ref=effective_ref,
         )
-
-        # Detect language from file extension
-        language = None
-        if "." in file_path:
-            ext = file_path.rsplit(".", 1)[1].lower()
-            language_map = {
-                "py": "python",
-                "js": "javascript",
-                "ts": "typescript",
-                "tsx": "typescript",
-                "jsx": "javascript",
-                "java": "java",
-                "rb": "ruby",
-                "go": "go",
-                "rs": "rust",
-                "c": "c",
-                "cpp": "cpp",
-                "h": "c",
-                "hpp": "cpp",
-                "cs": "csharp",
-                "php": "php",
-                "swift": "swift",
-                "kt": "kotlin",
-                "scala": "scala",
-                "sql": "sql",
-                "html": "html",
-                "css": "css",
-                "scss": "scss",
-                "json": "json",
-                "yaml": "yaml",
-                "yml": "yaml",
-                "xml": "xml",
-                "md": "markdown",
-                "sh": "bash",
-                "bash": "bash",
-                "dockerfile": "dockerfile",
-            }
-            language = language_map.get(ext)
 
         return FileContent(
             path=file_path,
             content=content,
             encoding="utf-8",
             size=len(content),
-            language=language,
+            language=get_language(file_path),
         )
 
     except ValueError as e:

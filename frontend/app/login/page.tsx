@@ -2,16 +2,10 @@ import { Suspense } from 'react'
 import Link from 'next/link'
 import { Github, AlertCircle } from 'lucide-react'
 import { loginWithGitHub } from '@/app/actions/auth'
-import { deleteSession } from '@/lib/session'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 async function LoginForm({ error }: { error?: string }) {
-  // Clear stale session if user was redirected due to expired token
-  if (error === 'session_expired') {
-    await deleteSession()
-  }
-  
   // Map error codes to user-friendly messages
   const errorMessage = error === 'session_expired' 
     ? 'Your session has expired. Please sign in again.'
