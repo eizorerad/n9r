@@ -72,6 +72,8 @@ class SemanticSearchResult(BaseModel):
     similarity: float
     qualified_name: str | None = None
     language: str | None = None
+    content_truncated: bool = False  # Indicates if content was truncated
+    full_content_length: int | None = None  # Original content length before truncation
 
 
 class SemanticSearchResponse(BaseModel):
@@ -147,6 +149,8 @@ async def semantic_search(
                 similarity=round(hit.score, 4),
                 qualified_name=hit.payload.get("qualified_name"),
                 language=hit.payload.get("language"),
+                content_truncated=hit.payload.get("content_truncated", False),
+                full_content_length=hit.payload.get("full_content_length"),
             )
             for hit in points
         ]

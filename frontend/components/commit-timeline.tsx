@@ -193,6 +193,7 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
   })
 
   // Fetch commits with infinite scroll
+  // Smart polling: only poll when analysis is actively running
   const {
     data: commitsData,
     isLoading: commitsLoading,
@@ -209,7 +210,24 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     initialPageParam: 1,
     enabled: !!token && !!repositoryId && !!selectedBranch,
     staleTime: 60 * 1000,
-    refetchInterval: selectedCommitSha ? 5000 : false,
+    // Smart polling: only poll when selected commit has active analysis
+    refetchInterval: (query) => {
+      if (!selectedCommitSha) return false
+      
+      // Find the selected commit in the current data
+      const commits = query.state.data?.pages.flatMap(page => page.commits) || []
+      const selectedCommit = commits.find(c => c.sha === selectedCommitSha)
+      
+      // Only poll if analysis is actively running or pending
+      if (selectedCommit?.analysis_status === 'running' || 
+          selectedCommit?.analysis_status === 'pending') {
+        return 5000  // Fast polling during active analysis
+      }
+      
+      return false  // Stop polling when idle/completed/failed
+    },
+    // Also refetch when window regains focus (for idle state updates)
+    refetchOnWindowFocus: true,
   })
 
   const branches = branchesData?.data || []

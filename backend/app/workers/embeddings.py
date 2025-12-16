@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.celery import celery_app
 from app.core.config import settings
 from app.core.redis import publish_embedding_progress
+from app.schemas.qdrant_payload import QdrantPointPayload
 from app.services.code_chunker import CodeChunk, get_code_chunker
 from app.services.vector_store import stable_int64_hash
 
@@ -379,30 +380,37 @@ def generate_embeddings(
             point_key = f"{repository_id}:{commit_sha}:{chunk.file_path}:{chunk.line_start}"
             point_id = stable_int64_hash(point_key)
 
+            # Track content truncation for UI indication
+            content_length = len(chunk.content)
+            content_truncated = content_length > 2000
+
+            # Use Pydantic model for payload validation
+            payload = QdrantPointPayload(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
+                file_path=chunk.file_path,
+                language=chunk.language,
+                chunk_type=chunk.chunk_type,
+                name=chunk.name,
+                line_start=chunk.line_start,
+                line_end=chunk.line_end,
+                parent_name=chunk.parent_name,
+                docstring=chunk.docstring,
+                content=chunk.content[:2000],
+                content_truncated=content_truncated,
+                full_content_length=content_length,
+                token_estimate=chunk.token_estimate,
+                level=chunk.level,
+                qualified_name=chunk.qualified_name,
+                cyclomatic_complexity=chunk.cyclomatic_complexity,
+                line_count=chunk.line_count,
+                cluster_id=None,
+            )
+
             points.append(PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload={
-                    "schema_version": 1,  # Payload schema version for future migrations
-                    "repository_id": repository_id,
-                    "commit_sha": commit_sha,
-                    "file_path": chunk.file_path,
-                    "language": chunk.language,
-                    "chunk_type": chunk.chunk_type,
-                    "name": chunk.name,
-                    "line_start": chunk.line_start,
-                    "line_end": chunk.line_end,
-                    "parent_name": chunk.parent_name,
-                    "docstring": chunk.docstring,
-                    "content": chunk.content[:2000],  # Limit stored content
-                    "token_estimate": chunk.token_estimate,
-                    # Hierarchical and metrics fields
-                    "level": chunk.level,
-                    "qualified_name": chunk.qualified_name,
-                    "cyclomatic_complexity": chunk.cyclomatic_complexity,
-                    "line_count": chunk.line_count,
-                    "cluster_id": None,  # Will be set by cluster analysis
-                }
+                payload=payload.model_dump(),
             ))
 
         logger.info(f"Generated {len(points)} embedding vectors")
@@ -1425,29 +1433,37 @@ def generate_embeddings_parallel(
             point_key = f"{repository_id}:{commit_sha}:{chunk.file_path}:{chunk.line_start}"
             point_id = stable_int64_hash(point_key)
 
+            # Track content truncation for UI indication
+            content_length = len(chunk.content)
+            content_truncated = content_length > 2000
+
+            # Use Pydantic model for payload validation
+            payload = QdrantPointPayload(
+                repository_id=repository_id,
+                commit_sha=commit_sha,
+                file_path=chunk.file_path,
+                language=chunk.language,
+                chunk_type=chunk.chunk_type,
+                name=chunk.name,
+                line_start=chunk.line_start,
+                line_end=chunk.line_end,
+                parent_name=chunk.parent_name,
+                docstring=chunk.docstring,
+                content=chunk.content[:2000],
+                content_truncated=content_truncated,
+                full_content_length=content_length,
+                token_estimate=chunk.token_estimate,
+                level=chunk.level,
+                qualified_name=chunk.qualified_name,
+                cyclomatic_complexity=chunk.cyclomatic_complexity,
+                line_count=chunk.line_count,
+                cluster_id=None,
+            )
+
             points.append(PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload={
-                    "schema_version": 1,  # Payload schema version for future migrations
-                    "repository_id": repository_id,
-                    "commit_sha": commit_sha,
-                    "file_path": chunk.file_path,
-                    "language": chunk.language,
-                    "chunk_type": chunk.chunk_type,
-                    "name": chunk.name,
-                    "line_start": chunk.line_start,
-                    "line_end": chunk.line_end,
-                    "parent_name": chunk.parent_name,
-                    "docstring": chunk.docstring,
-                    "content": chunk.content[:2000],
-                    "token_estimate": chunk.token_estimate,
-                    "level": chunk.level,
-                    "qualified_name": chunk.qualified_name,
-                    "cyclomatic_complexity": chunk.cyclomatic_complexity,
-                    "line_count": chunk.line_count,
-                    "cluster_id": None,
-                }
+                payload=payload.model_dump(),
             ))
 
         logger.info(f"Generated {len(points)} embedding vectors")

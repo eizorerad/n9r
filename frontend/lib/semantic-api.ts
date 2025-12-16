@@ -24,12 +24,16 @@ export interface SemanticSearchResult {
   similarity: number;
   qualified_name: string | null;
   language: string | null;
+  content_truncated: boolean;  // Indicates if content was truncated at 2000 chars
+  full_content_length: number | null;  // Original content length before truncation
 }
 
 export interface SemanticSearchResponse {
   query: string;
   results: SemanticSearchResult[];
   total: number;
+  resolved_commit_sha: string | null;  // Actual commit SHA used for query
+  requested_ref: string | null;  // Original ref requested by user
 }
 
 export interface ClusterInfo {

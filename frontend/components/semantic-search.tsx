@@ -74,6 +74,13 @@ export function SemanticSearch({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchTime, setSearchTime] = useState<number | null>(null)
+  const [resolvedCommitSha, setResolvedCommitSha] = useState<string | null>(null)
+  const [requestedRef, setRequestedRef] = useState<string | null>(null)
+
+  // Detect if fallback occurred (requested a ref but got different commit)
+  const isFallback = requestedRef && resolvedCommitSha && 
+    requestedRef !== resolvedCommitSha && 
+    !resolvedCommitSha.startsWith(requestedRef)
 
   const handleSearch = useCallback(async () => {
     if (!query.trim() || query.length < 2) return
@@ -86,6 +93,8 @@ export function SemanticSearch({
       const response = await semanticApi.search(token, repositoryId, query, 20)
       setResults(response.results)
       setSearchTime(Date.now() - startTime)
+      setResolvedCommitSha(response.resolved_commit_sha)
+      setRequestedRef(response.requested_ref)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
       setResults([])
@@ -138,6 +147,19 @@ export function SemanticSearch({
       {error && (
         <div className="flex-none mx-3 mb-2 p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
           {error}
+        </div>
+      )}
+
+      {/* Fallback Warning - shown when searching older commit data */}
+      {isFallback && resolvedCommitSha && (
+        <div className="flex-none mx-3 mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-medium">Showing results from older analysis</span>
+            <span className="block text-amber-400/70 mt-0.5">
+              Commit {resolvedCommitSha.slice(0, 7)} • Run analysis on current code for up-to-date results
+            </span>
+          </div>
         </div>
       )}
 
@@ -252,11 +274,16 @@ function SearchResultCard({ result, onClick }: SearchResultCardProps) {
                 : result.content}
             </pre>
           )}
-          {result.line_start && result.line_end && (
-            <div className="text-[10px] text-muted-foreground">
-              Lines {result.line_start}-{result.line_end}
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {result.line_start && result.line_end && (
+              <span>Lines {result.line_start}-{result.line_end}</span>
+            )}
+            {result.content_truncated && result.full_content_length && (
+              <span className="text-amber-400/70">
+                (truncated, {result.full_content_length.toLocaleString()} chars total)
+              </span>
+            )}
+          </div>
         </div>
       </CollapsibleContent>
     </Collapsible>
