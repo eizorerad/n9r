@@ -701,21 +701,25 @@ async def get_analysis_metrics(
             "complexity": {
                 "score": metrics.get("complexity_score", 0),
                 "weight": 0.25,
+                "description": "Cyclomatic complexity and long file penalties",
                 "details": metrics.get("complexity_details", {}),
             },
             "duplication": {
                 "score": metrics.get("duplication_score", 0),
                 "weight": 0.25,
+                "description": "Code pattern score (placeholder for clone detection)",
                 "details": metrics.get("duplication_details", {}),
             },
-            "maintainability": {
-                "score": metrics.get("maintainability_score", 0),
+            "heuristics": {
+                "score": metrics.get("heuristics_score", 0),
                 "weight": 0.30,
-                "details": metrics.get("maintainability_details", {}),
+                "description": "Hard heuristics: naming, magic numbers, documentation, TODOs",
+                "details": metrics.get("heuristics_details", {}),
             },
             "architecture": {
                 "score": metrics.get("architecture_score", 0),
                 "weight": 0.20,
+                "description": "File organization and language consistency",
                 "details": metrics.get("architecture_details", {}),
             },
         },

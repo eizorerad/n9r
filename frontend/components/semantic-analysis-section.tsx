@@ -18,8 +18,10 @@ import { Loader2 } from 'lucide-react'
 interface SemanticCacheData {
   analysis_id: string
   commit_sha: string
+  cache_schema_version?: number  // Schema version for future migrations (v1+)
   architecture_health: {
     overall_score?: number
+    cluster_health_score?: number  // Explicit name: measures code organization quality
     score?: number  // Legacy field for backward compatibility
     clusters: Array<{
       id: number
@@ -68,6 +70,7 @@ interface SemanticCacheData {
   } | null
   computed_at: string | null
   is_cached: boolean
+  insights_generation_failed?: boolean  // True if AI insights generation failed
 }
 
 interface SemanticAnalysisSectionProps {

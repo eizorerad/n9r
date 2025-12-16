@@ -79,6 +79,8 @@ class SemanticSearchResponse(BaseModel):
     query: str
     results: list[SemanticSearchResult]
     total: int
+    resolved_commit_sha: str | None = None  # Actual commit SHA used for query
+    requested_ref: str | None = None  # Original ref requested by user
 
 
 @router.get("/repositories/{repository_id}/semantic-search")
@@ -153,6 +155,8 @@ async def semantic_search(
             query=q,
             results=search_results,
             total=len(search_results),
+            resolved_commit_sha=commit_sha,
+            requested_ref=ref,
         )
 
     except Exception as e:
@@ -181,6 +185,8 @@ class RelatedCodeResponse(BaseModel):
     query_file: str
     cluster: str | None = None
     related: list[RelatedCodeResult]
+    resolved_commit_sha: str | None = None  # Actual commit SHA used for query
+    requested_ref: str | None = None  # Original ref requested by user
 
 
 @router.get("/repositories/{repository_id}/related-code")
@@ -268,6 +274,8 @@ async def get_related_code(
             query_file=file,
             cluster=None,  # Will be populated by cluster analysis
             related=related,
+            resolved_commit_sha=commit_sha,
+            requested_ref=ref,
         )
 
     except HTTPException:

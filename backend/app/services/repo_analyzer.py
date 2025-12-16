@@ -947,17 +947,45 @@ class RepoAnalyzer:
                     logger.debug(f"Error in heuristics for {filepath}: {e}")
 
         # Calculate heuristics score (adjusted weights for AST-based detection)
-        # Since AST detection has fewer false positives, we can be stricter
+        # Calculate size-normalized heuristics score
+        # Normalize penalties to repo size (per 1000 lines or per 10 files)
+        total_files = max(1, metrics.total_files)
+        total_kloc = max(1, metrics.total_lines / 1000)
+
+        # Size-normalized penalties (issues per unit)
         penalties = 0
-        penalties += min(20, metrics.generic_names * 1.0)  # Higher penalty per issue (fewer FPs)
-        penalties += min(15, metrics.magic_numbers * 0.5)  # Slightly higher
-        penalties += min(15, metrics.missing_docstrings * 1)
-        penalties += min(10, metrics.missing_type_hints * 0.1)
-        penalties += min(10, metrics.todo_comments * 0.5)
+
+        # Generic names: per 10 files, cap at 15
+        generic_per_10_files = (metrics.generic_names / total_files) * 10
+        penalties += min(15, generic_per_10_files * 2)
+
+        # Magic numbers: per KLOC, cap at 15
+        magic_per_kloc = metrics.magic_numbers / total_kloc
+        penalties += min(15, magic_per_kloc * 0.5)
+
+        # Missing docstrings: per 10 files, cap at 10
+        docstring_per_10_files = (metrics.missing_docstrings / total_files) * 10
+        penalties += min(10, docstring_per_10_files * 1.5)
+
+        # Missing type hints: per KLOC, cap at 10
+        type_hints_per_kloc = metrics.missing_type_hints / total_kloc
+        penalties += min(10, type_hints_per_kloc * 0.05)
+
+        # TODO comments: per KLOC, cap at 10
+        todos_per_kloc = metrics.todo_comments / total_kloc
+        penalties += min(10, todos_per_kloc * 0.5)
+
+        # Long files penalty: percentage of files that are long, cap at 10
+        long_file_ratio = metrics.long_files / total_files
+        penalties += min(10, long_file_ratio * 30)
 
         metrics.heuristics_score = max(0, round(100 - penalties, 1))
 
-        logger.info(f"Hard heuristics (AST): generic={metrics.generic_names}, magic={metrics.magic_numbers}, todos={metrics.todo_comments}")
+        logger.info(
+            f"Hard heuristics (size-normalized): generic={metrics.generic_names}, "
+            f"magic={metrics.magic_numbers}, todos={metrics.todo_comments}, "
+            f"long_files={metrics.long_files}, total_files={total_files}"
+        )
 
         return results
 
@@ -1040,16 +1068,88 @@ class RepoAnalyzer:
 
         return issues
 
+    def _calculate_architecture_score(self, metrics: AnalysisMetrics) -> float:
+        """Calculate architecture score based on file organization and structure.
+
+        Factors considered:
+        - Language consistency (single dominant language)
+        - Presence of tests
+        - Presence of documentation (README)
+        - Organized structure (src/, lib/, app/ directories)
+        - Reasonable file count distribution
+
+        Returns:
+            Architecture score 0-100
+        """
+        if not self.temp_dir:
+            return 70.0  # Default when no repo available
+
+        score = 70.0  # Base score
+
+        # Check language consistency (+10 for dominant language)
+        if metrics.total_files > 0:
+            python_ratio = metrics.python_files / metrics.total_files
+            js_ts_ratio = metrics.js_ts_files / metrics.total_files
+            if python_ratio > 0.7 or js_ts_ratio > 0.7:
+                score += 10
+
+        # Check for tests (+5)
+        has_tests = False
+        for root, dirs, files in os.walk(self.temp_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'node_modules']
+            for f in files:
+                if 'test' in f.lower() or '__tests__' in root:
+                    has_tests = True
+                    break
+            if has_tests:
+                break
+        if has_tests:
+            score += 5
+
+        # Check for README (+5)
+        has_readme = any(
+            f.lower().startswith('readme')
+            for f in os.listdir(self.temp_dir)
+            if os.path.isfile(os.path.join(self.temp_dir, f))
+        )
+        if has_readme:
+            score += 5
+
+        # Check for organized structure (+5 for src/, lib/, or app/ directory)
+        has_organized_structure = any(
+            d in ('src', 'lib', 'app', 'pkg', 'internal')
+            for d in os.listdir(self.temp_dir)
+            if os.path.isdir(os.path.join(self.temp_dir, d))
+        )
+        if has_organized_structure:
+            score += 5
+
+        # Penalty for too many files at root level (-5)
+        root_files = [
+            f for f in os.listdir(self.temp_dir)
+            if os.path.isfile(os.path.join(self.temp_dir, f))
+            and not f.startswith('.')
+            and f not in ('README.md', 'LICENSE', 'package.json', 'pyproject.toml', 'Makefile', 'Dockerfile')
+        ]
+        if len(root_files) > 10:
+            score -= 5
+
+        # Penalty for very deep nesting (avg depth > 5) - indicates over-engineering
+        # This is a simplified check
+        if metrics.total_files > 0 and metrics.long_files > metrics.total_files * 0.3:
+            score -= 5  # Too many long files suggests poor modularization
+
+        return max(40.0, min(100.0, score))
+
     def calculate_vci_score_enhanced(self, metrics: AnalysisMetrics, complexity_data: dict) -> float:
         """
         Calculate enhanced Vibe-Code Index (VCI) score.
 
-        VCI = weighted average of:
-        - Complexity score (25%)
-        - Duplication score (20%)
-        - Maintainability score (25%)
-        - Heuristics score (20%)
-        - Architecture score (10%)
+        VCI = weighted average of (aligned with PRD):
+        - Complexity score (25%) - cyclomatic complexity + long files penalty
+        - Duplication score (25%) - code patterns (placeholder until jscpd integration)
+        - Heuristics score (30%) - hard heuristics (generic names, magic numbers, docs, etc.)
+        - Architecture score (20%) - file organization and structure
         """
         # Complexity score (based on cyclomatic complexity)
         avg_cc = complexity_data.get("avg_complexity", 5.0)
@@ -1062,25 +1162,12 @@ class RepoAnalyzer:
         else:
             complexity_score = max(0, 40 - (avg_cc - 20))
 
-        # Long files penalty
+        # Long files penalty (applied to complexity)
         long_file_penalty = min(20, metrics.long_files * 2)
         complexity_score = max(0, complexity_score - long_file_penalty)
 
-        # Maintainability score
-        if metrics.total_files > 0:
-            avg_lines_per_file = metrics.total_lines / metrics.total_files
-            if avg_lines_per_file <= 100:
-                maintainability_score = 100
-            elif avg_lines_per_file <= 200:
-                maintainability_score = 90 - (avg_lines_per_file - 100) * 0.1
-            elif avg_lines_per_file <= 300:
-                maintainability_score = 80 - (avg_lines_per_file - 200) * 0.15
-            else:
-                maintainability_score = max(40, 65 - (avg_lines_per_file - 300) * 0.05)
-        else:
-            maintainability_score = 50
-
-        # Duplication score (estimate based on file count and patterns)
+        # Duplication score (placeholder - measures code patterns until jscpd integration)
+        # TODO: Integrate jscpd for real clone detection
         duplication_score = 80  # Base score
         if metrics.total_files > 50:
             duplication_score -= 5
@@ -1088,25 +1175,21 @@ class RepoAnalyzer:
             duplication_score -= 10
         duplication_score = max(50, duplication_score)
 
-        # Architecture score (based on file organization)
-        architecture_score = 75
-        if metrics.total_files > 0:
-            if metrics.python_files / metrics.total_files > 0.7 or metrics.js_ts_files / metrics.total_files > 0.7:
-                architecture_score = 80  # Good language consistency
+        # Architecture score (based on file organization and structure)
+        architecture_score = self._calculate_architecture_score(metrics)
 
-        # Store scores
+        # Store scores for metrics API
         metrics.complexity_score = round(complexity_score, 1)
-        metrics.maintainability_score = round(maintainability_score, 1)
         metrics.duplication_score = round(duplication_score, 1)
         metrics.architecture_score = round(architecture_score, 1)
+        # Note: heuristics_score is set in run_hard_heuristics()
 
-        # Calculate weighted VCI with heuristics
+        # Calculate weighted VCI (PRD formula: 25/25/30/20)
         vci = (
             complexity_score * 0.25 +
-            duplication_score * 0.20 +
-            maintainability_score * 0.25 +
-            metrics.heuristics_score * 0.20 +
-            architecture_score * 0.10
+            duplication_score * 0.25 +
+            metrics.heuristics_score * 0.30 +
+            architecture_score * 0.20
         )
 
         return round(vci, 2)
@@ -1204,6 +1287,16 @@ class RepoAnalyzer:
         # Detect issues (with heuristics data)
         issues = self.detect_issues(metrics, complexity_data, heuristics_data)
 
+        # Determine complexity source for transparency
+        if radon_success and lizard_success:
+            complexity_source = "radon+lizard"
+        elif radon_success:
+            complexity_source = "radon"
+        elif lizard_success:
+            complexity_source = "lizard"
+        else:
+            complexity_source = "fallback"
+
         return AnalysisResult(
             vci_score=vci_score,
             tech_debt_level=tech_debt_level,
@@ -1214,6 +1307,8 @@ class RepoAnalyzer:
                 "maintainability_score": metrics.maintainability_score,
                 "architecture_score": metrics.architecture_score,
                 "heuristics_score": metrics.heuristics_score,
+                # Complexity source for transparency
+                "complexity_source": complexity_source,
                 # Basic counts
                 "total_files": metrics.total_files,
                 "total_lines": metrics.total_lines,

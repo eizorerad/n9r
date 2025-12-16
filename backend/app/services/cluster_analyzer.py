@@ -809,8 +809,10 @@ class ArchitectureHealth:
             }
 
         return {
+            "cache_schema_version": 1,  # Schema version for future migrations
             "architecture_health": {
                 "overall_score": int(self.overall_score),
+                "cluster_health_score": int(self.overall_score),  # Explicit name: measures code organization
                 "score": int(self.overall_score),  # Keep for backward compatibility
                 "total_chunks": int(self.total_chunks),
                 "total_files": int(self.total_files),
@@ -855,6 +857,7 @@ class ArchitectureHealth:
             "similar_code": similar_code_data,
             "tech_debt_hotspots": [],  # Placeholder for future tech debt analysis
             "computed_at": datetime.now(UTC).isoformat(),
+            "insights_generation_failed": False,  # Set to True if AI insights generation fails
         }
 
 

@@ -383,6 +383,7 @@ def generate_embeddings(
                 id=point_id,
                 vector=embedding,
                 payload={
+                    "schema_version": 1,  # Payload schema version for future migrations
                     "repository_id": repository_id,
                     "commit_sha": commit_sha,
                     "file_path": chunk.file_path,
@@ -609,10 +610,20 @@ def compute_semantic_cache(
         # This ensures insights are available when frontend sees completed status
         # (Requirements 5.1, 5.2, 5.3, 5.4)
         # This is SEPARATE from AI Scan - uses LiteLLM directly
-        insights_count = _generate_semantic_ai_insights(
+        insights_result = _generate_semantic_ai_insights(
             repository_id=repository_id,
             analysis_id=analysis_id,
         )
+        # Handle both old (int) and new (tuple) return format
+        if isinstance(insights_result, tuple):
+            insights_count, insights_failed = insights_result
+        else:
+            insights_count = insights_result
+            insights_failed = insights_count == 0  # Assume failure if 0 insights
+
+        # Mark insights_generation_failed in cache if insights failed
+        if insights_failed:
+            semantic_cache["insights_generation_failed"] = True
 
         # Transition semantic_cache_status: generating_insights -> completed (Requirements 3.2)
         # IMPORTANT: This must happen AFTER insights are generated to avoid race condition
@@ -786,13 +797,13 @@ def _generate_semantic_ai_insights(
             db.commit()
 
         logger.info(f"Generated {len(insights)} AI insights for analysis {analysis_id}")
-        return len(insights)
+        return (len(insights), False)  # (count, failed)
 
     except Exception as e:
         # Log error but don't fail the semantic cache task
         # AI insights are optional - the main semantic cache should still succeed
         logger.error(f"Failed to generate AI insights for analysis {analysis_id}: {e}")
-        return 0
+        return (0, True)  # (count, failed)
 
 
 @celery_app.task(name="app.workers.embeddings.update_embeddings")
@@ -1418,6 +1429,7 @@ def generate_embeddings_parallel(
                 id=point_id,
                 vector=embedding,
                 payload={
+                    "schema_version": 1,  # Payload schema version for future migrations
                     "repository_id": repository_id,
                     "commit_sha": commit_sha,
                     "file_path": chunk.file_path,
