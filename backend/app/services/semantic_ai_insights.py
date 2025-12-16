@@ -324,6 +324,15 @@ Focus on the most impactful issues that developers should address first.
     def _repair_json(self, content: str) -> str:
         """Attempt to repair common JSON issues from LLM responses.
 
+        Enhanced repair logic that handles:
+        - Markdown code blocks (```json ... ```)
+        - Trailing commas before ] or }
+        - Unterminated strings with newlines
+        - Unclosed brackets/braces
+        - Single quotes instead of double quotes (outside strings)
+        - Unescaped newlines in string values
+        - Control characters in strings
+
         Args:
             content: Potentially malformed JSON string
 
@@ -332,24 +341,59 @@ Focus on the most impactful issues that developers should address first.
         """
         import re
 
-        # Strip markdown code blocks if present
-        if content.startswith("```"):
-            lines = content.split("\n")
-            # Remove first line (```json) and last line (```)
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            content = "\n".join(lines)
+        if not content:
+            return content
+
+        # Step 1: Strip markdown code blocks if present
+        # Handle both ```json and ``` variants
+        content = re.sub(r'^```(?:json|JSON)?\s*\n?', '', content)
+        content = re.sub(r'\n?```\s*$', '', content)
+
+        # Also handle case where markdown is in the middle (shouldn't happen but be safe)
+        content = re.sub(r'```(?:json|JSON)?\s*\n?', '', content)
+        content = re.sub(r'\n?```', '', content)
 
         # Strip any leading/trailing whitespace
         content = content.strip()
 
-        # Remove trailing commas before ] or }
+        # Step 2: If content doesn't start with { or [, try to find JSON
+        if not content.startswith('{') and not content.startswith('['):
+            # Look for the first { or [
+            brace_idx = content.find('{')
+            bracket_idx = content.find('[')
+            if brace_idx >= 0 or bracket_idx >= 0:
+                if brace_idx < 0:
+                    start_idx = bracket_idx
+                elif bracket_idx < 0:
+                    start_idx = brace_idx
+                else:
+                    start_idx = min(brace_idx, bracket_idx)
+                content = content[start_idx:]
+                logger.debug(f"Stripped {start_idx} chars of preamble before JSON")
+
+        # Step 3: Remove trailing commas before ] or }
         content = re.sub(r',\s*([}\]])', r'\1', content)
 
-        # Fix unterminated strings by finding unclosed quotes
-        # Build a new string character by character, tracking quote state
+        # Step 4: Replace unescaped control characters in strings
+        # This handles cases where LLM includes literal newlines in string values
+        def escape_control_chars(match: re.Match) -> str:
+            """Escape control characters inside JSON strings."""
+            s = match.group(0)
+            # Replace literal newlines with \n, tabs with \t
+            s = s.replace('\n', '\\n')
+            s = s.replace('\r', '\\r')
+            s = s.replace('\t', '\\t')
+            return s
+
+        # Match strings and escape control chars within them
+        # This regex matches "..." but not escaped quotes
+        try:
+            content = re.sub(r'"(?:[^"\\]|\\.)*"', escape_control_chars, content)
+        except re.error:
+            # If regex fails, continue with original content
+            pass
+
+        # Step 5: Fix unterminated strings by tracking quote state
         result = []
         in_string = False
         escaped = False
@@ -381,6 +425,10 @@ Focus on the most impactful issues that developers should address first.
                     in_string = False
                     result.append(char)
                     continue
+                else:
+                    # Replace literal newline with escaped newline
+                    result.append('\\n')
+                    continue
 
             result.append(char)
 
@@ -390,7 +438,7 @@ Focus on the most impactful issues that developers should address first.
 
         content = ''.join(result)
 
-        # Try to close unclosed brackets/braces
+        # Step 6: Try to close unclosed brackets/braces
         open_braces = content.count('{') - content.count('}')
         open_brackets = content.count('[') - content.count(']')
 
@@ -398,6 +446,31 @@ Focus on the most impactful issues that developers should address first.
             content += '}' * open_braces
         if open_brackets > 0:
             content += ']' * open_brackets
+
+        # Step 7: Final cleanup - remove any trailing content after the JSON
+        # Find the matching closing brace/bracket
+        if content.startswith('{'):
+            depth = 0
+            in_str = False
+            esc = False
+            for i, c in enumerate(content):
+                if esc:
+                    esc = False
+                    continue
+                if c == '\\':
+                    esc = True
+                    continue
+                if c == '"':
+                    in_str = not in_str
+                    continue
+                if not in_str:
+                    if c == '{':
+                        depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            content = content[:i+1]
+                            break
 
         return content
 

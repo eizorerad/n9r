@@ -11,6 +11,7 @@ interface Issue {
   confidence: number
   status: string
   auto_fixable: boolean
+  found_by_models: string[] | null
 }
 
 interface AnalysisData {
@@ -33,12 +34,12 @@ interface AnalysisDataState {
   loading: boolean
   error: string | null
   currentAnalysisId: string | null
-  
+
   // Actions
   fetchAnalysis: (analysisId: string, token: string) => Promise<void>
   clearAnalysis: () => void
   invalidateAnalysis: (analysisId: string) => void
-  
+
   // Prevent duplicate fetches
   _fetchPromise: Promise<void> | null
 }
@@ -61,17 +62,17 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
 
   fetchAnalysis: async (analysisId: string, token: string) => {
     const state = get()
-    
+
     // If already fetching this analysis, return existing promise
     if (state.currentAnalysisId === analysisId && state._fetchPromise) {
       return state._fetchPromise
     }
-    
+
     // Only use cache if analysis is completed - otherwise always re-fetch
     // This ensures we get updated data when analysis finishes
     if (
-      state.currentAnalysisId === analysisId && 
-      state.analysisData && 
+      state.currentAnalysisId === analysisId &&
+      state.analysisData &&
       !state.error &&
       state.analysisData.status === 'completed'
     ) {
@@ -85,7 +86,7 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
 
     const fetchPromise = (async () => {
       set({ loading: true, error: null, currentAnalysisId: analysisId })
-      
+
       try {
         const response = await fetch(
           `${process.env.NEXT_PUBLIC_API_URL}/analyses/${analysisId}`,
@@ -93,7 +94,7 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
             headers: { Authorization: `Bearer ${token}` },
           }
         )
-        
+
         if (!response.ok) {
           // Handle 401 - session expired, redirect to login
           if (response.status === 401 && typeof window !== "undefined") {
@@ -102,9 +103,9 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
           }
           throw new Error('Failed to fetch analysis')
         }
-        
+
         const data = await response.json()
-        
+
         console.log('[AnalysisDataStore] Fetched analysis data:', {
           analysisId,
           status: data.status,
@@ -112,7 +113,7 @@ export const useAnalysisDataStore = create<AnalysisDataState>()((set, get) => ({
           grade: data.grade,
           hasMetrics: !!data.metrics,
         })
-        
+
         // Only update if this is still the current request
         if (get().currentAnalysisId === analysisId) {
           set({

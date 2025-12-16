@@ -225,8 +225,11 @@ export function useAnalysisStatus(
     enabled: enabled && !!analysisId && !!token,
     // Smart polling based on current status
     refetchInterval: (query) => getPollingInterval(query.state.data),
-    // Keep data fresh
-    staleTime: 1000,
+    // Prevent duplicate fetches when multiple components mount simultaneously
+    // 5 seconds is enough to deduplicate mount-time fetches while still being responsive
+    staleTime: 5000,
+    // Keep in cache for 30 seconds after last subscriber unmounts
+    gcTime: 30000,
     // Retry on failure
     retry: 2,
     retryDelay: 1000,

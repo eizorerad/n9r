@@ -510,6 +510,7 @@ async def get_analysis(
                 "confidence": issue.confidence,
                 "status": issue.status,
                 "auto_fixable": issue.auto_fixable,
+                "found_by_models": issue.issue_metadata.get("found_by_models") if issue.issue_metadata else None,
             }
             for issue in issues
         ],

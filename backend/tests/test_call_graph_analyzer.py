@@ -840,6 +840,50 @@ def truly_dead_code():
 
 
 # =============================================================================
+# Tests for Function Name Sanitization
+# =============================================================================
+
+
+class TestSanitizeFunctionName:
+    """Tests for the sanitize_function_name helper function."""
+
+    def test_sanitize_clean_names(self):
+        """Clean function names should be returned as-is."""
+        from app.services.call_graph_analyzer import sanitize_function_name
+
+        assert sanitize_function_name("_hotspots") == "_hotspots"
+        assert sanitize_function_name("render") == "render"
+        assert sanitize_function_name("__init__") == "__init__"
+        assert sanitize_function_name("handleClick") == "handleClick"
+        assert sanitize_function_name("_private_method") == "_private_method"
+
+    def test_sanitize_malformed_names(self):
+        """Malformed function names should be cleaned."""
+        from app.services.call_graph_analyzer import sanitize_function_name
+
+        # Names with parentheses and parameters
+        assert sanitize_function_name("_hotspots(\n        self") == "_hotspots"
+        assert sanitize_function_name("_content_section(\n        self") == "_content_section"
+        assert sanitize_function_name("render(") == "render"
+        assert sanitize_function_name("handleClick(event)") == "handleClick"
+
+        # Names with trailing newlines
+        assert sanitize_function_name("handleClick\n") == "handleClick"
+        assert sanitize_function_name("render\n  ") == "render"
+
+        # Names with spaces
+        assert sanitize_function_name("render props") == "render"
+
+    def test_sanitize_empty_and_whitespace(self):
+        """Empty and whitespace-only names should be handled."""
+        from app.services.call_graph_analyzer import sanitize_function_name
+
+        assert sanitize_function_name("") == ""
+        assert sanitize_function_name("   ") == ""
+        assert sanitize_function_name(None) is None  # type: ignore
+
+
+# =============================================================================
 # Tests for Entry Point Helper Functions
 # =============================================================================
 
@@ -856,6 +900,42 @@ class TestEntryPointHelperFunctions:
         assert is_entry_point_file("tests/test_api.py") is True
         assert is_entry_point_file("conftest.py") is True
         assert is_entry_point_file("src/conftest.py") is True
+
+    def test_is_entry_point_file_js_ts_test_files(self):
+        """JavaScript/TypeScript test file patterns should be detected."""
+        from app.services.call_graph_analyzer import is_entry_point_file
+
+        # .test.ts/.test.tsx patterns
+        assert is_entry_point_file("Button.test.ts") is True
+        assert is_entry_point_file("Button.test.tsx") is True
+        assert is_entry_point_file("src/components/Button.test.tsx") is True
+        assert is_entry_point_file("frontend/__tests__/hooks/use-analysis-status.test.ts") is True
+
+        # .spec.ts/.spec.tsx patterns
+        assert is_entry_point_file("Button.spec.ts") is True
+        assert is_entry_point_file("Button.spec.tsx") is True
+        assert is_entry_point_file("src/components/Button.spec.tsx") is True
+
+        # .test.js/.test.jsx patterns
+        assert is_entry_point_file("Button.test.js") is True
+        assert is_entry_point_file("Button.test.jsx") is True
+
+        # __tests__ directory patterns
+        assert is_entry_point_file("__tests__/Button.tsx") is True
+        assert is_entry_point_file("frontend/__tests__/components/ai-insights-panel.test.tsx") is True
+        assert is_entry_point_file("__tests__/hooks/useAuth.ts") is True
+
+        # Cypress and E2E patterns
+        assert is_entry_point_file("cypress/e2e/login.cy.ts") is True
+        assert is_entry_point_file("e2e/auth.spec.ts") is True
+
+        # Config files
+        assert is_entry_point_file("jest.config.ts") is True
+        assert is_entry_point_file("vitest.config.ts") is True
+
+        # Regular files should NOT match
+        assert is_entry_point_file("src/components/Button.tsx") is False
+        assert is_entry_point_file("lib/utils.ts") is False
 
     def test_is_entry_point_file_migrations(self):
         """Migration files should be detected."""

@@ -19,6 +19,7 @@ import {
   HelpCircle,
   Minimize2,
   Maximize2,
+  Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -145,6 +146,73 @@ const INVESTIGATION_STATUS_CONFIG = {
 
 
 // =============================================================================
+// Helper Functions
+// =============================================================================
+
+function getModelInfo(modelId: string) {
+  const id = modelId.toLowerCase()
+
+  // Google / Gemini Models
+  if (id.includes('gemini') || id.includes('google')) {
+    let name = 'Gemini'
+    if (id.includes('gemini-3') && id.includes('pro')) name = 'Gemini 3 Pro'
+    else if (id.includes('2.5') && id.includes('flash')) name = 'Gemini 2.5 Flash'
+    else if (id.includes('2.5') && id.includes('pro')) name = 'Gemini 2.5 Pro'
+    else if (id.includes('2.0') && id.includes('flash')) name = 'Gemini 2.0 Flash'
+    else if (id.includes('flash')) name = 'Gemini Flash'
+    else if (id.includes('pro')) name = 'Gemini Pro'
+    else if (id.includes('ultra')) name = 'Gemini Ultra'
+
+    return {
+      name,
+      className: 'text-white',
+      iconClassName: 'text-blue-400',
+      icon: Sparkles
+    }
+  }
+
+  // Anthropic / Claude Models
+  if (id.includes('claude') || id.includes('anthropic')) {
+    let name = 'Claude'
+    if (id.includes('opus')) name = 'Claude Opus'
+    else if (id.includes('sonnet-4-5')) name = 'Claude Sonnet 4.5'
+    else if (id.includes('haiku')) name = 'Claude Haiku'
+
+    return {
+      name,
+      className: 'text-white',
+      iconClassName: 'text-orange-400',
+      icon: Bot
+    }
+  }
+
+  // OpenAI Models
+  if (id.includes('gpt') || id.includes('openai') || id.includes('o1') || id.includes('o3')) {
+    let name = 'GPT'
+    if (id.includes('gpt-4o')) name = 'GPT-4o'
+    else if (id.includes('gpt-5.2')) name = 'GPT-5.2'
+    else if (id.includes('gpt-5.1')) name = 'GPT-5.1'
+    else if (id.includes('o1')) name = 'o1'
+    else if (id.includes('o3')) name = 'o3'
+
+    return {
+      name,
+      className: 'text-white',
+      iconClassName: 'text-green-400',
+      icon: Bot
+    }
+  }
+
+  // Generic Fallback
+  return {
+    name: 'AI Model',
+    className: 'text-white',
+    iconClassName: 'text-purple-400',
+    icon: Bot
+  }
+}
+
+// =============================================================================
 // Issue Card Component
 // =============================================================================
 
@@ -187,11 +255,22 @@ function IssueCard({
                   <DimensionIcon className={cn('h-3 w-3', dimensionConfig.iconColor)} />
                   {dimensionConfig.label}
                 </span>
-                {issue.found_by_models.length > 1 && (
-                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 rounded-full bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
-                    {issue.found_by_models.length} models
-                  </Badge>
-                )}
+                {issue.found_by_models && issue.found_by_models.map((modelId) => {
+                  const modelInfo = getModelInfo(modelId)
+                  const ModelIcon = modelInfo.icon
+                  return (
+                    <span
+                      key={modelId}
+                      className={cn(
+                        'text-[9px] px-1.5 py-0.5 rounded-full flex items-center gap-1',
+                        modelInfo.className
+                      )}
+                    >
+                      <ModelIcon className={cn('h-3 w-3', modelInfo.iconClassName)} />
+                      {modelInfo.name}
+                    </span>
+                  )
+                })}
                 {issue.investigation_status && (
                   <Badge
                     variant="outline"
@@ -383,7 +462,11 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     }
   }, [])
 
-  // Fetch AI scan results when analysis changes or AI scan completes
+  // Track previous AI scan status to detect completion transitions
+  const prevAiScanStatusRef = useRef<string | null>(null)
+
+  // Unified fetch effect - handles both initial load and completion transitions
+  // This replaces two separate useEffects that were causing duplicate API calls
   useEffect(() => {
     if (!selectedAnalysisId || !token) {
       setScanData(null)
@@ -391,8 +474,28 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
       return
     }
 
+    const currentStatus = fullStatus?.ai_scan_status
+    const prevStatus = prevAiScanStatusRef.current
+
+    // Determine if we should fetch:
+    // 1. Initial load (no previous status)
+    // 2. Status just changed to 'completed' (transition detection)
+    const isInitialLoad = prevStatus === null
+    const justCompleted = prevStatus !== 'completed' && currentStatus === 'completed'
+    const shouldFetch = isInitialLoad || justCompleted
+
+    // Update ref for next render
+    prevAiScanStatusRef.current = currentStatus ?? null
+
+    if (!shouldFetch) {
+      return
+    }
+
     const fetchResults = async () => {
-      setLoading(true)
+      // Only show loading on initial load, not on completion refresh
+      if (isInitialLoad) {
+        setLoading(true)
+      }
       setError(null)
 
       try {
@@ -415,23 +518,19 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     }
 
     fetchResults()
-  }, [selectedAnalysisId, token])
+  }, [selectedAnalysisId, token, fullStatus?.ai_scan_status])
 
-  // Refetch scan results when AI scan completes (detected via fullStatus)
-  useEffect(() => {
-    if (fullStatus?.ai_scan_status === 'completed' && selectedAnalysisId && token) {
-      // Refetch results when scan completes
-      getAIScanResults(selectedAnalysisId, token)
-        .then((results) => {
-          if (isMountedRef.current) {
-            setScanData(results)
-          }
-        })
-        .catch(() => {
-          // Ignore errors - will be handled by main fetch
-        })
-    }
-  }, [fullStatus?.ai_scan_status, selectedAnalysisId, token])
+  // NOTE: The previous implementation had TWO useEffects that both called getAIScanResults:
+  // 1. On [selectedAnalysisId, token] change
+  // 2. On [fullStatus?.ai_scan_status] change to 'completed'
+  // This caused 2-4x duplicate API calls. Now unified into a single effect with transition detection.
+
+  // Legacy comment preserved for reference - this effect was REMOVED:
+  // useEffect(() => {
+  //   if (fullStatus?.ai_scan_status === 'completed' && selectedAnalysisId && token) {
+  //     getAIScanResults(selectedAnalysisId, token)  // DUPLICATE FETCH - REMOVED
+  //   }
+  // }, [fullStatus?.ai_scan_status, selectedAnalysisId, token])
 
   // Trigger AI scan
   const handleRunScan = useCallback(async () => {

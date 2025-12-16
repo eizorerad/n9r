@@ -54,14 +54,14 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
 
     const eventSourceRef = useRef<EventSource | null>(null)
     const isMountedRef = useRef(true)
-    
+
     // Global progress store
     const { addTask, updateTask } = useAnalysisProgressStore()
     const taskId = getAnalysisTaskId(repositoryId)
-    
+
     // Commit selection store - to update selectedAnalysisId when analysis completes
     const { selectedCommitSha, setSelectedCommit } = useCommitSelectionStore()
-    
+
 
 
     // Track mount state
@@ -216,7 +216,7 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                     setProgress(update.progress)
                                     setStage(update.stage)
                                     setMessage(update.message || STAGE_LABELS[update.stage] || update.stage)
-                                    
+
                                     // Sync with global store
                                     updateTask(taskId, {
                                         progress: update.progress,
@@ -296,16 +296,16 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         setProgress(100)
                                         setStage('completed')
                                         setMessage('Analysis complete')
-                                        
+
                                         // Update global store - mark analysis as completed
                                         updateTask(taskId, { status: 'completed', progress: 100, stage: 'completed', message: 'Analysis complete' })
-                                        
+
                                         // NOTE: We do NOT add embeddings task here anymore.
                                         // The useAnalysisStatus hook (via useAnalysisStatusWithStore) handles
                                         // embeddings progress tracking by polling the full-status endpoint.
                                         // This prevents "ghost" tasks and ensures single source of truth.
                                         // Requirements: 4.1
-                                        
+
                                         // Update commit selection store with the new analysis ID
                                         // This triggers all panels to re-fetch data for the completed analysis
                                         // Note: Don't call clearAnalysis() - it would interrupt the fetch
@@ -317,19 +317,19 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                                 setSelectedCommit(commitSha, analysisId, repositoryId)
                                             }
                                         }
-                                        
+
                                         // Invalidate React Query cache for commits to refresh the timeline
                                         // This will show the new VCI score in the commit list
                                         // Requirements: 2.3
                                         queryClient.invalidateQueries({ queryKey: ['commits', repositoryId] })
-                                        
+
                                         // Invalidate React Query cache for analysis status
                                         // This triggers useAnalysisStatus to refetch and pick up embeddings progress
                                         // Requirements: 4.1
-                                        queryClient.invalidateQueries({ 
-                                            queryKey: getAnalysisStatusQueryKey(repositoryId, analysisId) 
+                                        queryClient.invalidateQueries({
+                                            queryKey: getAnalysisStatusQueryKey(repositoryId, analysisId)
                                         })
-                                        
+
                                         // Clear local analysisId after updating store
                                         setAnalysisId(null)
 
@@ -338,6 +338,9 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         // with embeddings task and remounts components losing state
                                         // Client components already update via Zustand store
                                         revalidateRepositoryPage(repositoryId)
+
+                                        // Reset to idle so button shows "Re-analyze" instead of staying stuck on "Analysis Complete"
+                                        setStatus('idle')
                                         return
                                     } else if (update.status === 'failed') {
                                         setStatus('failed')
@@ -348,8 +351,8 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                                         setStatus('running')
                                     }
                                 } catch {
-                  // Ignore JSON parse errors for malformed SSE data
-                }
+                                    // Ignore JSON parse errors for malformed SSE data
+                                }
                             }
                         }
                     }

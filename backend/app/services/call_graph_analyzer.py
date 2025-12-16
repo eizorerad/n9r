@@ -30,6 +30,52 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Function Name Sanitization
+# =============================================================================
+
+# Valid Python/JS identifier pattern
+_IDENTIFIER_PATTERN = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*)")
+
+
+def sanitize_function_name(name: str) -> str:
+    """Extract clean function name from potentially malformed string.
+
+    Handles cases where tree-sitter byte ranges include extra characters
+    like parentheses, newlines, or parameter text.
+
+    Args:
+        name: Raw function name from AST extraction
+
+    Returns:
+        Clean identifier string
+
+    Examples:
+        >>> sanitize_function_name("_hotspots")
+        '_hotspots'
+        >>> sanitize_function_name("_hotspots(\\n        self")
+        '_hotspots'
+        >>> sanitize_function_name("render(")
+        'render'
+    """
+    if not name:
+        return name
+
+    # Fast path: if it's already a valid identifier, return as-is
+    name = name.strip()
+    if _IDENTIFIER_PATTERN.fullmatch(name):
+        return name
+
+    # Extract just the identifier portion
+    match = _IDENTIFIER_PATTERN.match(name)
+    if match:
+        return match.group(1)
+
+    # Fallback: split on common delimiters
+    clean = name.split("(")[0].split("\n")[0].split(" ")[0].strip()
+    return clean if clean else name
+
+
+# =============================================================================
 # AnalyzerConfig Dataclass
 # =============================================================================
 
@@ -130,15 +176,26 @@ class AnalyzerConfig:
             ],
             # File path patterns where all functions are entry points
             entry_point_file_patterns=[
+                # Python test files
                 r"test_[^/]+\.py$",
                 r"[^/]+_test\.py$",
                 r"conftest\.py$",
+                # JavaScript/TypeScript test files
+                r"[^/]+\.test\.[jt]sx?$",      # *.test.ts, *.test.tsx, *.test.js, *.test.jsx
+                r"[^/]+\.spec\.[jt]sx?$",      # *.spec.ts, *.spec.tsx, *.spec.js, *.spec.jsx
+                r"__tests__/.*\.[jt]sx?$",     # __tests__/**/*.ts, __tests__/**/*.tsx
+                # Migration and CLI files
                 r"alembic/versions/",
                 r"migrations/",
                 r"__main__\.py$",
                 r"cli\.py$",
                 r"commands?\.py$",
                 r"scripts/[^/]+\.py$",
+                # Additional JS/TS entry points
+                r"jest\.config\.[jt]s$",
+                r"vitest\.config\.[jt]s$",
+                r"cypress/.*\.[jt]sx?$",
+                r"e2e/.*\.[jt]sx?$",
             ],
             # Callback name patterns
             callback_name_patterns=[
@@ -603,15 +660,26 @@ ENTRY_POINT_DECORATOR_PATTERNS = [
 # File path patterns that indicate all functions in the file are entry points
 # (e.g., test files, migration files, CLI scripts)
 ENTRY_POINT_FILE_PATTERNS = [
+    # Python test files
     re.compile(r"test_[^/]+\.py$"),  # test_*.py files
     re.compile(r"[^/]+_test\.py$"),  # *_test.py files
     re.compile(r"conftest\.py$"),    # pytest conftest
+    # JavaScript/TypeScript test files
+    re.compile(r"[^/]+\.test\.[jt]sx?$"),   # *.test.ts, *.test.tsx, *.test.js, *.test.jsx
+    re.compile(r"[^/]+\.spec\.[jt]sx?$"),   # *.spec.ts, *.spec.tsx, *.spec.js, *.spec.jsx
+    re.compile(r"__tests__/.*\.[jt]sx?$"),  # __tests__/**/*.ts, __tests__/**/*.tsx
+    # Migration and CLI files
     re.compile(r"alembic/versions/"),  # Alembic migrations
     re.compile(r"migrations/"),       # Django migrations
     re.compile(r"__main__\.py$"),     # Entry point modules
     re.compile(r"cli\.py$"),          # CLI modules
     re.compile(r"commands?\.py$"),    # Command modules
     re.compile(r"scripts/[^/]+\.py$"),  # Scripts directory (CLI utilities)
+    # Additional JS/TS entry points
+    re.compile(r"jest\.config\.[jt]s$"),
+    re.compile(r"vitest\.config\.[jt]s$"),
+    re.compile(r"cypress/.*\.[jt]sx?$"),
+    re.compile(r"e2e/.*\.[jt]sx?$"),
 ]
 
 # Function names that are commonly used as callbacks (passed as arguments)
@@ -1177,7 +1245,7 @@ class CallGraphAnalyzer:
             if node.type == "function_definition":
                 name_node = node.child_by_field_name("name")
                 if name_node:
-                    name = get_text(name_node)
+                    name = sanitize_function_name(get_text(name_node))
                     line_start = node.start_point[0] + 1
                     line_end = node.end_point[0] + 1
 
@@ -1355,12 +1423,12 @@ class CallGraphAnalyzer:
             if node.type == "function_declaration":
                 name_node = node.child_by_field_name("name")
                 if name_node:
-                    name = get_text(name_node)
+                    name = sanitize_function_name(get_text(name_node))
 
             elif node.type == "method_definition":
                 name_node = node.child_by_field_name("name")
                 if name_node:
-                    name = get_text(name_node)
+                    name = sanitize_function_name(get_text(name_node))
 
             elif node.type == "variable_declarator":
                 # Handle: const foo = () => {} or const foo = function() {}
@@ -1371,7 +1439,7 @@ class CallGraphAnalyzer:
                     and value_node
                     and value_node.type in ("arrow_function", "function_expression")
                 ):
-                    name = get_text(name_node)
+                    name = sanitize_function_name(get_text(name_node))
                     line_end = value_node.end_point[0] + 1
 
             if name:

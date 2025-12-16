@@ -989,16 +989,32 @@ class ClusterAnalyzer:
         return np.array(vectors) if vectors else np.array([]), payloads
 
     def _run_clustering(self, vectors: np.ndarray) -> np.ndarray:
-        """Run HDBSCAN clustering on vectors."""
+        """Run HDBSCAN clustering on vectors.
+
+        Uses 5% of vectors as min_cluster_size (len/20) which produces distinct
+        clusters for different code domains (frontend vs backend). The tradeoff
+        is a higher outlier ratio (~40-50%) but this is acceptable because:
+
+        1. Outliers represent genuinely diverse/unique code (utilities, configs, tests)
+        2. Distinct clusters are more valuable than forcing everything into groups
+        3. The architecture health score accounts for outlier ratio appropriately
+        """
         if len(vectors) < 5:
             return np.array([-1] * len(vectors))
 
-        # HDBSCAN with cosine metric
+        # Use 5% of points as minimum cluster size
+        # This produces distinct clusters (frontend/backend) at the cost of more outliers
+        # Smaller values (e.g., len/40) cause clusters to merge together
+        min_cluster_size = max(3, len(vectors) // 20)
+
+        # Strict epsilon (0.0) preserves cluster boundaries
+        cluster_selection_epsilon = 0.0
+
         clusterer = HDBSCAN(
-            min_cluster_size=max(3, len(vectors) // 20),  # At least 5% of points
+            min_cluster_size=min_cluster_size,
             min_samples=2,
             metric="euclidean",  # Use euclidean on normalized vectors
-            cluster_selection_epsilon=0.0,
+            cluster_selection_epsilon=cluster_selection_epsilon,
         )
 
         # Normalize vectors for better clustering
@@ -1009,7 +1025,12 @@ class ClusterAnalyzer:
 
         n_clusters = len(set(labels)) - (1 if -1 in labels else 0)
         n_outliers = np.sum(labels == -1)
-        logger.info(f"Clustering: {n_clusters} clusters, {n_outliers} outliers")
+        outlier_pct = n_outliers / len(vectors) * 100 if len(vectors) > 0 else 0
+
+        logger.info(
+            f"Clustering: {n_clusters} clusters, {n_outliers} outliers ({outlier_pct:.1f}%), "
+            f"min_cluster_size={min_cluster_size}, epsilon={cluster_selection_epsilon}"
+        )
 
         return labels
 
