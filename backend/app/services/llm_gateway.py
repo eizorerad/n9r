@@ -9,6 +9,7 @@ LiteLLM provides a unified API for 100+ LLM providers with:
 Note: LiteLLM is imported lazily to avoid fork-safety issues with Celery prefork pool.
 """
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -407,7 +408,7 @@ class LLMGateway:
         model = model or self.DEFAULT_MODELS["chat"]
 
         loop = asyncio.get_running_loop()
-        final_future: "asyncio.Future[dict[str, Any]]" = loop.create_future()
+        final_future: asyncio.Future[dict[str, Any]] = loop.create_future()
 
         async def _iterator() -> AsyncIterator[str]:
             try:

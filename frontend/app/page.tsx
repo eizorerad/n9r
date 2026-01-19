@@ -1,27 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Github, Zap, Loader2 } from "lucide-react";
+import { Github, Zap } from "lucide-react";
 import LiquidEther from "@/components/LiquidEther";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import Navbar from "@/components/Navbar";
 import FlyingPumpkin from "@/components/FlyingPumpkin";
 import FlyingGhost from "@/components/FlyingGhost";
 
 export default function Home() {
-  const router = useRouter();
-  const [repoUrl, setRepoUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handleAnalyze = (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!repoUrl.trim()) return;
-    setIsLoading(true);
-    router.push(`/playground?repo=${encodeURIComponent(repoUrl)}`);
-  };
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
@@ -76,39 +64,24 @@ export default function Home() {
                 <div className="w-3 h-3 rounded-full bg-[#28c840]"></div>
               </div>
             </div>
-            
+
             {/* Content Area */}
-            <div className="bg-[#2d2d2d] px-6 py-6">
-              <label className="block text-neutral-300 text-sm mb-4">
-                Enter GitHub Repository URL:
-              </label>
-              <form onSubmit={handleAnalyze} className="flex items-center gap-3">
-                <Input
-                  type="text"
-                  placeholder="https://github.com/username/repo"
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  className="flex-1 h-10 px-3 bg-[#1e1e1e] border border-neutral-600 rounded text-neutral-300 font-mono text-sm placeholder:text-neutral-500 focus:ring-0 focus:border-neutral-500 focus-visible:ring-0 focus-visible:ring-offset-0"
-                />
+            <div className="bg-[#2d2d2d] px-6 py-8 flex flex-col items-center justify-center text-center">
+              <h3 className="text-neutral-200 font-medium mb-2">
+                Ready to analyze your codebase?
+              </h3>
+              <p className="text-neutral-400 text-sm mb-6 max-w-sm">
+                Connect your GitHub repository to generate deep insights and visualize your architecture.
+              </p>
+
+              <Link href="/auth/login" className="w-full max-w-sm">
                 <Button
-                  type="submit"
-                  onClick={handleAnalyze}
-                  className="h-10 px-4 bg-[#3a3a3c] hover:bg-[#4a4a4c] text-neutral-200 text-sm border border-neutral-600 rounded shadow-none"
-                  disabled={isLoading || !repoUrl.trim()}
+                  className="w-full h-12 bg-white text-black hover:bg-neutral-200 font-medium text-base rounded-md transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]"
                 >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      Analyze Code
-                      <Github className="ml-2 h-4 w-4" />
-                    </>
-                  )}
+                  <Github className="mr-2 h-5 w-5" />
+                  Sign in with GitHub
                 </Button>
-              </form>
+              </Link>
             </div>
           </div>
         </div>

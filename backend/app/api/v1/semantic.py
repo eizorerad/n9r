@@ -43,7 +43,7 @@ async def _resolve_commit_sha(
     ref: str | None,
 ) -> tuple[str | None, str]:
     """Resolve ref to commit SHA, return (sha, source).
-    
+
     Returns:
         Tuple of (commit_sha or None, source description)
     """

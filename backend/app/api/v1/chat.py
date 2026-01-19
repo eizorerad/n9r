@@ -13,10 +13,9 @@ from qdrant_client import QdrantClient
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.core.rate_limit import enforce_rate_limit
-
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
+from app.core.rate_limit import enforce_rate_limit
 from app.models.chat import ChatMessage, ChatThread
 from app.models.repository import Repository
 from app.services.github import GitHubService
@@ -122,10 +121,10 @@ async def _get_repo_tree_lines(
 
     This is not a full agent tool. It is used to reduce hallucinations by giving
     the model a partial view of the repo structure.
-    
+
     Returns:
         Tuple of (tree_lines, source) where source is "cache" or "github_api"
-        
+
     **Feature: repo-content-cache**
     **Validates: Requirements 1.1, 6.1**
     """
@@ -248,86 +247,86 @@ def _format_cached_tree_lines(
     max_entries: int,
 ) -> list[str]:
     """Format cached tree paths into indented lines.
-    
+
     The cached tree is a flat list of file paths. This function filters
     by the requested path prefix and formats with proper indentation.
-    
+
     Args:
         cached_tree: List of file paths from cache
         path: Path prefix to filter by (empty string for root)
         depth: Maximum depth to display
         max_entries: Maximum number of entries to return
-        
+
     Returns:
         List of formatted tree lines with indentation
     """
     if not cached_tree:
         return []
-    
+
     # Normalize path prefix
     path_prefix = path.rstrip("/") + "/" if path else ""
-    
+
     # Filter paths by prefix and build directory structure
     entries: dict[str, set[str]] = {}  # dir_path -> set of immediate children
-    
+
     for file_path in cached_tree:
         # Skip if doesn't match prefix
         if path_prefix and not file_path.startswith(path_prefix):
             continue
-        
+
         # Get relative path from the prefix
         rel_path = file_path[len(path_prefix):] if path_prefix else file_path
-        
+
         # Split into parts and track directory structure
         parts = rel_path.split("/")
-        
+
         # Track each level of the path
         current_dir = ""
         for i, part in enumerate(parts):
             if i >= depth:
                 break
-            
+
             parent_dir = current_dir
             current_dir = f"{current_dir}/{part}" if current_dir else part
-            
+
             # Add to parent's children
             if parent_dir not in entries:
                 entries[parent_dir] = set()
-            
+
             # Mark as directory if not the last part
             if i < len(parts) - 1:
                 entries[parent_dir].add(f"{part}/")
             else:
                 entries[parent_dir].add(part)
-    
+
     # Build formatted lines using BFS
     lines: list[str] = []
     queue: list[tuple[str, int]] = [("", 0)]
-    
+
     while queue and len(lines) < max_entries:
         current_dir, level = queue.pop(0)
-        
+
         if current_dir not in entries:
             continue
-        
+
         # Sort: directories first, then alphabetically
         children = sorted(
             entries[current_dir],
             key=lambda x: (not x.endswith("/"), x.lower()),
         )
-        
+
         indent = "  " * level
         for child in children:
             if len(lines) >= max_entries:
                 break
-            
+
             lines.append(f"{indent}- {child}")
-            
+
             # Queue subdirectories for traversal
             if child.endswith("/") and level + 1 < depth:
                 child_path = f"{current_dir}/{child[:-1]}" if current_dir else child[:-1]
                 queue.append((child_path, level + 1))
-    
+
     return lines
 
 
@@ -339,10 +338,10 @@ async def _read_repo_file_text(
     max_chars: int,
 ) -> tuple[str, str]:
     """Read a repo file using cache first, then GitHub contents API.
-    
+
     Returns:
         Tuple of (content, source) where source is "cache" or "github_api"
-        
+
     **Feature: repo-content-cache**
     **Validates: Requirements 1.2, 1.3, 6.1**
     """
@@ -512,11 +511,11 @@ The user has switched their viewing context:
 - Previous: {prev_ref}
 - Current: {new_ref}
 
-Earlier messages in this conversation were about '{prev_ref}'. 
-The user is now viewing '{new_ref}'. Code references, file contents, 
+Earlier messages in this conversation were about '{prev_ref}'.
+The user is now viewing '{new_ref}'. Code references, file contents,
 and RAG results from this point forward are from '{new_ref}'.
 
-If the user asks about code that was discussed earlier, clarify which 
+If the user asks about code that was discussed earlier, clarify which
 version you're referring to."""
 
 
@@ -792,9 +791,9 @@ async def _stream_response(
     # ----------------------------
     # Tool loop configuration
     # ----------------------------
-    MAX_TOOL_CALLS = 8
-    MAX_TOTAL_TOOL_CHARS = 200_000
-    MAX_TOOL_RESULT_CHARS = 50_000
+    max_tool_calls = 8
+    max_total_tool_chars = 200_000
+    max_tool_result_chars = 50_000
 
     @dataclass
     class ToolCall:
@@ -812,36 +811,36 @@ async def _stream_response(
 
     def _emit_thinking(content: str, iteration: int):
         """Emit thinking event with truncated preview of LLM reasoning.
-        
+
         Shows first sentence of each paragraph, truncated with "..." for long content.
         This gives users visibility into the model's reasoning process.
         """
         if not content or not content.strip():
             return ""
-        
+
         # Extract preview: first sentence of each paragraph, max 3 paragraphs
         paragraphs = [p.strip() for p in content.split('\n\n') if p.strip()]
         previews = []
-        
+
         for para in paragraphs[:3]:
             # Get first sentence (up to first period, question mark, or exclamation)
             sentences = re.split(r'(?<=[.!?])\s+', para, maxsplit=1)
             first_sentence = sentences[0] if sentences else para
-            
+
             # Truncate long sentences
             if len(first_sentence) > 120:
                 first_sentence = first_sentence[:117] + "..."
-            
+
             previews.append(first_sentence)
-        
+
         # Add "..." if there are more paragraphs
         if len(paragraphs) > 3:
             previews.append("...")
-        
+
         preview_text = " • ".join(previews) if previews else content[:100] + "..."
-        
+
         logger.info(f"[chat] Emitting thinking event: iteration={iteration}, preview_len={len(preview_text)}")
-        
+
         return _sse("thinking", {
             "content": preview_text,
             "iteration": iteration,
@@ -855,7 +854,7 @@ async def _stream_response(
         count: int | None = None,
     ):
         """Emit context_source event for agent log visibility.
-        
+
         Args:
             source: "rag", "tree", "active_file", "github_api"
             status: "found", "empty", "error", "searching", "loading"
@@ -871,14 +870,14 @@ async def _stream_response(
 
     def _parse_tool_calls(content: str) -> list[ToolCall]:
         """Parse tool calls from LLM output, handling nested JSON objects.
-        
+
         Handles:
         - Plain JSON: {"tool":"read_file","arguments":{...}}
         - Markdown code blocks: ```json\n{...}\n```
         - Text before/after JSON
         """
         tool_calls: list[ToolCall] = []
-        
+
         # Strip markdown code blocks if present
         stripped = content.strip()
         if stripped.startswith("```"):
@@ -890,7 +889,7 @@ async def _stream_response(
             if stripped.rstrip().endswith("```"):
                 stripped = stripped.rstrip()[:-3].rstrip()
             content = stripped
-        
+
         # Find all potential JSON object starts
         i = 0
         while i < len(content):
@@ -901,7 +900,7 @@ async def _stream_response(
                 j = i
                 while j < len(content):
                     c = content[j]
-                    
+
                     # Handle string literals - skip to avoid counting braces inside strings
                     if c == '"':
                         j += 1
@@ -914,7 +913,7 @@ async def _stream_response(
                             else:
                                 j += 1
                         continue  # Continue to next character after string
-                    
+
                     if c == '{':
                         brace_count += 1
                     elif c == '}':
@@ -928,7 +927,7 @@ async def _stream_response(
                                 if isinstance(data, dict):
                                     tool_name = None
                                     args = None
-                                    
+
                                     if isinstance(data.get("tool_call"), dict):
                                         tc = data["tool_call"]
                                         tool_name = tc.get("name")
@@ -936,7 +935,7 @@ async def _stream_response(
                                     else:
                                         tool_name = data.get("tool") or data.get("name")
                                         args = data.get("arguments", data.get("params", {}))
-                                    
+
                                     if tool_name and isinstance(args, dict):
                                         logger.info(
                                             f"[tool_parse] Found tool call: {tool_name}",
@@ -953,12 +952,12 @@ async def _stream_response(
                             break
                     j += 1
             i += 1
-        
+
         if not tool_calls:
             # Log for debugging when no tool calls found
             preview = content[:200] if len(content) > 200 else content
             logger.info(f"[tool_parse] No tool calls found in content: {preview!r}")
-        
+
         return tool_calls
 
     async def _tool_list_files(args: dict[str, Any]) -> dict[str, Any]:
@@ -1124,7 +1123,7 @@ Rules:
         if rag_chunks:
             # Calculate average score for detail
             avg_score = sum(c.get("score", 0) or 0 for c in rag_chunks) / len(rag_chunks)
-            files_found = list(set(c.get("file_path", "?") for c in rag_chunks))[:3]
+            files_found = list({c.get("file_path", "?") for c in rag_chunks})[:3]
             yield _emit_context_source(
                 "rag",
                 "found",
@@ -1289,14 +1288,14 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
         total_tool_chars = 0
         final_answer_seed: str | None = None
 
-        print(f"[chat] Entering tool loop, MAX_TOOL_CALLS={MAX_TOOL_CALLS}", flush=True)
-        while tool_calls_used < MAX_TOOL_CALLS:
+        print(f"[chat] Entering tool loop, max_tool_calls={max_tool_calls}", flush=True)
+        while tool_calls_used < max_tool_calls:
             # Emit reasoning step with iteration counter for visibility
             yield _emit_step(
                 f"Reasoning{f' ({tool_calls_used + 1})' if tool_calls_used > 0 else ''}",
                 "Processing with AI model"
             )
-            
+
             resp = await llm.chat(
                 messages=tool_messages,
                 model=model,
@@ -1334,13 +1333,13 @@ Be concise, technical, and helpful. Reference specific files and line numbers wh
             if result is not None:
                 result_str = json.dumps(result)
                 total_tool_chars += len(result_str)
-                if total_tool_chars > MAX_TOTAL_TOOL_CHARS:
+                if total_tool_chars > max_total_tool_chars:
                     ok = False
                     result = None
                     err = "Tool budget exceeded"
 
-                if result_str and len(result_str) > MAX_TOOL_RESULT_CHARS:
-                    result = {"truncated": True, "preview": result_str[:MAX_TOOL_RESULT_CHARS]}
+                if result_str and len(result_str) > max_tool_result_chars:
+                    result = {"truncated": True, "preview": result_str[:max_tool_result_chars]}
 
             yield _sse("tool_result", {"name": call.name, "ok": ok, "result": result, "error": err})
 

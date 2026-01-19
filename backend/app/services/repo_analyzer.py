@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from app.services.ast_analyzer import get_ast_analyzer
 from app.services.lizard_analyzer import LizardAnalyzer
@@ -72,11 +72,41 @@ class AnalysisResult:
 class RepoAnalyzer:
     """Analyzes repositories for code quality metrics."""
 
-    def __init__(self, repo_url: str, access_token: str | None = None, commit_sha: str | None = None):
+    def __init__(
+        self, 
+        repo_url: str, 
+        access_token: str | None = None, 
+        commit_sha: str | None = None,
+        heartbeat_callback: Callable[[], None] | None = None,
+    ):
+        """Initialize the repository analyzer.
+        
+        Args:
+            repo_url: URL of the repository to analyze
+            access_token: Optional access token for private repositories
+            commit_sha: Optional specific commit SHA to analyze
+            heartbeat_callback: Optional callback function to call during long operations
+                               to indicate the worker is still alive. The callback should
+                               implement its own throttling to avoid excessive calls.
+        """
         self.repo_url = repo_url
         self.access_token = access_token
         self.commit_sha = commit_sha  # Specific commit to analyze
         self.temp_dir: Path | None = None
+        self.heartbeat_callback = heartbeat_callback
+    
+    def _send_heartbeat(self) -> None:
+        """Send a heartbeat if callback is configured.
+        
+        This method should be called during long operations to indicate
+        the worker is still alive. The callback handles throttling internally.
+        """
+        if self.heartbeat_callback:
+            try:
+                self.heartbeat_callback()
+            except Exception as e:
+                # Heartbeat failures should not crash the analysis
+                logger.debug(f"Heartbeat callback failed: {e}")
 
     def __enter__(self):
         return self
@@ -127,6 +157,9 @@ class RepoAnalyzer:
                     text=True,
                     timeout=300,
                 )
+                
+                # Send heartbeat after clone completes (can take a while for large repos)
+                self._send_heartbeat()
 
                 if result.returncode != 0:
                     logger.error(f"Git clone failed: {result.stderr}")
@@ -151,6 +184,9 @@ class RepoAnalyzer:
                         timeout=600,
                         cwd=str(self.temp_dir),
                     )
+                    
+                    # Send heartbeat after unshallow fetch (can be very slow)
+                    self._send_heartbeat()
 
                     # Try checkout again
                     checkout_result = subprocess.run(
@@ -174,6 +210,9 @@ class RepoAnalyzer:
                     text=True,
                     timeout=300,
                 )
+                
+                # Send heartbeat after clone completes
+                self._send_heartbeat()
 
                 if result.returncode != 0:
                     logger.error(f"Git clone failed: {result.stderr}")
@@ -311,6 +350,9 @@ class RepoAnalyzer:
 
             # Run lizard analysis (excluding Python - radon handles that)
             result = analyzer.analyze(self.temp_dir, exclude_python=True)
+            
+            # Send heartbeat after lizard analysis completes
+            self._send_heartbeat()
 
             # Check if we got any meaningful results
             if result.functions_analyzed == 0 and not result.languages_analyzed:
@@ -544,6 +586,9 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
+            
+            # Send heartbeat after radon cc completes
+            self._send_heartbeat()
 
             if cc_result.returncode == 0 and cc_result.stdout:
                 data = json.loads(cc_result.stdout)
@@ -616,6 +661,9 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
+            
+            # Send heartbeat after radon hal completes
+            self._send_heartbeat()
 
             logger.info(f"Halstead radon returncode={hal_result.returncode}, stdout_len={len(hal_result.stdout or '')}")
 
@@ -660,6 +708,9 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
+            
+            # Send heartbeat after radon mi completes
+            self._send_heartbeat()
 
             logger.info(f"MI radon returncode={mi_result.returncode}, stdout_len={len(mi_result.stdout or '')}")
 
@@ -706,6 +757,9 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
+            
+            # Send heartbeat after radon raw completes
+            self._send_heartbeat()
 
             logger.info(f"Raw radon returncode={raw_result.returncode}, stdout_len={len(raw_result.stdout or '')}")
 
@@ -869,6 +923,10 @@ class RepoAnalyzer:
         ast_supported_exts = python_exts | js_ts_exts
         all_code_exts = ast_supported_exts | {".java", ".go", ".rs", ".rb", ".php"}
 
+        # Track files processed for periodic heartbeat
+        files_processed = 0
+        heartbeat_interval = 50  # Send heartbeat every 50 files
+
         for root, dirs, files in os.walk(self.temp_dir):
             dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ('node_modules', 'vendor', '__pycache__', 'dist', 'build')]
 
@@ -878,6 +936,11 @@ class RepoAnalyzer:
 
                 if ext not in all_code_exts:
                     continue
+
+                # Send periodic heartbeat during file iteration
+                files_processed += 1
+                if files_processed % heartbeat_interval == 0:
+                    self._send_heartbeat()
 
                 try:
                     with open(filepath, encoding='utf-8', errors='ignore') as f:
@@ -945,6 +1008,9 @@ class RepoAnalyzer:
 
                 except Exception as e:
                     logger.debug(f"Error in heuristics for {filepath}: {e}")
+
+        # Send final heartbeat after heuristics analysis
+        self._send_heartbeat()
 
         # Calculate heuristics score (adjusted weights for AST-based detection)
         # Calculate size-normalized heuristics score
@@ -1207,12 +1273,17 @@ class RepoAnalyzer:
         - If radon fails, continues with lizard results only
         - If lizard fails, continues with radon results only
         - If both fail, returns basic file/line counts with zero complexity
+
+        Sends heartbeat updates during long operations to indicate the worker is alive.
         """
-        # Clone repository
+        # Clone repository (heartbeat sent inside clone())
         self.clone()
 
         # Count lines
         metrics = self.count_lines()
+        
+        # Send heartbeat after line counting
+        self._send_heartbeat()
 
         # Detect languages present in repo
         detected_languages = self._detect_languages()
@@ -1224,6 +1295,7 @@ class RepoAnalyzer:
         languages_analyzed: list[str] = []
 
         # Run Python analysis (radon) if Python files exist
+        # (heartbeat sent inside analyze_python_complexity())
         python_complexity_data = {}
         if 'python' in detected_languages:
             logger.info("Running radon analysis for Python files")
@@ -1234,6 +1306,7 @@ class RepoAnalyzer:
                 logger.warning("radon analysis failed - Python complexity metrics will be unavailable")
 
         # Run lizard for non-Python languages
+        # (heartbeat sent inside analyze_with_lizard())
         lizard_complexity_data = {}
         non_python_languages = detected_languages - {'python'}
         if non_python_languages:
@@ -1267,7 +1340,10 @@ class RepoAnalyzer:
                 elif non_python_languages and not lizard_success:
                     complexity_data["_warning"] = "Non-Python analysis failed - showing partial results"
 
-        # Run hard heuristics
+        # Send heartbeat before heuristics analysis
+        self._send_heartbeat()
+
+        # Run hard heuristics (heartbeat sent periodically inside run_hard_heuristics())
         heuristics_data = self.run_hard_heuristics(metrics)
 
         # Calculate enhanced VCI
@@ -1296,6 +1372,9 @@ class RepoAnalyzer:
             complexity_source = "lizard"
         else:
             complexity_source = "fallback"
+
+        # Send final heartbeat before returning
+        self._send_heartbeat()
 
         return AnalysisResult(
             vci_score=vci_score,

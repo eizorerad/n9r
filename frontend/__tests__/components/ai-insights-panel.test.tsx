@@ -483,8 +483,12 @@ describe('AIInsightsPanel', () => {
 
     render(<AIInsightsPanel repositoryId={mockRepositoryId} token={mockToken} />)
 
+    // The component displays individual model names, not "3 models"
+    // Check that all three model names are displayed
     await waitFor(() => {
-      expect(screen.getByText('3 models')).toBeInTheDocument()
+      expect(screen.getByText('Gemini')).toBeInTheDocument()
+      expect(screen.getByText('Claude')).toBeInTheDocument()
+      expect(screen.getByText('GPT')).toBeInTheDocument()
     })
   })
 

@@ -6,11 +6,9 @@ Tests cover:
 - Requirements: 3.3, 3.4
 """
 
-import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from io import BytesIO
+from unittest.mock import MagicMock, patch
 
+import pytest
 from minio.error import S3Error
 
 from app.services.object_storage import (
@@ -18,7 +16,6 @@ from app.services.object_storage import (
     ObjectStorageError,
     get_object_storage_client,
 )
-
 
 # =============================================================================
 # Test Fixtures
@@ -60,14 +57,14 @@ class TestPutObject:
     async def test_put_object_success(self, minio_client, mock_minio_client):
         """Test successful object upload."""
         mock_minio_client.put_object.return_value = None
-        
+
         await minio_client.put_object(
             bucket="test-bucket",
             key="test/key.txt",
             data=b"test content",
             content_type="text/plain",
         )
-        
+
         # Verify put_object was called with correct arguments
         mock_minio_client.put_object.assert_called_once()
         call_args = mock_minio_client.put_object.call_args
@@ -82,13 +79,13 @@ class TestPutObject:
     async def test_put_object_default_content_type(self, minio_client, mock_minio_client):
         """Test upload with default content type."""
         mock_minio_client.put_object.return_value = None
-        
+
         await minio_client.put_object(
             bucket="test-bucket",
             key="test/key.bin",
             data=b"\x00\x01\x02",
         )
-        
+
         call_args = mock_minio_client.put_object.call_args
         assert call_args[1]["content_type"] == "application/octet-stream"
 
@@ -103,28 +100,28 @@ class TestPutObject:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.put_object(
                 bucket="test-bucket",
                 key="test/key.txt",
                 data=b"test content",
             )
-        
+
         assert "Failed to upload object" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_put_object_connection_error(self, minio_client, mock_minio_client):
         """Test handling of connection error during upload."""
         mock_minio_client.put_object.side_effect = Exception("Connection refused")
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.put_object(
                 bucket="test-bucket",
                 key="test/key.txt",
                 data=b"test content",
             )
-        
+
         assert "Failed to upload object" in str(exc_info.value)
 
 
@@ -142,12 +139,12 @@ class TestGetObject:
         mock_response = MagicMock()
         mock_response.read.return_value = b"test content"
         mock_minio_client.get_object.return_value = mock_response
-        
+
         result = await minio_client.get_object(
             bucket="test-bucket",
             key="test/key.txt",
         )
-        
+
         assert result == b"test content"
         mock_minio_client.get_object.assert_called_once_with("test-bucket", "test/key.txt")
         mock_response.close.assert_called_once()
@@ -164,12 +161,12 @@ class TestGetObject:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         result = await minio_client.get_object(
             bucket="test-bucket",
             key="test/key.txt",
         )
-        
+
         assert result is None
 
     @pytest.mark.asyncio
@@ -183,26 +180,26 @@ class TestGetObject:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.get_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to download object" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_get_object_connection_error(self, minio_client, mock_minio_client):
         """Test handling of connection error during download."""
         mock_minio_client.get_object.side_effect = Exception("Connection refused")
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.get_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to download object" in str(exc_info.value)
 
 
@@ -218,12 +215,12 @@ class TestDeleteObject:
     async def test_delete_object_success(self, minio_client, mock_minio_client):
         """Test successful object deletion."""
         mock_minio_client.remove_object.return_value = None
-        
+
         await minio_client.delete_object(
             bucket="test-bucket",
             key="test/key.txt",
         )
-        
+
         mock_minio_client.remove_object.assert_called_once_with("test-bucket", "test/key.txt")
 
     @pytest.mark.asyncio
@@ -237,7 +234,7 @@ class TestDeleteObject:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         # Should not raise
         await minio_client.delete_object(
             bucket="test-bucket",
@@ -255,26 +252,26 @@ class TestDeleteObject:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.delete_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to delete object" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_delete_object_connection_error(self, minio_client, mock_minio_client):
         """Test handling of connection error during deletion."""
         mock_minio_client.remove_object.side_effect = Exception("Connection refused")
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.delete_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to delete object" in str(exc_info.value)
 
 
@@ -290,12 +287,12 @@ class TestObjectExists:
     async def test_object_exists_true(self, minio_client, mock_minio_client):
         """Test checking existence of existing object."""
         mock_minio_client.stat_object.return_value = MagicMock()
-        
+
         result = await minio_client.object_exists(
             bucket="test-bucket",
             key="test/key.txt",
         )
-        
+
         assert result is True
         mock_minio_client.stat_object.assert_called_once_with("test-bucket", "test/key.txt")
 
@@ -310,12 +307,12 @@ class TestObjectExists:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         result = await minio_client.object_exists(
             bucket="test-bucket",
             key="test/key.txt",
         )
-        
+
         assert result is False
 
     @pytest.mark.asyncio
@@ -329,26 +326,26 @@ class TestObjectExists:
             host_id="test-host-id",
             response=MagicMock(),
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.object_exists(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to check object existence" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_object_exists_connection_error(self, minio_client, mock_minio_client):
         """Test handling of connection error during existence check."""
         mock_minio_client.stat_object.side_effect = Exception("Connection refused")
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.object_exists(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to check object existence" in str(exc_info.value)
 
 
@@ -359,7 +356,7 @@ class TestObjectExists:
 
 class TestMinIOUnavailable:
     """Tests for handling MinIO unavailability.
-    
+
     Requirements: 3.3, 3.4
     """
 
@@ -369,14 +366,14 @@ class TestMinIOUnavailable:
         mock_minio_client.put_object.side_effect = Exception(
             "Failed to establish a new connection: [Errno 111] Connection refused"
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.put_object(
                 bucket="test-bucket",
                 key="test/key.txt",
                 data=b"test content",
             )
-        
+
         assert "Failed to upload object" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -385,13 +382,13 @@ class TestMinIOUnavailable:
         mock_minio_client.get_object.side_effect = Exception(
             "Failed to establish a new connection: [Errno 111] Connection refused"
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.get_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to download object" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -400,13 +397,13 @@ class TestMinIOUnavailable:
         mock_minio_client.remove_object.side_effect = Exception(
             "Failed to establish a new connection: [Errno 111] Connection refused"
         )
-        
+
         with pytest.raises(ObjectStorageError) as exc_info:
             await minio_client.delete_object(
                 bucket="test-bucket",
                 key="test/key.txt",
             )
-        
+
         assert "Failed to delete object" in str(exc_info.value)
 
 
@@ -423,19 +420,19 @@ class TestSingleton:
         # Reset the singleton for testing
         import app.services.object_storage as module
         module._default_client = None
-        
+
         with patch("app.services.object_storage.Minio"):
             client1 = get_object_storage_client()
             client2 = get_object_storage_client()
-            
+
             assert client1 is client2
 
     def test_get_object_storage_client_creates_minio_client(self):
         """Test that get_object_storage_client creates MinIOClient."""
         import app.services.object_storage as module
         module._default_client = None
-        
+
         with patch("app.services.object_storage.Minio"):
             client = get_object_storage_client()
-            
+
             assert isinstance(client, MinIOClient)

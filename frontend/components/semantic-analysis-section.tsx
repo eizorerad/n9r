@@ -117,8 +117,12 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
 
   // Refs to prevent redundant operations
   const isRefreshingRef = useRef(false)
-  const lastRefreshedCacheStatus = useRef<string | null>(null)
-  const lastRefreshedEmbeddingsStatus = useRef<string | null>(null)
+  // Track both analysisId and status to properly detect transitions vs commit changes
+  const lastRefreshedStateRef = useRef<{
+    analysisId: string | null
+    cacheStatus: string | null
+    embeddingsStatus: string | null
+  }>({ analysisId: null, cacheStatus: null, embeddingsStatus: null })
 
   // Use the new unified status hook with store sync
   // **Feature: progress-tracking-refactor**
@@ -238,14 +242,22 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   useEffect(() => {
     if (!selectedAnalysisId || !token) {
       setSemanticCache(null)
-      lastRefreshedCacheStatus.current = null
-      lastRefreshedEmbeddingsStatus.current = null
+      lastRefreshedStateRef.current = { analysisId: null, cacheStatus: null, embeddingsStatus: null }
       return
     }
 
-    // Reset the refs when analysis changes so we can detect new completions
-    lastRefreshedCacheStatus.current = null
-    lastRefreshedEmbeddingsStatus.current = null
+    // Check if analysis changed - if so, reset tracking and fetch fresh data
+    const analysisChanged = lastRefreshedStateRef.current.analysisId !== selectedAnalysisId
+    if (analysisChanged) {
+      // Reset tracking for new analysis
+      lastRefreshedStateRef.current = { 
+        analysisId: selectedAnalysisId, 
+        cacheStatus: null, 
+        embeddingsStatus: null 
+      }
+      // Clear old data immediately to avoid showing stale data
+      setSemanticCache(null)
+    }
 
     fetchSemanticCache()
   }, [selectedAnalysisId, token, fetchSemanticCache])
@@ -260,33 +272,44 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
   // Refresh semantic cache when status changes to completed
   // This effect handles the transition from "computing"/"generating_insights" to "completed"
   useEffect(() => {
-    if (!derivedStatus || isRefreshingRef.current) return
+    if (!derivedStatus || !selectedAnalysisId || isRefreshingRef.current) return
 
     const isCached = semanticCache?.is_cached || false
     const currentCacheStatus = derivedStatus.semanticCacheStatus
-    const previousStatus = lastRefreshedCacheStatus.current
+    const prevState = lastRefreshedStateRef.current
+
+    // Skip if this is for a different analysis (stale effect)
+    if (prevState.analysisId !== selectedAnalysisId) {
+      return
+    }
+
+    const previousCacheStatus = prevState.cacheStatus
 
     console.log('[SemanticAnalysis] Status check:', {
       currentCacheStatus,
-      previousStatus,
+      previousCacheStatus,
       isCached,
       hasSemanticCache: derivedStatus.hasSemanticCache,
+      analysisId: selectedAnalysisId,
     })
 
     // Refresh when semantic cache status becomes completed
     // Key fix: Detect transition TO completed from any non-completed state
     // This ensures we catch the generating_insights -> completed transition
     const isNowCompleted = currentCacheStatus === 'completed' || derivedStatus.hasSemanticCache
-    const wasNotCompleted = previousStatus !== 'completed'
-    const statusChanged = previousStatus !== currentCacheStatus
+    const wasNotCompleted = previousCacheStatus !== 'completed'
+    const statusChanged = previousCacheStatus !== currentCacheStatus
 
     if (isNowCompleted && (wasNotCompleted || statusChanged)) {
       console.log('[SemanticAnalysis] Semantic cache completed, refreshing...', {
-        previousStatus,
+        previousCacheStatus,
         currentCacheStatus,
         isCached,
       })
-      lastRefreshedCacheStatus.current = currentCacheStatus
+      lastRefreshedStateRef.current = {
+        ...prevState,
+        cacheStatus: currentCacheStatus,
+      }
 
       // Fetch the semantic cache data
       fetchSemanticCache()
@@ -302,19 +325,30 @@ export function SemanticAnalysisSection({ repositoryId, token: initialToken }: S
       return
     }
 
+    // Update cache status tracking
+    if (currentCacheStatus !== previousCacheStatus) {
+      lastRefreshedStateRef.current = {
+        ...prevState,
+        cacheStatus: currentCacheStatus,
+      }
+    }
+
     // Refresh when embeddings complete (one-time only)
     if (
       derivedStatus.embeddingsStatus === 'completed' &&
       derivedStatus.vectorsCount > 0 &&
       !isCached &&
-      lastRefreshedEmbeddingsStatus.current !== 'completed'
+      prevState.embeddingsStatus !== 'completed'
     ) {
       console.log('[SemanticAnalysis] Embeddings completed, will refresh when semantic cache completes')
-      lastRefreshedEmbeddingsStatus.current = 'completed'
+      lastRefreshedStateRef.current = {
+        ...prevState,
+        embeddingsStatus: 'completed',
+      }
       // Don't refresh here - wait for semantic cache to complete
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [derivedStatus])
+  }, [derivedStatus, selectedAnalysisId])
 
   if (!token) {
     return (

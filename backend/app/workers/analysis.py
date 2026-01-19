@@ -1,17 +1,23 @@
 """Repository analysis tasks."""
 
 import logging
+import time
 from datetime import datetime
+from typing import Callable
 
 from sqlalchemy import select
 
 from app.core.celery import celery_app
+from app.core.config import settings
 from app.core.database import get_sync_session
 from app.core.redis import publish_analysis_progress
 from app.services.repo_analyzer import RepoAnalyzer
 from app.workers.helpers import collect_files_for_embedding, get_repo_url
 
 logger = logging.getLogger(__name__)
+
+# Module-level state for heartbeat throttling (per-analysis tracking)
+_last_heartbeat_times: dict[str, float] = {}
 
 
 # Keep _get_repo_url as an alias for backward compatibility
@@ -22,6 +28,131 @@ def _get_repo_url(repository_id: str) -> tuple[str, str | None]:
     This function is kept for backward compatibility.
     """
     return get_repo_url(repository_id)
+
+
+def update_heartbeat(analysis_id: str, force: bool = False) -> bool:
+    """Update the heartbeat timestamp for an analysis.
+    
+    Updates Analysis.state_updated_at to indicate the worker is still alive.
+    Implements throttling to avoid database spam - updates at most once per
+    settings.analysis_heartbeat_interval_seconds (default 30s).
+    
+    Args:
+        analysis_id: UUID of the analysis to update
+        force: If True, bypass throttling and always update
+        
+    Returns:
+        True if heartbeat was updated, False if throttled
+        
+    Note:
+        This function is idempotent and safe for retries.
+        Uses module-level _last_heartbeat_times dict for throttling state.
+    """
+    from app.models.analysis import Analysis
+    
+    current_time = time.time()
+    interval = settings.analysis_heartbeat_interval_seconds
+    
+    # Check throttling (unless forced)
+    if not force:
+        last_update = _last_heartbeat_times.get(analysis_id, 0)
+        if current_time - last_update < interval:
+            # Throttled - skip this update
+            return False
+    
+    try:
+        with get_sync_session() as db:
+            result = db.execute(
+                select(Analysis).where(Analysis.id == analysis_id)
+            )
+            analysis = result.scalar_one_or_none()
+            
+            if analysis:
+                analysis.state_updated_at = datetime.utcnow()
+                db.commit()
+                
+                # Update throttle tracking
+                _last_heartbeat_times[analysis_id] = current_time
+                logger.debug(f"Heartbeat updated for analysis {analysis_id}")
+                return True
+            else:
+                logger.warning(f"Cannot update heartbeat: analysis {analysis_id} not found")
+                return False
+                
+    except Exception as e:
+        # Heartbeat failures should not crash the worker
+        logger.warning(f"Failed to update heartbeat for analysis {analysis_id}: {e}")
+        return False
+
+
+def cleanup_heartbeat_tracking(analysis_id: str) -> None:
+    """Remove heartbeat tracking state for a completed analysis.
+    
+    Should be called when an analysis completes or fails to prevent
+    memory leaks in long-running workers.
+    """
+    _last_heartbeat_times.pop(analysis_id, None)
+
+
+def create_heartbeat_callback(analysis_id: str) -> Callable[[], None]:
+    """Create a heartbeat callback function for use in long operations.
+    
+    Returns a callable that can be passed to RepoAnalyzer or other
+    long-running operations to periodically update the heartbeat.
+    
+    Args:
+        analysis_id: UUID of the analysis
+        
+    Returns:
+        A callable that updates the heartbeat when invoked
+        
+    Example:
+        heartbeat = create_heartbeat_callback(analysis_id)
+        with RepoAnalyzer(url, token, heartbeat_callback=heartbeat) as analyzer:
+            result = analyzer.analyze()
+    """
+    def heartbeat():
+        update_heartbeat(analysis_id)
+    return heartbeat
+
+
+def _mark_analysis_running(analysis_id: str):
+    """Mark analysis as running and set started_at timestamp (A2).
+    
+    This should be called at the very beginning of analyze_repository,
+    after input validation but before heavy operations.
+    
+    - Sets status="running"
+    - Sets started_at only if it's still null (idempotency)
+    - Sets state_updated_at for heartbeat (initial heartbeat)
+    - Clears error_message on successful start (if this was a retry after fail)
+    """
+    from sqlalchemy import select
+
+    from app.models.analysis import Analysis
+
+    with get_sync_session() as db:
+        result = db.execute(
+            select(Analysis).where(Analysis.id == analysis_id)
+        )
+        analysis = result.scalar_one_or_none()
+
+        if analysis:
+            analysis.status = "running"
+            # Only set started_at if it's still null (idempotency + correct duration calculation)
+            if analysis.started_at is None:
+                analysis.started_at = datetime.utcnow()
+            # Update heartbeat timestamp (initial heartbeat on worker start)
+            analysis.state_updated_at = datetime.utcnow()
+            # Clear error_message on successful start (if this was a retry after fail)
+            analysis.error_message = None
+            db.commit()
+            
+            # Initialize heartbeat tracking for this analysis
+            _last_heartbeat_times[analysis_id] = time.time()
+            logger.info(f"Marked analysis {analysis.id} as running (initial heartbeat set)")
+        else:
+            logger.warning(f"No analysis found with id {analysis_id}")
 
 
 def _save_analysis_results(repository_id: str, analysis_id: str, result):
@@ -45,8 +176,13 @@ def _save_analysis_results(repository_id: str, analysis_id: str, result):
             analysis.tech_debt_level = result.tech_debt_level
             analysis.metrics = result.metrics
             analysis.ai_report = result.ai_report
-            analysis.started_at = datetime.utcnow()
+            # A3: Do NOT overwrite started_at - it should be set by _mark_analysis_running
+            # Defensive fallback: if started_at is still null (legacy records/rare race), set it now
+            if analysis.started_at is None:
+                analysis.started_at = datetime.utcnow()
             analysis.completed_at = datetime.utcnow()
+            # Final heartbeat update on completion
+            analysis.state_updated_at = datetime.utcnow()
 
             # Close old open issues for this repository (to avoid duplicates)
             # Important: Don't close issues from the current analysis (race condition protection)
@@ -87,6 +223,9 @@ def _save_analysis_results(repository_id: str, analysis_id: str, result):
 
             db.commit()
             logger.info(f"Saved analysis {analysis.id} with VCI score {result.vci_score}")
+            
+            # Cleanup heartbeat tracking to prevent memory leaks
+            cleanup_heartbeat_tracking(analysis_id)
         else:
             logger.warning(f"No pending analysis found for repository {repository_id}")
 
@@ -104,7 +243,12 @@ def _mark_analysis_failed(analysis_id: str, error_message: str):
         if analysis:
             analysis.status = "failed"
             analysis.error_message = error_message[:500]  # Limit error message length
+            # A4: Do NOT touch started_at, except for fallback (if null — set started_at=now)
+            if analysis.started_at is None:
+                analysis.started_at = datetime.utcnow()
             analysis.completed_at = datetime.utcnow()
+            # Final heartbeat update on failure
+            analysis.state_updated_at = datetime.utcnow()
             db.commit()
             logger.info(f"Marked analysis {analysis.id} as failed")
 
@@ -116,6 +260,9 @@ def _mark_analysis_failed(analysis_id: str, error_message: str):
                 message=error_message[:200],
                 status="failed",
             )
+            
+            # Cleanup heartbeat tracking to prevent memory leaks
+            cleanup_heartbeat_tracking(analysis_id)
 
 
 def _collect_files_for_embedding(repo_path) -> list[dict]:
@@ -148,14 +295,23 @@ def analyze_repository(
     calculates metrics, and generates a VCI score.
 
     Progress is published to Redis Pub/Sub for real-time SSE updates.
+    Heartbeat updates are sent to the database to indicate the worker is alive.
     """
     logger.info(
         f"Starting analysis {analysis_id} for repository {repository_id}, "
         f"commit={commit_sha}, triggered_by={triggered_by}"
     )
 
+    # A2: Mark analysis as running immediately (pending→running transition)
+    # This sets status="running", started_at (if null), state_updated_at, and clears error_message
+    _mark_analysis_running(analysis_id)
+
+    # Create heartbeat callback for long operations in RepoAnalyzer
+    heartbeat_callback = create_heartbeat_callback(analysis_id)
+
     def publish_progress(stage: str, progress: int, message: str | None = None):
-        """Helper to publish progress updates."""
+        """Helper to publish progress updates and update heartbeat."""
+        # Publish to Redis for SSE
         publish_analysis_progress(
             analysis_id=analysis_id,
             stage=stage,
@@ -164,6 +320,9 @@ def analyze_repository(
             status="running",
         )
         self.update_state(state="PROGRESS", meta={"stage": stage, "progress": progress})
+        
+        # Update heartbeat in database (throttled to avoid DB spam)
+        update_heartbeat(analysis_id)
 
     try:
         # Step 1: Get repository URL
@@ -174,7 +333,12 @@ def analyze_repository(
         # Step 2: Clone repository
         publish_progress("cloning", 15, "Cloning repository...")
 
-        with RepoAnalyzer(repo_url, access_token, commit_sha=commit_sha) as analyzer:
+        with RepoAnalyzer(
+            repo_url, 
+            access_token, 
+            commit_sha=commit_sha,
+            heartbeat_callback=heartbeat_callback,
+        ) as analyzer:
             # Clone complete
             publish_progress("cloning", 25, "Repository cloned successfully")
 
@@ -190,7 +354,7 @@ def analyze_repository(
             # Calculate VCI
             publish_progress("calculating_vci", 85, "Calculating VCI score...")
 
-            # Full analysis
+            # Full analysis (heartbeat_callback will be called during long operations)
             result = analyzer.analyze()
 
         # Step 3: Save results (after context manager exits, temp dir is cleaned)

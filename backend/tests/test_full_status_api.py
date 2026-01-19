@@ -452,6 +452,337 @@ class TestComputedFields:
         assert has_cache is False
 
 
+# =============================================================================
+# Test Analysis Progress Contract (A6.2 - status-transitions-fix)
+# =============================================================================
+
+
+class TestAnalysisProgressContract:
+    """Test the analysis_progress field contract in /full-status response.
+    
+    **Feature: status-transitions-fix**
+    **Validates: A6.2 - /full-status contract for running status**
+    
+    The analysis_progress field should reflect the static analysis progress:
+    - pending: 0%
+    - running: 50% (mid-point)
+    - completed: 100%
+    - failed: 0%
+    """
+
+    def test_pending_analysis_returns_progress_0(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - pending status returns analysis_progress=0**
+        
+        Test that when Analysis.status="pending", the /full-status endpoint
+        returns analysis_progress=0.
+        """
+        # For pending analysis, progress should be 0
+        progress = compute_overall_progress("pending", "none", 0, "none")
+        assert progress == 0, f"Expected 0% for pending, got {progress}%"
+
+    def test_running_analysis_returns_progress_15(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - running status returns analysis_progress=15 (mid-point of 0-30%)**
+        
+        Test that when Analysis.status="running", the /full-status endpoint
+        returns analysis_progress=15 (mid-point of analysis phase 0-30%).
+        """
+        # For running analysis, progress should be 15 (mid-point of 0-30%)
+        progress = compute_overall_progress("running", "none", 0, "none")
+        assert progress == 15, f"Expected 15% for running, got {progress}%"
+
+    def test_completed_analysis_returns_progress_30(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - completed status returns analysis_progress=30 (end of analysis phase)**
+        
+        Test that when Analysis.status="completed", the /full-status endpoint
+        returns analysis_progress=30 (end of analysis phase, before embeddings).
+        """
+        # For completed analysis with no embeddings, progress should be 30
+        progress = compute_overall_progress("completed", "none", 0, "none")
+        assert progress == 30, f"Expected 30% for completed (no embeddings), got {progress}%"
+
+    def test_failed_analysis_returns_progress_0(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - failed status returns analysis_progress=0**
+        
+        Test that when Analysis.status="failed", the /full-status endpoint
+        returns analysis_progress=0.
+        """
+        # For failed analysis, progress should be 0
+        progress = compute_overall_progress("failed", "none", 0, "none")
+        assert progress == 0, f"Expected 0% for failed, got {progress}%"
+
+    @pytest.mark.asyncio
+    async def test_full_status_endpoint_returns_correct_progress_for_pending(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - Full endpoint test for pending status**
+        
+        Test that the actual /full-status endpoint returns correct progress
+        when analysis status is pending.
+        """
+        from app.api.v1.analyses import get_analysis_full_status
+
+        # Create mock user
+        user_id = uuid.uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+
+        # Create mock analysis with pending status
+        analysis_id = uuid.uuid4()
+        repository_id = uuid.uuid4()
+
+        mock_analysis = MagicMock()
+        mock_analysis.id = analysis_id
+        mock_analysis.repository_id = repository_id
+        mock_analysis.commit_sha = "abc123"
+        mock_analysis.status = "pending"  # Key: pending status
+        mock_analysis.vci_score = None
+        mock_analysis.grade = None
+        mock_analysis.embeddings_status = "none"
+        mock_analysis.embeddings_progress = 0
+        mock_analysis.embeddings_stage = None
+        mock_analysis.embeddings_message = None
+        mock_analysis.embeddings_error = None
+        mock_analysis.vectors_count = 0
+        mock_analysis.semantic_cache_status = "none"
+        mock_analysis.semantic_cache = None
+        mock_analysis.ai_scan_status = "none"
+        mock_analysis.ai_scan_progress = 0
+        mock_analysis.ai_scan_stage = None
+        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = None
+        mock_analysis.ai_scan_started_at = None
+        mock_analysis.ai_scan_completed_at = None
+        mock_analysis.state_updated_at = datetime.now(UTC)
+        mock_analysis.embeddings_started_at = None
+        mock_analysis.embeddings_completed_at = None
+        mock_analysis.repository = MagicMock()
+        mock_analysis.repository.owner_id = user_id
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_analysis
+        mock_db.execute.return_value = mock_result
+
+        # Call endpoint
+        response = await get_analysis_full_status(
+            analysis_id=analysis_id,
+            db=mock_db,
+            user=mock_user,
+        )
+
+        # Verify progress is 0 for pending
+        assert response.overall_progress == 0, f"Expected 0% for pending, got {response.overall_progress}%"
+        assert response.analysis_status.value == "pending"
+
+    @pytest.mark.asyncio
+    async def test_full_status_endpoint_returns_correct_progress_for_running(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - Full endpoint test for running status**
+        
+        Test that the actual /full-status endpoint returns correct progress
+        when analysis status is running.
+        """
+        from app.api.v1.analyses import get_analysis_full_status
+
+        # Create mock user
+        user_id = uuid.uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+
+        # Create mock analysis with running status
+        analysis_id = uuid.uuid4()
+        repository_id = uuid.uuid4()
+
+        mock_analysis = MagicMock()
+        mock_analysis.id = analysis_id
+        mock_analysis.repository_id = repository_id
+        mock_analysis.commit_sha = "abc123"
+        mock_analysis.status = "running"  # Key: running status
+        mock_analysis.vci_score = None
+        mock_analysis.grade = None
+        mock_analysis.embeddings_status = "none"
+        mock_analysis.embeddings_progress = 0
+        mock_analysis.embeddings_stage = None
+        mock_analysis.embeddings_message = None
+        mock_analysis.embeddings_error = None
+        mock_analysis.vectors_count = 0
+        mock_analysis.semantic_cache_status = "none"
+        mock_analysis.semantic_cache = None
+        mock_analysis.ai_scan_status = "none"
+        mock_analysis.ai_scan_progress = 0
+        mock_analysis.ai_scan_stage = None
+        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = None
+        mock_analysis.ai_scan_started_at = None
+        mock_analysis.ai_scan_completed_at = None
+        mock_analysis.state_updated_at = datetime.now(UTC)
+        mock_analysis.embeddings_started_at = None
+        mock_analysis.embeddings_completed_at = None
+        mock_analysis.repository = MagicMock()
+        mock_analysis.repository.owner_id = user_id
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_analysis
+        mock_db.execute.return_value = mock_result
+
+        # Call endpoint
+        response = await get_analysis_full_status(
+            analysis_id=analysis_id,
+            db=mock_db,
+            user=mock_user,
+        )
+
+        # Verify progress is 15 for running (mid-point of 0-30%)
+        assert response.overall_progress == 15, f"Expected 15% for running, got {response.overall_progress}%"
+        assert response.analysis_status.value == "running"
+
+    @pytest.mark.asyncio
+    async def test_full_status_endpoint_returns_correct_progress_for_completed(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - Full endpoint test for completed status**
+        
+        Test that the actual /full-status endpoint returns correct progress
+        when analysis status is completed (but embeddings not started).
+        """
+        from app.api.v1.analyses import get_analysis_full_status
+
+        # Create mock user
+        user_id = uuid.uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+
+        # Create mock analysis with completed status
+        analysis_id = uuid.uuid4()
+        repository_id = uuid.uuid4()
+
+        mock_analysis = MagicMock()
+        mock_analysis.id = analysis_id
+        mock_analysis.repository_id = repository_id
+        mock_analysis.commit_sha = "abc123"
+        mock_analysis.status = "completed"  # Key: completed status
+        mock_analysis.vci_score = 85.5
+        mock_analysis.grade = "B"
+        mock_analysis.embeddings_status = "none"  # Embeddings not started
+        mock_analysis.embeddings_progress = 0
+        mock_analysis.embeddings_stage = None
+        mock_analysis.embeddings_message = None
+        mock_analysis.embeddings_error = None
+        mock_analysis.vectors_count = 0
+        mock_analysis.semantic_cache_status = "none"
+        mock_analysis.semantic_cache = None
+        mock_analysis.ai_scan_status = "none"
+        mock_analysis.ai_scan_progress = 0
+        mock_analysis.ai_scan_stage = None
+        mock_analysis.ai_scan_message = None
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = None
+        mock_analysis.ai_scan_started_at = None
+        mock_analysis.ai_scan_completed_at = None
+        mock_analysis.state_updated_at = datetime.now(UTC)
+        mock_analysis.embeddings_started_at = None
+        mock_analysis.embeddings_completed_at = None
+        mock_analysis.repository = MagicMock()
+        mock_analysis.repository.owner_id = user_id
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_analysis
+        mock_db.execute.return_value = mock_result
+
+        # Call endpoint
+        response = await get_analysis_full_status(
+            analysis_id=analysis_id,
+            db=mock_db,
+            user=mock_user,
+        )
+
+        # Verify progress is 30 for completed (end of analysis phase)
+        assert response.overall_progress == 30, f"Expected 30% for completed, got {response.overall_progress}%"
+        assert response.analysis_status.value == "completed"
+
+    @pytest.mark.asyncio
+    async def test_full_status_endpoint_returns_100_when_all_complete(self):
+        """
+        **Feature: status-transitions-fix**
+        **Validates: A6.2 - Full endpoint test for fully completed analysis**
+        
+        Test that the actual /full-status endpoint returns 100% progress
+        when all phases are completed.
+        """
+        from app.api.v1.analyses import get_analysis_full_status
+
+        # Create mock user
+        user_id = uuid.uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+
+        # Create mock analysis with all phases completed
+        analysis_id = uuid.uuid4()
+        repository_id = uuid.uuid4()
+
+        mock_analysis = MagicMock()
+        mock_analysis.id = analysis_id
+        mock_analysis.repository_id = repository_id
+        mock_analysis.commit_sha = "abc123"
+        mock_analysis.status = "completed"
+        mock_analysis.vci_score = 85.5
+        mock_analysis.grade = "B"
+        mock_analysis.embeddings_status = "completed"
+        mock_analysis.embeddings_progress = 100
+        mock_analysis.embeddings_stage = "completed"
+        mock_analysis.embeddings_message = "Done"
+        mock_analysis.embeddings_error = None
+        mock_analysis.vectors_count = 150
+        mock_analysis.semantic_cache_status = "completed"
+        mock_analysis.semantic_cache = {"architecture_health": {"overall_score": 80}}
+        mock_analysis.ai_scan_status = "completed"
+        mock_analysis.ai_scan_progress = 100
+        mock_analysis.ai_scan_stage = "completed"
+        mock_analysis.ai_scan_message = "AI scan complete"
+        mock_analysis.ai_scan_error = None
+        mock_analysis.ai_scan_cache = {"issues": []}
+        mock_analysis.ai_scan_started_at = datetime.now(UTC)
+        mock_analysis.ai_scan_completed_at = datetime.now(UTC)
+        mock_analysis.state_updated_at = datetime.now(UTC)
+        mock_analysis.embeddings_started_at = datetime.now(UTC)
+        mock_analysis.embeddings_completed_at = datetime.now(UTC)
+        mock_analysis.repository = MagicMock()
+        mock_analysis.repository.owner_id = user_id
+
+        # Create mock database session
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_analysis
+        mock_db.execute.return_value = mock_result
+
+        # Call endpoint
+        response = await get_analysis_full_status(
+            analysis_id=analysis_id,
+            db=mock_db,
+            user=mock_user,
+        )
+
+        # Verify progress is 100 when all phases complete
+        assert response.overall_progress == 100, f"Expected 100% for all complete, got {response.overall_progress}%"
+        assert response.is_complete is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 

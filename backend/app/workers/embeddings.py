@@ -1062,7 +1062,7 @@ def _populate_content_cache(
                         full_tree = service.collect_full_tree(repo_path)
                         # Save tree (idempotent upsert)
                         await service.save_tree(db, cache.id, [], full_tree=full_tree)
-                        
+
                         logger.info(f"Updated full_tree for {commit_sha[:7]}")
                         return {
                             "status": "skipped",

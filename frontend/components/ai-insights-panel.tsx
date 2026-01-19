@@ -462,8 +462,12 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     }
   }, [])
 
-  // Track previous AI scan status to detect completion transitions
-  const prevAiScanStatusRef = useRef<string | null>(null)
+  // Track previous state to detect transitions
+  // We track BOTH analysisId and status to properly reset on commit change
+  const prevStateRef = useRef<{ analysisId: string | null; status: string | null }>({
+    analysisId: null,
+    status: null,
+  })
 
   // Unified fetch effect - handles both initial load and completion transitions
   // This replaces two separate useEffects that were causing duplicate API calls
@@ -471,40 +475,54 @@ export function AIInsightsPanel({ repositoryId, token }: AIInsightsPanelProps) {
     if (!selectedAnalysisId || !token) {
       setScanData(null)
       setLoading(false)
+      // Reset tracking when no analysis selected
+      prevStateRef.current = { analysisId: null, status: null }
       return
     }
 
-    const currentStatus = fullStatus?.ai_scan_status
-    const prevStatus = prevAiScanStatusRef.current
+    const currentStatus = fullStatus?.ai_scan_status ?? null
+    const prevAnalysisId = prevStateRef.current.analysisId
+    const prevStatus = prevStateRef.current.status
 
     // Determine if we should fetch:
-    // 1. Initial load (no previous status)
-    // 2. Status just changed to 'completed' (transition detection)
-    const isInitialLoad = prevStatus === null
-    const justCompleted = prevStatus !== 'completed' && currentStatus === 'completed'
+    // 1. Analysis ID changed (user selected different commit) - ALWAYS fetch
+    // 2. Initial load for this analysis (no previous status for THIS analysis)
+    // 3. Status just changed to 'completed' (transition detection)
+    const analysisChanged = prevAnalysisId !== selectedAnalysisId
+    const isInitialLoad = analysisChanged || prevStatus === null
+    const justCompleted = !analysisChanged && prevStatus !== 'completed' && currentStatus === 'completed'
     const shouldFetch = isInitialLoad || justCompleted
 
     // Update ref for next render
-    prevAiScanStatusRef.current = currentStatus ?? null
+    prevStateRef.current = { analysisId: selectedAnalysisId, status: currentStatus }
 
     if (!shouldFetch) {
       return
     }
 
     const fetchResults = async () => {
-      // Only show loading on initial load, not on completion refresh
+      // Show loading on initial load or analysis change, not on completion refresh
       if (isInitialLoad) {
         setLoading(true)
+        // Clear old data immediately when switching commits to avoid showing stale data
+        if (analysisChanged) {
+          setScanData(null)
+        }
       }
       setError(null)
 
       try {
         const results = await getAIScanResults(selectedAnalysisId, token)
         if (!isMountedRef.current) return
+        // Double-check we're still on the same analysis (user might have clicked another commit)
+        if (prevStateRef.current.analysisId !== selectedAnalysisId) return
 
         setScanData(results)
       } catch (err) {
         if (!isMountedRef.current) return
+        // Double-check we're still on the same analysis
+        if (prevStateRef.current.analysisId !== selectedAnalysisId) return
+        
         if (err instanceof AIScanApiError && err.isNotFound()) {
           setScanData(null)
         } else {

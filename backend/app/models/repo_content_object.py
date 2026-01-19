@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 
 class RepoContentObject(BaseModelNoUpdate):
     """Individual file object in the repository content cache.
-    
+
     Stores metadata about each cached file in PostgreSQL,
     with actual file bytes stored in MinIO/S3 using object_key.
-    
+
     Status values: 'uploading', 'ready', 'failed', 'deleted'
     """
 

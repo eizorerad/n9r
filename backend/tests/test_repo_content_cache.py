@@ -86,7 +86,7 @@ def repo_content_object(draw, cache_id: uuid.UUID) -> MockRepoContentObject:
 @st.composite
 def repo_content_cache_with_objects(draw) -> MockRepoContentCache:
     """Generate a valid RepoContentCache with associated objects.
-    
+
     This generates a cache entry with objects where the metadata
     (file_count, total_size_bytes) is computed from the 'ready' objects.
     """
@@ -94,16 +94,16 @@ def repo_content_cache_with_objects(draw) -> MockRepoContentCache:
     repository_id = uuid.uuid4()
     commit_sha = draw(valid_commit_sha())
     status = draw(cache_status())
-    
+
     # Generate between 0 and 20 objects
     num_objects = draw(st.integers(min_value=0, max_value=20))
     objects = [draw(repo_content_object(cache_id)) for _ in range(num_objects)]
-    
+
     # Compute metadata from 'ready' objects only
     ready_objects = [obj for obj in objects if obj.status == "ready"]
     file_count = len(ready_objects)
     total_size_bytes = sum(obj.size_bytes for obj in ready_objects)
-    
+
     return MockRepoContentCache(
         id=cache_id,
         repository_id=repository_id,
@@ -122,15 +122,15 @@ def repo_content_cache_with_inconsistent_metadata(draw) -> MockRepoContentCache:
     cache_id = uuid.uuid4()
     repository_id = uuid.uuid4()
     commit_sha = draw(valid_commit_sha())
-    
+
     # Generate objects
     num_objects = draw(st.integers(min_value=1, max_value=20))
     objects = [draw(repo_content_object(cache_id)) for _ in range(num_objects)]
-    
+
     # Generate potentially incorrect metadata
     file_count = draw(st.integers(min_value=0, max_value=50))
     total_size_bytes = draw(st.integers(min_value=0, max_value=10_000_000))
-    
+
     return MockRepoContentCache(
         id=cache_id,
         repository_id=repository_id,
@@ -161,22 +161,22 @@ def compute_expected_total_size(objects: list[MockRepoContentObject]) -> int:
 def validate_metadata_accuracy(cache: MockRepoContentCache) -> tuple[bool, str]:
     """
     Validate that cache metadata matches the actual objects.
-    
+
     Returns (is_valid, error_message).
     """
     expected_file_count = compute_expected_file_count(cache.objects)
     expected_total_size = compute_expected_total_size(cache.objects)
-    
+
     if cache.file_count != expected_file_count:
         return False, (
             f"file_count mismatch: expected {expected_file_count}, got {cache.file_count}"
         )
-    
+
     if cache.total_size_bytes != expected_total_size:
         return False, (
             f"total_size_bytes mismatch: expected {expected_total_size}, got {cache.total_size_bytes}"
         )
-    
+
     return True, ""
 
 
@@ -208,11 +208,11 @@ class TestMetadataAccuracyProperties:
             # For non-ready caches, we still verify the metadata is computed correctly
             # but the property specifically applies to 'ready' caches
             pass
-        
+
         # Compute expected values from objects
         expected_file_count = compute_expected_file_count(cache.objects)
         expected_total_size = compute_expected_total_size(cache.objects)
-        
+
         # Property: file_count must equal count of 'ready' objects
         assert cache.file_count == expected_file_count, (
             f"file_count mismatch for cache {cache.id}\n"
@@ -220,7 +220,7 @@ class TestMetadataAccuracyProperties:
             f"Actual: {cache.file_count}\n"
             f"Objects: {[(obj.path, obj.status) for obj in cache.objects]}"
         )
-        
+
         # Property: total_size_bytes must equal sum of 'ready' object sizes
         assert cache.total_size_bytes == expected_total_size, (
             f"total_size_bytes mismatch for cache {cache.id}\n"
@@ -241,15 +241,15 @@ class TestMetadataAccuracyProperties:
         """
         expected_file_count = compute_expected_file_count(cache.objects)
         expected_total_size = compute_expected_total_size(cache.objects)
-        
+
         is_valid, error_msg = validate_metadata_accuracy(cache)
-        
+
         # Property: validation should pass if and only if metadata matches
         metadata_matches = (
             cache.file_count == expected_file_count and
             cache.total_size_bytes == expected_total_size
         )
-        
+
         assert is_valid == metadata_matches, (
             f"Validation result mismatch\n"
             f"is_valid: {is_valid}, metadata_matches: {metadata_matches}\n"
@@ -271,10 +271,10 @@ class TestMetadataAccuracyProperties:
         # Compute metadata twice
         file_count_1 = compute_expected_file_count(objects)
         total_size_1 = compute_expected_total_size(objects)
-        
+
         file_count_2 = compute_expected_file_count(objects)
         total_size_2 = compute_expected_total_size(objects)
-        
+
         # Property: results must be identical
         assert file_count_1 == file_count_2, (
             f"file_count computation is not deterministic: {file_count_1} != {file_count_2}"
@@ -294,7 +294,7 @@ class TestMetadataAccuracyProperties:
         the total number of objects.
         """
         total_objects = len(cache.objects)
-        
+
         # Property: file_count <= total objects
         assert cache.file_count <= total_objects, (
             f"file_count ({cache.file_count}) exceeds total objects ({total_objects})"
@@ -325,7 +325,7 @@ class TestMetadataAccuracyProperties:
         should both be 0.
         """
         ready_objects = [obj for obj in cache.objects if obj.status == "ready"]
-        
+
         if len(ready_objects) == 0:
             # Property: no ready objects means zero metadata
             assert cache.file_count == 0, (
@@ -343,7 +343,6 @@ class TestMetadataAccuracyProperties:
 
 
 import hashlib
-import os
 import tempfile
 from pathlib import Path
 
@@ -351,7 +350,6 @@ from app.services.repo_content import (
     CODE_EXTENSIONS,
     MAX_FILE_SIZE,
     MIN_FILE_SIZE,
-    SKIP_DIRS,
     RepoContentService,
     compute_content_hash,
 )
@@ -392,11 +390,11 @@ def large_file_content(draw) -> bytes:
 @st.composite
 def repo_file_structure(draw) -> dict[str, bytes]:
     """Generate a repository file structure with mixed file types.
-    
+
     Returns a dict mapping relative paths to file contents.
     """
     files = {}
-    
+
     # Generate 1-10 code files
     num_code_files = draw(st.integers(min_value=1, max_value=10))
     for i in range(num_code_files):
@@ -405,7 +403,7 @@ def repo_file_structure(draw) -> dict[str, bytes]:
         name = f"file{i}{ext}"
         content = draw(valid_file_content())
         files[name] = content
-    
+
     # Optionally add some non-code files
     num_other_files = draw(st.integers(min_value=0, max_value=5))
     for i in range(num_other_files):
@@ -413,19 +411,19 @@ def repo_file_structure(draw) -> dict[str, bytes]:
         name = f"other{i}{ext}"
         content = draw(valid_file_content())
         files[name] = content
-    
+
     return files
 
 
 def create_temp_repo(files: dict[str, bytes]) -> Path:
     """Create a temporary directory with the given file structure."""
     temp_dir = tempfile.mkdtemp(prefix="test_repo_")
-    
+
     for path, content in files.items():
         file_path = Path(temp_dir) / path
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_bytes(content)
-    
+
     return Path(temp_dir)
 
 
@@ -460,14 +458,14 @@ class TestFileCollectionConsistencyProperties:
         try:
             service = RepoContentService()
             collected = service.collect_files_from_repo(repo_path)
-            
+
             for file in collected:
                 # Property 1: All collected files have code extensions
                 ext = Path(file.path).suffix.lower()
                 assert ext in CODE_EXTENSIONS, (
                     f"Collected file {file.path} has non-code extension {ext}"
                 )
-                
+
                 # Property 2: All collected files are within size limits
                 assert len(file.content) >= MIN_FILE_SIZE, (
                     f"Collected file {file.path} is too small: {len(file.content)} bytes"
@@ -475,7 +473,7 @@ class TestFileCollectionConsistencyProperties:
                 assert len(file.content) <= MAX_FILE_SIZE, (
                     f"Collected file {file.path} is too large: {len(file.content)} bytes"
                 )
-                
+
                 # Property 3: Content hash is valid SHA-256
                 assert len(file.content_hash) == 64, (
                     f"Content hash for {file.path} is not 64 characters: {len(file.content_hash)}"
@@ -483,7 +481,7 @@ class TestFileCollectionConsistencyProperties:
                 assert all(c in "0123456789abcdef" for c in file.content_hash), (
                     f"Content hash for {file.path} contains invalid characters"
                 )
-                
+
                 # Property 4: Content hash matches actual content
                 expected_hash = hashlib.sha256(file.content).hexdigest()
                 assert file.content_hash == expected_hash, (
@@ -506,9 +504,9 @@ class TestFileCollectionConsistencyProperties:
         try:
             service = RepoContentService()
             collected = service.collect_files_from_repo(repo_path)
-            
+
             collected_paths = {f.path for f in collected}
-            
+
             for path in files.keys():
                 ext = Path(path).suffix.lower()
                 if ext not in CODE_EXTENSIONS:
@@ -529,13 +527,13 @@ class TestFileCollectionConsistencyProperties:
         """
         ext = data.draw(valid_code_extension())
         content = data.draw(small_file_content())
-        
+
         files = {f"small{ext}": content}
         repo_path = create_temp_repo(files)
         try:
             service = RepoContentService()
             collected = service.collect_files_from_repo(repo_path)
-            
+
             # Property: small files should not be collected
             assert len(collected) == 0, (
                 f"Small file ({len(content)} bytes) was incorrectly collected"
@@ -554,13 +552,13 @@ class TestFileCollectionConsistencyProperties:
         """
         ext = data.draw(valid_code_extension())
         content = data.draw(large_file_content())
-        
+
         files = {f"large{ext}": content}
         repo_path = create_temp_repo(files)
         try:
             service = RepoContentService()
             collected = service.collect_files_from_repo(repo_path)
-            
+
             # Property: large files should not be collected
             assert len(collected) == 0, (
                 f"Large file ({len(content)} bytes) was incorrectly collected"
@@ -581,25 +579,25 @@ class TestFileCollectionConsistencyProperties:
         repo_path = create_temp_repo(files)
         try:
             service = RepoContentService()
-            
+
             # Collect twice
             collected1 = service.collect_files_from_repo(repo_path)
             collected2 = service.collect_files_from_repo(repo_path)
-            
+
             # Property: results must be identical
             paths1 = sorted(f.path for f in collected1)
             paths2 = sorted(f.path for f in collected2)
-            
+
             assert paths1 == paths2, (
                 f"Collection is not deterministic: {paths1} != {paths2}"
             )
-            
+
             # Also verify hashes match
             hashes1 = {f.path: f.content_hash for f in collected1}
             hashes2 = {f.path: f.content_hash for f in collected2}
-            
+
             assert hashes1 == hashes2, (
-                f"Content hashes are not deterministic"
+                "Content hashes are not deterministic"
             )
         finally:
             cleanup_temp_repo(repo_path)
@@ -638,7 +636,7 @@ def files_to_upload_list(draw) -> list[FileToUpload]:
     """Generate a list of files to upload with unique paths."""
     num_files = draw(st.integers(min_value=1, max_value=5))
     files = []
-    
+
     # Use unique indices to ensure unique paths
     indices = draw(st.lists(
         st.integers(min_value=0, max_value=99),
@@ -646,13 +644,13 @@ def files_to_upload_list(draw) -> list[FileToUpload]:
         max_size=num_files,
         unique=True,
     ))
-    
+
     for i in indices:
         path = f"file{i}.py"
         content = draw(small_content())
         content_hash = compute_content_hash(content)
         files.append(FileToUpload(path=path, content=content, content_hash=content_hash))
-    
+
     return files
 
 
@@ -661,7 +659,7 @@ class TestUploadIdempotencyProperties:
 
     **Feature: repo-content-cache, Property 2: Upload idempotency**
     **Validates: Requirements 2.2, 3.2**
-    
+
     Note: These tests use mock objects to verify the idempotency logic
     without requiring actual database/MinIO connections.
     """
@@ -679,15 +677,15 @@ class TestUploadIdempotencyProperties:
         # Compute hash twice
         hash1 = compute_content_hash(file.content)
         hash2 = compute_content_hash(file.content)
-        
+
         # Property: hashes must be identical
         assert hash1 == hash2, (
             f"Content hash is not deterministic: {hash1} != {hash2}"
         )
-        
+
         # Also verify it matches the file's stored hash
         assert file.content_hash == hash1, (
-            f"File's content_hash doesn't match computed hash"
+            "File's content_hash doesn't match computed hash"
         )
 
     @given(files_to_upload_list())
@@ -702,7 +700,7 @@ class TestUploadIdempotencyProperties:
         """
         # Simulate existing objects (path -> content_hash mapping)
         existing_objects = {f.path: f.content_hash for f in files}
-        
+
         # Check each file against existing objects
         for file in files:
             if file.path in existing_objects:
@@ -724,14 +722,14 @@ class TestUploadIdempotencyProperties:
         """
         content1 = data.draw(valid_file_content())
         content2 = data.draw(valid_file_content())
-        
+
         # Skip if contents happen to be identical
         if content1 == content2:
             return
-        
+
         hash1 = compute_content_hash(content1)
         hash2 = compute_content_hash(content2)
-        
+
         # Property: different content should have different hashes
         assert hash1 != hash2, (
             f"Different content produced same hash (collision): {hash1}"
@@ -749,14 +747,14 @@ class TestUploadIdempotencyProperties:
         """
         # Simulate upload result
         total = len(files)
-        
+
         # Randomly assign outcomes
         import random
         uploaded = random.randint(0, total)
         remaining = total - uploaded
         skipped = random.randint(0, remaining)
         failed = remaining - skipped
-        
+
         # Property: counts must sum to total
         assert uploaded + skipped + failed == total, (
             f"Upload counts don't sum to total: "
@@ -777,7 +775,7 @@ class TestUploadIdempotencyProperties:
         assert len(file.content_hash) == 64, (
             f"Hash length is not 64: {len(file.content_hash)}"
         )
-        
+
         # Property: hash contains only valid hex characters
         assert all(c in "0123456789abcdef" for c in file.content_hash), (
             f"Hash contains invalid characters: {file.content_hash}"
@@ -795,7 +793,7 @@ class TestUploadIdempotencyProperties:
         """
         paths = [f.path for f in files]
         unique_paths = set(paths)
-        
+
         # Property: all paths should be unique
         assert len(paths) == len(unique_paths), (
             f"Duplicate paths found in upload list: {paths}"
@@ -821,29 +819,29 @@ class MockCacheWithContent:
 @st.composite
 def cache_with_content(draw) -> MockCacheWithContent:
     """Generate a cache with tree and file content for retrieval testing.
-    
+
     Generates a 'ready' cache with consistent tree and file data.
     """
     cache_id = uuid.uuid4()
     repository_id = uuid.uuid4()
     commit_sha = draw(valid_commit_sha())
-    
+
     # Generate 1-10 files
     num_files = draw(st.integers(min_value=1, max_value=10))
-    
+
     files = {}
     tree = []
-    
+
     for i in range(num_files):
         # Generate unique path
         path = f"src/file{i}.py"
         tree.append(path)
-        
+
         # Generate content
         content = draw(valid_file_content())
         content_hash = compute_content_hash(content)
         files[path] = (content, content_hash)
-    
+
     return MockCacheWithContent(
         cache_id=cache_id,
         repository_id=repository_id,
@@ -861,20 +859,20 @@ def cache_with_non_ready_status(draw) -> MockCacheWithContent:
     repository_id = uuid.uuid4()
     commit_sha = draw(valid_commit_sha())
     status = draw(st.sampled_from(["pending", "uploading", "failed"]))
-    
+
     # Generate some files (but cache is not ready)
     num_files = draw(st.integers(min_value=1, max_value=5))
-    
+
     files = {}
     tree = []
-    
+
     for i in range(num_files):
         path = f"src/file{i}.py"
         tree.append(path)
         content = draw(valid_file_content())
         content_hash = compute_content_hash(content)
         files[path] = (content, content_hash)
-    
+
     return MockCacheWithContent(
         cache_id=cache_id,
         repository_id=repository_id,
@@ -905,7 +903,7 @@ class TestCacheRetrievalConsistencyProperties:
         # Property: tree should contain exactly the paths we stored
         stored_paths = set(cache.tree)
         file_paths = set(cache.files.keys())
-        
+
         # The tree should match the files
         assert stored_paths == file_paths, (
             f"Tree paths don't match file paths\n"
@@ -926,7 +924,7 @@ class TestCacheRetrievalConsistencyProperties:
         for path, (content, stored_hash) in cache.files.items():
             # Compute hash from content
             actual_hash = compute_content_hash(content)
-            
+
             # Property: hash must match
             assert actual_hash == stored_hash, (
                 f"Content hash mismatch for {path}\n"
@@ -978,7 +976,7 @@ class TestCacheRetrievalConsistencyProperties:
         assert cache.status != "ready", (
             f"Expected non-ready status, got {cache.status}"
         )
-        
+
         # This validates the design requirement that pending/uploading/failed
         # caches should not return data
 
@@ -997,7 +995,7 @@ class TestCacheRetrievalConsistencyProperties:
             if len(content) > 0:
                 corrupted_content = content[:-1] + bytes([content[-1] ^ 0xFF])
                 corrupted_hash = compute_content_hash(corrupted_content)
-                
+
                 # Property: corrupted content should have different hash
                 assert corrupted_hash != stored_hash, (
                     f"Corrupted content has same hash as original for {path}"
@@ -1016,7 +1014,7 @@ class TestCacheRetrievalConsistencyProperties:
         assert isinstance(cache.tree, list), (
             f"Tree should be a list, got {type(cache.tree)}"
         )
-        
+
         # Property: no duplicate paths in tree
         assert len(cache.tree) == len(set(cache.tree)), (
             f"Tree contains duplicate paths: {cache.tree}"
@@ -1033,22 +1031,22 @@ class TestCacheRetrievalConsistencyProperties:
         requested files (only those that exist and are valid).
         """
         cache = data.draw(cache_with_content())
-        
+
         # Request some files that exist and some that don't
         existing_paths = list(cache.files.keys())
         non_existing_paths = [f"nonexistent/file{i}.py" for i in range(3)]
         requested_paths = existing_paths + non_existing_paths
-        
+
         # Simulate batch retrieval result (only existing files)
         result_paths = set(existing_paths)
-        
+
         # Property: result should be subset of requested
         assert result_paths.issubset(set(requested_paths)), (
             f"Result contains paths not in request\n"
             f"Result: {result_paths}\n"
             f"Requested: {set(requested_paths)}"
         )
-        
+
         # Property: result should only contain existing files
         assert result_paths == set(existing_paths), (
             f"Result should only contain existing files\n"
@@ -1371,31 +1369,31 @@ class MockRepositoryWithCaches:
 @st.composite
 def repository_with_caches(draw) -> MockRepositoryWithCaches:
     """Generate a repository with multiple content caches.
-    
+
     Each cache has associated objects with MinIO keys.
     """
     repository_id = uuid.uuid4()
-    
+
     # Generate 1-5 caches for this repository
     num_caches = draw(st.integers(min_value=1, max_value=5))
     caches = []
     all_minio_keys: set[str] = set()
-    
+
     for _ in range(num_caches):
         cache_id = uuid.uuid4()
         commit_sha = draw(valid_commit_sha())
         status = draw(cache_status())
-        
+
         # Generate 0-10 objects per cache
         num_objects = draw(st.integers(min_value=0, max_value=10))
         objects = []
-        
+
         for j in range(num_objects):
             obj_id = uuid.uuid4()
             # MinIO key format: {repository_id}/{commit_sha}/{object_id}
             object_key = f"{repository_id}/{commit_sha}/{obj_id}"
             all_minio_keys.add(object_key)
-            
+
             objects.append(MockRepoContentObject(
                 id=obj_id,
                 cache_id=cache_id,
@@ -1405,12 +1403,12 @@ def repository_with_caches(draw) -> MockRepositoryWithCaches:
                 content_hash=draw(valid_content_hash()),
                 status=draw(object_status()),
             ))
-        
+
         # Compute metadata from ready objects
         ready_objects = [obj for obj in objects if obj.status == "ready"]
         file_count = len(ready_objects)
         total_size_bytes = sum(obj.size_bytes for obj in ready_objects)
-        
+
         caches.append(MockRepoContentCache(
             id=cache_id,
             repository_id=repository_id,
@@ -1421,7 +1419,7 @@ def repository_with_caches(draw) -> MockRepositoryWithCaches:
             version=draw(st.integers(min_value=1, max_value=10)),
             objects=objects,
         ))
-    
+
     return MockRepositoryWithCaches(
         repository_id=repository_id,
         caches=caches,
@@ -1431,26 +1429,26 @@ def repository_with_caches(draw) -> MockRepositoryWithCaches:
 
 def simulate_cascade_delete(repo: MockRepositoryWithCaches) -> tuple[set[uuid.UUID], set[uuid.UUID], set[str]]:
     """Simulate PostgreSQL CASCADE delete behavior.
-    
+
     When a repository is deleted:
     1. All repo_content_cache entries are deleted (CASCADE)
     2. All repo_content_objects entries are deleted (CASCADE from cache)
     3. MinIO objects should be cleaned up by GC
-    
+
     Returns:
         Tuple of (deleted_cache_ids, deleted_object_ids, orphaned_minio_keys)
     """
     deleted_cache_ids: set[uuid.UUID] = set()
     deleted_object_ids: set[uuid.UUID] = set()
-    
+
     for cache in repo.caches:
         deleted_cache_ids.add(cache.id)
         for obj in cache.objects:
             deleted_object_ids.add(obj.id)
-    
+
     # After CASCADE delete, MinIO objects become orphaned
     orphaned_minio_keys = repo.minio_object_keys.copy()
-    
+
     return deleted_cache_ids, deleted_object_ids, orphaned_minio_keys
 
 
@@ -1472,10 +1470,10 @@ class TestCascadeDeleteIntegrityProperties:
         entries should be removed.
         """
         deleted_cache_ids, _, _ = simulate_cascade_delete(repo)
-        
+
         # Property: all caches for this repository should be deleted
         expected_cache_ids = {cache.id for cache in repo.caches}
-        
+
         assert deleted_cache_ids == expected_cache_ids, (
             f"Not all caches were deleted\n"
             f"Expected: {expected_cache_ids}\n"
@@ -1493,13 +1491,13 @@ class TestCascadeDeleteIntegrityProperties:
         entries should be removed via CASCADE.
         """
         _, deleted_object_ids, _ = simulate_cascade_delete(repo)
-        
+
         # Property: all objects for all caches should be deleted
         expected_object_ids: set[uuid.UUID] = set()
         for cache in repo.caches:
             for obj in cache.objects:
                 expected_object_ids.add(obj.id)
-        
+
         assert deleted_object_ids == expected_object_ids, (
             f"Not all objects were deleted\n"
             f"Expected: {len(expected_object_ids)} objects\n"
@@ -1517,7 +1515,7 @@ class TestCascadeDeleteIntegrityProperties:
         should be identified as orphaned for cleanup.
         """
         _, _, orphaned_minio_keys = simulate_cascade_delete(repo)
-        
+
         # Property: all MinIO keys should be identified as orphaned
         assert orphaned_minio_keys == repo.minio_object_keys, (
             f"Not all MinIO objects identified as orphaned\n"
@@ -1537,22 +1535,22 @@ class TestCascadeDeleteIntegrityProperties:
         """
         for key in repo.minio_object_keys:
             parts = key.split("/")
-            
+
             # Property: key should have 3 parts
             assert len(parts) == 3, (
                 f"MinIO key should have 3 parts: {key}"
             )
-            
+
             # Property: first part should be repository_id
             assert parts[0] == str(repo.repository_id), (
                 f"First part should be repository_id: {key}"
             )
-            
+
             # Property: second part should be a valid commit SHA (40 hex chars)
             assert len(parts[1]) == 40 and all(c in "0123456789abcdef" for c in parts[1]), (
                 f"Second part should be valid commit SHA: {key}"
             )
-            
+
             # Property: third part should be a valid UUID
             try:
                 uuid.UUID(parts[2])
@@ -1570,12 +1568,12 @@ class TestCascadeDeleteIntegrityProperties:
         the repository's data.
         """
         deleted_cache_ids, deleted_object_ids, orphaned_minio_keys = simulate_cascade_delete(repo)
-        
+
         # Count expected items
         expected_cache_count = len(repo.caches)
         expected_object_count = sum(len(cache.objects) for cache in repo.caches)
         expected_minio_count = len(repo.minio_object_keys)
-        
+
         # Property: counts should match
         assert len(deleted_cache_ids) == expected_cache_count, (
             f"Cache count mismatch: {len(deleted_cache_ids)} != {expected_cache_count}"
@@ -1603,9 +1601,9 @@ class TestCascadeDeleteIntegrityProperties:
             caches=[],
             minio_object_keys=set(),
         )
-        
+
         deleted_cache_ids, deleted_object_ids, orphaned_minio_keys = simulate_cascade_delete(empty_repo)
-        
+
         # Property: all sets should be empty
         assert len(deleted_cache_ids) == 0, "Empty repo should have no caches to delete"
         assert len(deleted_object_ids) == 0, "Empty repo should have no objects to delete"
@@ -1626,7 +1624,7 @@ class TestCascadeDeleteIntegrityProperties:
             assert str(repo.repository_id) in key, (
                 f"MinIO key {key} doesn't belong to repository {repo.repository_id}"
             )
-        
+
         # Property: all caches should belong to this repository
         for cache in repo.caches:
             assert cache.repository_id == repo.repository_id, (
@@ -1645,7 +1643,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_includes_directories(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Full tree should include directories, not just files.
         """
         files = {
@@ -1657,14 +1655,14 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             # Should have directories
             dir_entries = [e for e in full_tree if e["type"] == "directory"]
             file_entries = [e for e in full_tree if e["type"] == "file"]
-            
+
             assert len(dir_entries) >= 2, "Should have at least 'src' and 'src/utils' directories"
             assert len(file_entries) >= 3, "Should have at least 3 files"
-            
+
             # Check directory names
             dir_paths = {e["path"] for e in dir_entries}
             assert "src" in dir_paths, "Should have 'src' directory"
@@ -1675,7 +1673,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_includes_all_file_types(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Full tree should include ALL files, not just code files.
         """
         files = {
@@ -1688,9 +1686,9 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             file_paths = {e["path"] for e in full_tree if e["type"] == "file"}
-            
+
             # All files should be included
             assert "main.py" in file_paths
             assert "config.json" in file_paths
@@ -1702,7 +1700,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_excludes_hidden_files(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Full tree should exclude hidden files and .git directory.
         """
         files = {
@@ -1714,13 +1712,13 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             file_paths = {e["path"] for e in full_tree if e["type"] == "file"}
-            
+
             # Hidden files should be excluded
             assert ".hidden" not in file_paths
             assert ".gitignore" not in file_paths
-            
+
             # Regular files should be included
             assert "main.py" in file_paths
         finally:
@@ -1729,7 +1727,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_has_size_metadata(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: File entries should have size metadata.
         """
         content = b"# main\nprint('hello')\n" * 5
@@ -1738,9 +1736,9 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             file_entry = next(e for e in full_tree if e["path"] == "main.py")
-            
+
             assert file_entry["size"] is not None
             assert file_entry["size"] == len(content)
         finally:
@@ -1749,7 +1747,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_directories_have_null_size(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Directory entries should have null size.
         """
         files = {"src/main.py": b"# main\nprint('hello')\n" * 5}
@@ -1757,9 +1755,9 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             dir_entry = next(e for e in full_tree if e["path"] == "src")
-            
+
             assert dir_entry["type"] == "directory"
             assert dir_entry["size"] is None
         finally:
@@ -1768,7 +1766,7 @@ class TestFullTreeCollection:
     def test_collect_full_tree_is_sorted(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Full tree should be sorted with directories first.
         """
         files = {
@@ -1780,7 +1778,7 @@ class TestFullTreeCollection:
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             # First entry should be directory
             assert full_tree[0]["type"] == "directory"
             assert full_tree[0]["path"] == "alpha"
@@ -1790,14 +1788,14 @@ class TestFullTreeCollection:
     def test_collect_full_tree_empty_repo(self):
         """
         **Feature: commit-centric-explorer**
-        
+
         Property: Empty repo should return empty list.
         """
         repo_path = create_temp_repo({})
         try:
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
-            
+
             assert full_tree == []
         finally:
             cleanup_temp_repo(repo_path)

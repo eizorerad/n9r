@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.services.vector_store import VectorStoreService, get_qdrant_client
+from app.services.vector_store import VectorStoreService
 
 
 def main():
@@ -125,7 +125,7 @@ def _delete_all_commits(vs: VectorStoreService, repo_id: str, *, dry_run: bool, 
 
     if not force:
         print("This is a DESTRUCTIVE operation that cannot be undone!")
-        confirm = input(f"Type 'DELETE ALL' to confirm: ").strip()
+        confirm = input("Type 'DELETE ALL' to confirm: ").strip()
         if confirm != "DELETE ALL":
             print("Aborted")
             return

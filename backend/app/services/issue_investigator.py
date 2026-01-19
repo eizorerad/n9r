@@ -37,42 +37,42 @@ MAX_CLI_OUTPUT_CHARS = 10000
 
 def _parse_shell_command(command: str) -> list[str]:
     """Parse a shell command string into a list of arguments.
-    
+
     TEMPORARY FIX: This is a basic implementation that uses shlex to parse
     shell commands into argument lists. This eliminates shell injection by
     executing commands directly without shell interpretation.
-    
+
     TODO: Future improvements to consider:
     - Semantic command analysis (understand intent, not just syntax)
     - Configurable security policies per repository/user
     - Machine learning-based command classification
     - Integration with container security policies (seccomp, AppArmor)
     - Audit logging and anomaly detection
-    
+
     Args:
         command: Shell command string (e.g., "grep -r 'pattern' .")
-        
+
     Returns:
         List of arguments (e.g., ["grep", "-r", "pattern", "."])
-        
+
     Raises:
         ValueError: If command cannot be parsed safely
     """
     import shlex
-    
+
     if not command or not command.strip():
         raise ValueError("Empty command")
-    
+
     try:
         # Use shlex to properly parse shell-like syntax
         # This handles quotes, escapes, etc. correctly
         args = shlex.split(command)
-        
+
         if not args:
             raise ValueError("Command parsed to empty list")
-            
+
         return args
-        
+
     except ValueError as e:
         # shlex.split can raise ValueError for malformed input
         raise ValueError(f"Failed to parse command: {e}")
@@ -497,10 +497,10 @@ Please investigate this issue using the available tools and determine if it's a 
         Commands are parsed into argument lists and executed directly via
         exec_args() instead of exec(). This eliminates shell injection by
         bypassing shell interpretation entirely.
-        
+
         The sandbox already provides strong isolation (network_mode=none,
         cap_drop=ALL, non-root user), but this adds defense-in-depth.
-        
+
         TODO: Future improvements to consider:
         - Semantic command analysis for smarter security
         - Configurable policies per repository/user

@@ -118,6 +118,14 @@ class Settings(BaseSettings):
     ai_scan_enabled: bool = True  # Enable/disable automatic AI scan after semantic cache
     ai_scan_max_cost_per_scan: float = 10.0  # Maximum cost in USD per AI scan (2 models ~$5-6)
 
+    # Analysis Heartbeat Settings (stuck detection)
+    # Time in minutes before a pending analysis is considered stuck
+    analysis_pending_stuck_minutes: int = 30
+    # Time in minutes without heartbeat before a running analysis is considered stuck
+    analysis_running_heartbeat_timeout_minutes: int = 15
+    # How often (in seconds) the worker should update the heartbeat
+    analysis_heartbeat_interval_seconds: int = 30
+
     # Feature Flags
     # When True, use PostgreSQL as single source of truth for embeddings state
     # When False, fall back to legacy Redis-based state management

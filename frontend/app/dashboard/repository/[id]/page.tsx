@@ -83,7 +83,7 @@ async function VCISection({ id }: { id: string }) {
 }
 
 // Metrics Section Component - Client wrapper that subscribes to commit selection
-async function MetricsSection({ id }: { id: string }) {
+async function MetricsSection() {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
@@ -91,7 +91,7 @@ async function MetricsSection({ id }: { id: string }) {
 }
 
 // Issues Section Component - Client wrapper that subscribes to commit selection
-async function IssuesSection({ id }: { id: string }) {
+async function IssuesSection() {
   const session = await getSession()
   if (!session?.accessToken) redirect('/login')
 
@@ -191,7 +191,7 @@ export default async function RepositoryPage({
                   <h3 className="text-sm font-semibold mb-4 px-1">Issues</h3>
                   <div className="max-h-[400px] overflow-y-auto">
                     <Suspense fallback={<IssuesSkeleton />}>
-                      <IssuesSection id={id} />
+                      <IssuesSection />
                     </Suspense>
                   </div>
                 </div>
@@ -200,7 +200,7 @@ export default async function RepositoryPage({
                 <div className="bg-card/50 border border-border/50 rounded-xl p-4">
                   <h3 className="text-sm font-semibold mb-4 px-1">Metrics</h3>
                   <Suspense fallback={<div className="h-64 bg-muted/30 rounded-lg animate-pulse" />}>
-                    <MetricsSection id={id} />
+                    <MetricsSection />
                   </Suspense>
                 </div>
               </div>

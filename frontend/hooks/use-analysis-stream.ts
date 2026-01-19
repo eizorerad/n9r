@@ -52,7 +52,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
     const [vciScore, setVciScore] = useState<number | null>(null)
     const [error, setError] = useState<string | null>(null)
 
-    const eventSourceRef = useRef<EventSource | null>(null)
     const isMountedRef = useRef(true)
 
     // Global progress store
@@ -72,14 +71,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         }
     }, [])
 
-    // Cleanup SSE connection on unmount
-    useEffect(() => {
-        return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close()
-            }
-        }
-    }, [])
 
     const reset = useCallback(() => {
         setStatus('idle')
@@ -89,10 +80,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
         setVciScore(null)
         setError(null)
         setAnalysisId(null)
-        if (eventSourceRef.current) {
-            eventSourceRef.current.close()
-            eventSourceRef.current = null
-        }
     }, [])
 
     const startAnalysis = useCallback(async (repoId: string, commitSha?: string | null) => {
@@ -165,10 +152,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
                         setError('Not authenticated')
                         setStatus('failed')
                         return
-                    }
-
-                    if (eventSourceRef.current) {
-                        eventSourceRef.current.close()
                     }
 
                     console.log('[SSE] Connecting to:', `${apiUrl}/analyses/${analysisId}/stream`)
@@ -386,9 +369,6 @@ export function useAnalysisStream(repositoryId: string): UseAnalysisStreamResult
 
         return () => {
             mounted = false
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close()
-            }
         }
     }, [analysisId, status, repositoryId, updateTask, taskId, queryClient, selectedCommitSha, setSelectedCommit])
 

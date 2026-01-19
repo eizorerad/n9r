@@ -17,10 +17,10 @@ if TYPE_CHECKING:
 
 class RepoContentCache(BaseModel):
     """Repository content cache metadata for a specific commit.
-    
+
     Stores metadata about cached repository content in PostgreSQL,
     with actual file bytes stored in MinIO/S3.
-    
+
     Status values: 'pending', 'uploading', 'ready', 'failed'
     """
 

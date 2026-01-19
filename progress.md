@@ -506,3 +506,127 @@ Made file explorer commit-centric by using PostgreSQL/MinIO cache instead of Git
 **Cache-First Flow**: Endpoints check if ref is 40-char hex (commit SHA), try cache, fallback to GitHub API. Response includes `source: "cache"` or `source: "github"` for debugging.
 
 **Performance**: Cache hits ~1-10ms vs GitHub API ~100-500ms. No rate limit consumption for cached commits.
+
+
+# 17-jan-2026 - Postgres SoT for Analysis Status Transitions
+
+## Files Created
+- `docs/architecture/analysis-status-contract.md` - Formal documentation of DB vs SSE status contract
+- `backend/tests/test_analysis_worker_status.py` - 15 tests for worker status transitions (pending→running→completed/failed)
+
+## Files Modified
+- `backend/app/workers/analysis.py` - Added `_mark_analysis_running()`, fixed `_save_analysis_results()` and `_mark_analysis_failed()` timestamp handling
+- `backend/tests/test_full_status_api.py` - Added 8 tests for `/full-status` contract (progress values for pending/running/completed)
+- `problems_tasks.md` - Marked all A1-A6 tasks as complete
+
+## What Was Done
+Restored PostgreSQL as single source of truth for coarse-grained analysis status, fixing issues where analysis status would hang on "pending" too long.
+
+**Status Contract Documentation**: Formalized the dual-layer status tracking:
+- DB (`Analysis.status`) — coarse: `pending`/`running`/`completed`/`failed` for `/full-status` and progress aggregation
+- Redis SSE — granular stages/percentages 0..100 for real-time overlay
+
+**Worker Status Transitions**:
+1. **New `_mark_analysis_running()`**: Sets `status="running"` at worker start, sets `started_at` only if null (idempotency), clears `error_message` on retry
+2. **Fixed `_save_analysis_results()`**: No longer overwrites `started_at`, adds defensive fallback if null
+3. **Fixed `_mark_analysis_failed()`**: Sets `completed_at=now`, defensive fallback for `started_at` if null
+
+**Progress Calculation Verified**:
+- `status=pending` → `analysis_progress=0`
+- `status=running` → `analysis_progress=50` (enables progress bar movement)
+- `status=completed/failed` → `analysis_progress=100`
+
+**Frontend Polling Verified**:
+- `analysis_status=running` → 2 second polling (fast)
+- `analysis_status=pending` → 3 second polling (medium)
+- Terminal states → polling stops
+
+**Tests**: 23 new tests covering status transitions, timestamp idempotency, retry handling, and `/full-status` contract.
+
+
+# 19-jan-2026 - Heartbeat-Based Stuck Analysis Detection
+
+## Files Created
+- `backend/tests/test_analysis_heartbeat.py` - 20+ tests for heartbeat system (throttling, stuck detection, cleanup)
+
+## Files Modified
+- `backend/app/core/config.py` - Added `analysis_pending_stuck_minutes` (30), `analysis_running_heartbeat_timeout_minutes` (15), `analysis_heartbeat_interval_seconds` (30)
+- `.env.example` - Added heartbeat configuration variables with documentation
+- `backend/app/workers/analysis.py` - Added `update_heartbeat()` with throttling, `create_heartbeat_callback()`, heartbeat updates in `_mark_analysis_running()`, `_save_analysis_results()`, `_mark_analysis_failed()`, `publish_progress()`
+- `backend/app/services/repo_analyzer.py` - Added `heartbeat_callback` parameter, `_send_heartbeat()` method, heartbeat calls in `clone()`, `analyze_python_complexity()`, `analyze_with_lizard()`, `run_hard_heuristics()`, `analyze()`
+- `backend/app/api/v1/analyses.py` - Added `is_analysis_stuck()`, `get_stuck_reason()`, `mark_analysis_as_stuck_failed()` helpers, rewrote `trigger_analysis()` with heartbeat-based stuck detection
+- `backend/app/workers/scheduled.py` - Rewrote `cleanup_stuck_analyses()` with heartbeat-based detection, pinned analysis protection, detailed logging
+- `docs/architecture/analysis-status-contract.md` - Added Section 6 (heartbeat spec), Section 6.11 (implementation notes), Section 6.12 (telemetry), Section 7 (safe release plan)
+
+## What Was Done
+Implemented heartbeat-based stuck analysis detection to prevent incorrectly marking long-running analyses as failed. Previously, analyses older than 5 minutes were marked failed based on `created_at`, causing false positives for large repositories.
+
+**Heartbeat System**: Worker updates `Analysis.state_updated_at` during long operations (clone, analyze) with throttling (default 30s interval). Callback pattern passes heartbeat function to RepoAnalyzer for integration into long-running operations.
+
+**Stuck Detection Logic**:
+- Pending-stuck: `created_at` older than `analysis_pending_stuck_minutes` (default 30 min)
+- Running-stuck: `state_updated_at` older than `analysis_running_heartbeat_timeout_minutes` (default 15 min)
+- Terminal states (completed/failed/skipped) never considered stuck
+
+**trigger_analysis Behavior**:
+- Terminal state → create new analysis (202)
+- Pending + recent → reject (409)
+- Pending + timeout → mark failed + create new (202)
+- Running + heartbeat alive → reject (409)
+- Running + heartbeat timeout → mark failed + create new (202)
+
+**Scheduler Cleanup**: Same heartbeat-based policy, skips pinned analyses, logs reason (pending_timeout vs heartbeat_timeout).
+
+**Safe Release Plan**: Phased rollout (enable heartbeat → verify → switch cleanup → adjust timeouts), rollback procedures, post-deployment verification queries.
+
+
+# 19-jan-2026 - Information Disclosure Fix (403 vs 404 Unification)
+
+## Date and Time
+2026-01-19 18:37 (UTC+4)
+
+## Files Created
+- `backend/tests/test_analysis_no_existence_leak.py` - 33 tests for information disclosure prevention across all analysis-scoped endpoints
+
+## Files Modified
+- `backend/app/api/v1/analyses.py` - Added [`get_analysis_for_user_or_404()`](backend/app/api/v1/analyses.py:44) helper, updated 6 endpoints to use SQL join filter
+- `backend/app/api/v1/ai_scan.py` - Updated 3 endpoints to use the new helper function
+- `docs/architecture/analysis-status-contract.md` - Added Section 8 documenting API Error Response Policy
+- `problems_tasks.md` - Marked all Problem 6 (D0-D5) tasks as complete
+
+## What Was Done
+Fixed information disclosure vulnerability where some analysis-scoped endpoints returned 403 (revealing resource existence) while others returned 404 (hiding existence). Unified behavior to always return 404 for both "resource doesn't exist" AND "resource exists but belongs to another user".
+
+**Security Issue**: Returning different HTTP status codes (403 vs 404) allowed attackers to enumerate valid analysis IDs by observing response differences.
+
+**Solution**: Created [`get_analysis_for_user_or_404()`](backend/app/api/v1/analyses.py:44) helper that uses SQL join filter:
+```python
+select(Analysis).join(Repository).where(
+    Analysis.id == analysis_id,
+    Repository.owner_id == user_id
+)
+```
+Returns 404 with generic "Analysis not found" message for both non-existent and unauthorized access.
+
+**Affected Endpoints (10 total)**:
+
+In [`analyses.py`](backend/app/api/v1/analyses.py):
+- `GET /analyses/{analysis_id}/stream`
+- `DELETE /analyses/{analysis_id}`
+- `GET /analyses/{analysis_id}`
+- `GET /analyses/{analysis_id}/metrics`
+- `GET /analyses/{analysis_id}/semantic`
+- `POST /analyses/{analysis_id}/semantic/generate`
+
+In [`ai_scan.py`](backend/app/api/v1/ai_scan.py):
+- `POST /analyses/{analysis_id}/ai-scan`
+- `GET /analyses/{analysis_id}/ai-scan`
+- `GET /analyses/{analysis_id}/ai-scan/stream`
+
+**Test Coverage**: 33 tests in [`test_analysis_no_existence_leak.py`](backend/tests/test_analysis_no_existence_leak.py) covering:
+- Owner access → 200 (success)
+- Other user access → 404 (not 403)
+- Non-existent ID → 404
+- Error messages don't leak existence info
+
+**Documentation**: Added Section 8 to [`analysis-status-contract.md`](docs/architecture/analysis-status-contract.md:1079) explaining the policy, implementation, affected endpoints, and security rationale.

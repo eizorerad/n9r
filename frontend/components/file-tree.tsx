@@ -1,16 +1,14 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { ChevronRight, ChevronDown, Folder, FolderOpen, Loader2 } from 'lucide-react'
-import { Icon } from '@iconify/react'
+import { ChevronRight, ChevronDown, Loader2 } from 'lucide-react'
+import { Icon, IconifyIcon } from '@iconify/react'
 import { cn } from '@/lib/utils'
 
 // Import specific icons to bundle them
-import fileTypeTs from '@iconify/icons-vscode-icons/file-type-typescript'
 import fileTypeTsOfficial from '@iconify/icons-vscode-icons/file-type-typescript-official'
 import fileTypeReactTs from '@iconify/icons-vscode-icons/file-type-reactts'
-import fileTypeJs from '@iconify/icons-vscode-icons/file-type-js-official'
-import fileTypeJsOfficial from '@iconify/icons-vscode-icons/file-type-js-official' // or light
+import fileTypeJsOfficial from '@iconify/icons-vscode-icons/file-type-js-official'
 import fileTypeReactjs from '@iconify/icons-vscode-icons/file-type-reactjs'
 import fileTypePython from '@iconify/icons-vscode-icons/file-type-python'
 import fileTypeHtml from '@iconify/icons-vscode-icons/file-type-html'
@@ -58,7 +56,7 @@ interface FileTreeItemProps {
   isLoading?: (path: string) => boolean
 }
 
-function getFileIcon(name: string): any {
+function getFileIcon(name: string): IconifyIcon {
   const lowerName = name.toLowerCase()
 
   // Specific filenames

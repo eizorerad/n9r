@@ -9,7 +9,7 @@ Requirements: 1.1, 1.4, 6.4, 7.1, 7.2, 7.3
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
+from app.api.v1.analyses import get_analysis_for_user_or_404
 from app.models.analysis import Analysis
 from app.schemas.ai_scan import (
     AIScanCacheResponse,
@@ -81,26 +82,8 @@ async def trigger_ai_scan(
     if request is None:
         request = AIScanRequest()
 
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Check if analysis is completed
     if analysis.status != "completed":
@@ -118,8 +101,7 @@ async def trigger_ai_scan(
         )
 
     # Mark scan as pending using the state service (single source of truth).
-    from app.services.analysis_state import AnalysisStateService
-    from app.services.analysis_state import InvalidStateTransitionError
+    from app.services.analysis_state import AnalysisStateService, InvalidStateTransitionError
 
     try:
         AnalysisStateService(db, publish_events=True).mark_ai_scan_pending(analysis_id)
@@ -165,26 +147,8 @@ async def get_ai_scan_results(
 
     Requirements: 7.1, 7.2
     """
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     cache = analysis.ai_scan_cache
 
@@ -304,26 +268,8 @@ async def stream_ai_scan_progress(
 
     from app.core.redis import async_redis_pool
 
-    # Verify analysis exists and user has access
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Check if AI scan is already completed or failed (prefer tracked column)
     cache = analysis.ai_scan_cache

@@ -1,7 +1,9 @@
 """Analysis API endpoints."""
 
 import asyncio
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -29,7 +31,179 @@ from app.workers.ai_scan import run_ai_scan
 from app.workers.analysis import analyze_repository
 from app.workers.embeddings import generate_embeddings_parallel
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+# =============================================================================
+# Security Helper - Prevents Information Disclosure (403 vs 404)
+# =============================================================================
+
+
+async def get_analysis_for_user_or_404(
+    db: DbSession,
+    analysis_id: UUID,
+    user_id: UUID,
+    with_repository: bool = True,
+) -> Analysis:
+    """
+    Fetch an analysis by ID, ensuring it belongs to the specified user.
+
+    This helper prevents information disclosure by returning 404 for both:
+    - Non-existent analysis IDs
+    - Analysis IDs that exist but belong to another user
+
+    This prevents attackers from enumerating valid analysis IDs by observing
+    the difference between 403 (exists but unauthorized) and 404 (doesn't exist).
+
+    Args:
+        db: Database session
+        analysis_id: The analysis UUID to fetch
+        user_id: The user ID who must own the analysis's repository
+        with_repository: If True, eagerly loads the repository relationship
+
+    Returns:
+        The Analysis object if found and owned by the user
+
+    Raises:
+        HTTPException: 404 if analysis not found OR not owned by user
+    """
+    query = select(Analysis).join(Repository).where(
+        Analysis.id == analysis_id,
+        Repository.owner_id == user_id,
+    )
+
+    if with_repository:
+        query = query.options(selectinload(Analysis.repository))
+
+    result = await db.execute(query)
+    analysis = result.scalar_one_or_none()
+
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not found",
+        )
+
+    return analysis
+
+
+# =============================================================================
+# Stuck Analysis Detection Helpers
+# =============================================================================
+
+
+def is_analysis_stuck(analysis: Analysis) -> bool:
+    """
+    Determine if an analysis is stuck based on heartbeat-based detection.
+
+    For pending status: stuck if created_at is older than analysis_pending_stuck_minutes.
+    For running status: stuck if state_updated_at is older than analysis_running_heartbeat_timeout_minutes.
+    Terminal states (completed/failed/skipped) are never considered stuck.
+
+    Args:
+        analysis: The Analysis model instance to check.
+
+    Returns:
+        True if the analysis is stuck, False otherwise.
+
+    **Feature: heartbeat-stuck-detection**
+    **Validates: Section 6.2 of analysis-status-contract.md**
+    """
+    now = datetime.now(timezone.utc)
+
+    # Terminal states are never stuck
+    if analysis.status in ("completed", "failed", "skipped"):
+        return False
+
+    if analysis.status == "pending":
+        # Pending-stuck: waiting too long for a worker to start
+        pending_timeout = timedelta(minutes=settings.analysis_pending_stuck_minutes)
+        created_at = analysis.created_at
+        # Ensure timezone-aware comparison
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        return created_at < (now - pending_timeout)
+
+    if analysis.status == "running":
+        # Running-stuck: no heartbeat for too long
+        heartbeat_timeout = timedelta(minutes=settings.analysis_running_heartbeat_timeout_minutes)
+        state_updated_at = analysis.state_updated_at
+        # Ensure timezone-aware comparison
+        if state_updated_at.tzinfo is None:
+            state_updated_at = state_updated_at.replace(tzinfo=timezone.utc)
+        return state_updated_at < (now - heartbeat_timeout)
+
+    # Unknown status - treat as not stuck (shouldn't happen)
+    return False
+
+
+def get_stuck_reason(analysis: Analysis) -> Literal["pending_timeout", "heartbeat_timeout"] | None:
+    """
+    Get the reason why an analysis is stuck.
+
+    Args:
+        analysis: The Analysis model instance to check.
+
+    Returns:
+        "pending_timeout" if pending too long, "heartbeat_timeout" if no heartbeat,
+        or None if not stuck.
+    """
+    if not is_analysis_stuck(analysis):
+        return None
+
+    if analysis.status == "pending":
+        return "pending_timeout"
+    if analysis.status == "running":
+        return "heartbeat_timeout"
+    return None
+
+
+def mark_analysis_as_stuck_failed(
+    analysis: Analysis,
+    reason: Literal["pending_timeout", "heartbeat_timeout"],
+    source: str = "trigger_analysis",
+) -> None:
+    """
+    Mark a stuck analysis as failed with appropriate error message.
+
+    This function updates the analysis status to 'failed' and sets an appropriate
+    error message based on the stuck reason. It also sets completed_at timestamp.
+
+    Args:
+        analysis: The Analysis model instance to mark as failed.
+        reason: The reason for marking as stuck ("pending_timeout" or "heartbeat_timeout").
+        source: The source of the cleanup ("trigger_analysis" or "scheduler_cleanup").
+
+    **Feature: heartbeat-stuck-detection**
+    **Validates: Section 6.4 and 6.9 of analysis-status-contract.md**
+    """
+    now = datetime.now(timezone.utc)
+
+    # Set error message based on reason (per spec section 6.9)
+    if reason == "pending_timeout":
+        if source == "scheduler_cleanup":
+            error_message = "Analysis timed out waiting for worker (pending-stuck, scheduler cleanup)"
+        else:
+            error_message = "Analysis timed out waiting for worker (pending-stuck)"
+    else:  # heartbeat_timeout
+        if source == "scheduler_cleanup":
+            error_message = "Analysis timed out (no heartbeat - running-stuck, scheduler cleanup)"
+        else:
+            error_message = "Analysis timed out (no heartbeat - running-stuck)"
+
+    # Log the stuck detection
+    logger.warning(
+        f"Marking analysis {analysis.id} as failed: {reason} "
+        f"(status={analysis.status}, source={source})"
+    )
+
+    # Update analysis status
+    analysis.status = "failed"
+    analysis.error_message = error_message
+    analysis.completed_at = now
+    analysis.state_updated_at = now
 
 
 @router.get("/repositories/{repository_id}/analyses")
@@ -116,7 +290,22 @@ async def trigger_analysis(
 ) -> dict:
     """
     Trigger a new analysis for a repository.
+
+    This endpoint implements heartbeat-based stuck detection per the specification
+    in docs/architecture/analysis-status-contract.md section 6.4.
+
+    Behavior:
+    - If analysis is in terminal state (completed/failed/skipped) → create new analysis (202)
+    - If analysis is pending and recent → reject with 409
+    - If analysis is pending and timeout exceeded → mark as failed + create new (202)
+    - If analysis is running and heartbeat is alive → reject with 409
+    - If analysis is running and heartbeat timeout exceeded → mark as failed + create new (202)
+
+    **Feature: heartbeat-stuck-detection**
+    **Validates: Section 6.4 of analysis-status-contract.md**
     """
+    from sqlalchemy.exc import OperationalError
+
     from app.core.encryption import decrypt_token_or_none
     from app.services.github import GitHubService
 
@@ -124,8 +313,6 @@ async def trigger_analysis(
     branch = body.branch if body else None
     commit_sha = body.commit_sha if body else None
 
-    import logging
-    logger = logging.getLogger(__name__)
     logger.info(f"trigger_analysis called: repo={repository_id}, branch={branch}, commit_sha={commit_sha}")
 
     # Verify repository access
@@ -168,16 +355,9 @@ async def trigger_analysis(
     # Atomic-ish duplicate check with row locking to prevent race conditions.
     #
     # Design intent: serialize "trigger analysis" per repository.
-    # Implementation change: lock ONLY the repository row (NOWAIT) and do a normal read
+    # Implementation: lock ONLY the repository row (NOWAIT) and do a normal read
     # of pending/running analyses. Locking the analyses rows with NOWAIT can cause
     # spurious 409s and increases deadlock risk.
-    from datetime import timedelta
-
-    from sqlalchemy.exc import OperationalError
-
-    now = datetime.now()
-    stuck_threshold = now - timedelta(minutes=5)
-
     try:
         await db.execute(
             select(Repository)
@@ -192,6 +372,7 @@ async def trigger_analysis(
         )
 
     # With the repository row locked, this read is serialized for this repository.
+    # Only check non-terminal analyses (pending/running)
     result = await db.execute(
         select(Analysis).where(
             Analysis.repository_id == repository_id,
@@ -200,17 +381,27 @@ async def trigger_analysis(
     )
     existing_analyses = result.scalars().all()
 
+    # Process existing non-terminal analyses using heartbeat-based stuck detection
     for existing in existing_analyses:
-        # If analysis is older than 5 minutes, mark as failed
-        if existing.created_at.replace(tzinfo=None) < stuck_threshold:
-            existing.status = "failed"
-            existing.error_message = "Analysis timed out (auto-cleaned)"
+        stuck_reason = get_stuck_reason(existing)
+
+        if stuck_reason:
+            # Analysis is stuck - mark as failed and allow new analysis
+            mark_analysis_as_stuck_failed(existing, stuck_reason, source="trigger_analysis")
+            logger.info(
+                f"Marked stuck analysis {existing.id} as failed: {stuck_reason} "
+                f"(status was {existing.status})"
+            )
         else:
-            # Recent analysis still in progress - release locks and reject
+            # Analysis is alive - reject the new trigger request
             await db.rollback()
+            if existing.status == "pending":
+                detail = "Analysis already pending"
+            else:
+                detail = "Analysis already in progress"
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Analysis already in progress",
+                detail=detail,
             )
 
     # Create analysis record with ALL statuses pending (Requirements 1.2)
@@ -287,26 +478,8 @@ async def stream_analysis_progress(
 
     Final event will have status: "completed" or "failed"
     """
-    # Verify analysis exists and user has access
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # If analysis is already completed or failed, return current status immediately
     if analysis.status in ("completed", "failed"):
@@ -406,26 +579,8 @@ async def delete_analysis(
     """
     Delete an analysis (only pending/failed ones).
     """
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Only allow deleting pending/failed analyses
     if analysis.status not in ["pending", "failed", "running"]:
@@ -449,26 +604,8 @@ async def get_analysis(
     """
     Get detailed analysis results.
     """
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Get issues for this analysis
     issues_result = await db.execute(
@@ -671,26 +808,8 @@ async def get_analysis_metrics(
     """
     Get detailed metrics for an analysis.
     """
-    # Get analysis
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     metrics = analysis.metrics or {}
 
@@ -834,27 +953,8 @@ async def get_semantic_cache(
     Returns cached architecture health, clusters, outliers from PostgreSQL.
     If cache is missing, returns is_cached: false with null fields.
     """
-
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Check if semantic cache exists
     cache = analysis.semantic_cache
@@ -895,26 +995,8 @@ async def generate_semantic_cache(
 
     from app.services.cluster_analyzer import ClusterAnalyzer
 
-    # Get analysis with repository
-    result = await db.execute(
-        select(Analysis)
-        .options(selectinload(Analysis.repository))
-        .where(Analysis.id == analysis_id)
-    )
-    analysis = result.scalar_one_or_none()
-
-    if not analysis:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Analysis not found",
-        )
-
-    # Verify access
-    if analysis.repository.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied",
-        )
+    # Use helper to verify access - returns 404 for both non-existent and unauthorized
+    analysis = await get_analysis_for_user_or_404(db, analysis_id, user.id)
 
     # Check if analysis is completed
     if analysis.status != "completed":

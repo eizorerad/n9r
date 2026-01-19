@@ -17,7 +17,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Protocol
+from typing import Protocol
 from uuid import UUID
 
 from qdrant_client import QdrantClient
@@ -236,7 +236,6 @@ class VectorStoreService:
         from sqlalchemy import select
 
         from app.core.encryption import decrypt_token_or_none
-        from app.core.database import async_session_maker
         from app.models.repository import Repository
         from app.models.user import User
         from app.services.github import GitHubService
@@ -408,7 +407,7 @@ class VectorStoreService:
         commit_sha: str,
     ) -> int:
         """Delete vectors for a specific (repository, commit) pair.
-        
+
         Returns:
             Number of vectors deleted (counted before deletion)
         """

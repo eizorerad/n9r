@@ -28,7 +28,7 @@ class FixResult:
 
 class FixAgent:
     """Agent that generates code fixes for issues with retry support.
-    
+
     Uses VectorStoreService for commit-aware RAG context retrieval.
     """
 
@@ -107,13 +107,13 @@ class FixAgent:
         commit_sha: str | None = None,
     ) -> str:
         """Retrieve relevant code context from Qdrant using VectorStoreService.
-        
+
         Args:
             repository_id: Repository UUID
             issue: Issue dict with type, title, description
             context_files: List of context file paths
             commit_sha: Optional commit SHA for commit-aware filtering
-            
+
         Returns:
             Formatted context string for LLM prompt
         """

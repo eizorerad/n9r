@@ -4,8 +4,6 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import { useSearchParams } from 'next/navigation'
 import {
-  MessageSquare,
-
   FileCode,
   X,
   PanelLeftClose,

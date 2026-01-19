@@ -28,7 +28,7 @@ def upgrade() -> None:
         "chat_messages",
         sa.Column("context_ref", sa.String(255), nullable=True),
     )
-    
+
     # Add index for efficient filtering by context_ref
     op.create_index(
         "ix_chat_messages_context_ref",

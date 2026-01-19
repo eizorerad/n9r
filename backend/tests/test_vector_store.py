@@ -8,20 +8,19 @@ Tests:
 **Feature: commit-aware-rag**
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+import pytest
+from qdrant_client.models import Filter
 
 from app.services.vector_store import (
-    VectorStoreService,
-    RefResolution,
-    stable_int64_hash,
-    normalize_ref,
     _SHA40_RE,
+    RefResolution,
+    VectorStoreService,
+    normalize_ref,
+    stable_int64_hash,
 )
-
 
 # -----------------------------------------------------------------------------
 # Tests for stable_int64_hash
@@ -315,9 +314,9 @@ class TestResolveRefToCommitSha:
         })
 
         with patch("app.core.encryption.decrypt_token_or_none") as mock_decrypt, \
-             patch("app.services.github.GitHubService") as MockGitHub:
+             patch("app.services.github.GitHubService") as mock_github_service:
             mock_decrypt.return_value = "decrypted_token"
-            MockGitHub.return_value = mock_github
+            mock_github_service.return_value = mock_github
 
             result = await vs.resolve_ref_to_commit_sha_async(
                 db=mock_db,
@@ -335,7 +334,8 @@ class TestResolveRefToCommitSha:
 # -----------------------------------------------------------------------------
 
 try:
-    from hypothesis import given, strategies as st
+    from hypothesis import given
+    from hypothesis import strategies as st
 
     class TestStableHashProperties:
         """Property-based tests for stable_int64_hash."""

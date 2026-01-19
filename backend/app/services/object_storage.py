@@ -33,7 +33,7 @@ _executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="minio_")
 
 class ObjectStorageClient(ABC):
     """Abstract interface for object storage operations.
-    
+
     Implementations: MinIOClient (dev), S3Client (prod - future).
     """
 
@@ -46,13 +46,13 @@ class ObjectStorageClient(ABC):
         content_type: str = "application/octet-stream",
     ) -> None:
         """Upload object to storage.
-        
+
         Args:
             bucket: Bucket name
             key: Object key (path in storage)
             data: File content as bytes
             content_type: MIME type of the content
-            
+
         Raises:
             ObjectStorageError: If upload fails
         """
@@ -65,14 +65,14 @@ class ObjectStorageClient(ABC):
         key: str,
     ) -> bytes | None:
         """Download object from storage.
-        
+
         Args:
             bucket: Bucket name
             key: Object key
-            
+
         Returns:
             File content as bytes, or None if not found
-            
+
         Raises:
             ObjectStorageError: If download fails (except not found)
         """
@@ -85,11 +85,11 @@ class ObjectStorageClient(ABC):
         key: str,
     ) -> None:
         """Delete object from storage.
-        
+
         Args:
             bucket: Bucket name
             key: Object key
-            
+
         Note:
             Does not raise if object doesn't exist (idempotent)
         """
@@ -102,11 +102,11 @@ class ObjectStorageClient(ABC):
         key: str,
     ) -> bool:
         """Check if object exists in storage.
-        
+
         Args:
             bucket: Bucket name
             key: Object key
-            
+
         Returns:
             True if object exists, False otherwise
         """
@@ -119,11 +119,11 @@ class ObjectStorageClient(ABC):
         prefix: str = "",
     ) -> list[str]:
         """List objects in storage with optional prefix filter.
-        
+
         Args:
             bucket: Bucket name
             prefix: Optional prefix to filter objects (e.g., "repo_id/")
-            
+
         Returns:
             List of object keys matching the prefix
         """
@@ -137,7 +137,7 @@ class ObjectStorageError(Exception):
 
 class MinIOClient(ObjectStorageClient):
     """MinIO implementation of ObjectStorageClient.
-    
+
     Uses sync minio SDK with async wrappers via ThreadPoolExecutor.
     """
 
@@ -149,7 +149,7 @@ class MinIOClient(ObjectStorageClient):
         secure: bool | None = None,
     ):
         """Initialize MinIO client.
-        
+
         Args:
             endpoint: MinIO endpoint (default from settings)
             access_key: Access key (default from settings)
@@ -279,7 +279,7 @@ class MinIOClient(ObjectStorageClient):
             def _list_objects():
                 objects = self._client.list_objects(bucket, prefix=prefix, recursive=True)
                 return [obj.object_name for obj in objects]
-            
+
             result = await self._run_sync(_list_objects)
             logger.debug(f"Listed {len(result)} objects in {bucket}/{prefix}")
             return result

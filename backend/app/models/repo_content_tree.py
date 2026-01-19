@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 class RepoContentTree(BaseModelNoUpdate):
     """Cached tree structure for fast directory listings.
-    
+
     Stores two tree formats:
     - tree: List of code file paths for embeddings ["src/main.py", ...]
     - full_tree: Complete directory structure with metadata for file explorer

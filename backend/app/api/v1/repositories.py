@@ -405,7 +405,7 @@ async def get_repository_files(
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
 ) -> dict:
     """Get file tree of a repository path.
-    
+
     Commit-centric: If ref is a commit SHA with cached content, returns
     files from PostgreSQL cache. Otherwise falls back to GitHub API.
     """
@@ -504,7 +504,7 @@ async def get_repository_file_content(
     ref: str | None = Query(default=None, description="Git reference (branch/commit)"),
 ) -> FileContent:
     """Get content of a specific file.
-    
+
     Commit-centric: If ref is a commit SHA with cached content, returns
     file from MinIO cache. Otherwise falls back to GitHub API.
     """

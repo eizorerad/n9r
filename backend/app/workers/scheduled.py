@@ -3,7 +3,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from app.core.celery import celery_app
 
@@ -13,44 +13,118 @@ logger = logging.getLogger(__name__)
 @celery_app.task(name="app.workers.scheduled.cleanup_stuck_analyses")
 def cleanup_stuck_analyses() -> dict:
     """
-    Clean up stuck analyses that have been pending/running too long.
+    Clean up stuck analyses using heartbeat-based detection.
 
-    This task runs every 10 minutes via Celery Beat and marks
-    analyses older than 10 minutes as failed.
+    This task runs every 10 minutes via Celery Beat and marks stuck analyses as failed.
+
+    Stuck detection policy (same as trigger_analysis):
+    - For `pending` status: stuck if `created_at` is older than
+      `settings.analysis_pending_stuck_minutes` (default 30 min)
+    - For `running` status: stuck if `state_updated_at` is older than
+      `settings.analysis_running_heartbeat_timeout_minutes` (default 15 min)
+
+    Pinned analyses are never cleaned up.
 
     Returns:
-        dict with cleanup statistics.
+        dict with cleanup statistics including reasons for each cleanup.
+
+    **Feature: heartbeat-stuck-detection**
+    **Validates: Section 6.2 and 6.9 of analysis-status-contract.md**
     """
+    from app.api.v1.analyses import get_stuck_reason, is_analysis_stuck
+    from app.core.config import settings
     from app.core.database import get_sync_session
     from app.models.analysis import Analysis
 
-    logger.info("Starting stuck analyses cleanup")
+    logger.info(
+        f"Starting stuck analyses cleanup (pending_timeout={settings.analysis_pending_stuck_minutes}min, "
+        f"heartbeat_timeout={settings.analysis_running_heartbeat_timeout_minutes}min)"
+    )
 
-    stuck_threshold = datetime.now(UTC) - timedelta(minutes=10)
+    cleaned_ids: list[str] = []
+    pending_timeout_count = 0
+    heartbeat_timeout_count = 0
+    skipped_pinned_count = 0
 
     try:
         with get_sync_session() as db:
-            # Find and update stuck analyses in one query
+            # Query all non-terminal, non-pinned analyses
             result = db.execute(
-                update(Analysis)
-                .where(
+                select(Analysis).where(
                     Analysis.status.in_(["pending", "running"]),
-                    Analysis.created_at < stuck_threshold,
+                    Analysis.pinned.is_(False),  # Skip pinned analyses
                 )
-                .values(
-                    status="failed",
-                    error_message="Analysis timed out (auto-cleaned by scheduler)",
-                    completed_at=datetime.now(UTC),
-                )
-                .returning(Analysis.id)
             )
-            cleaned_ids = [str(row[0]) for row in result.fetchall()]
+            analyses = result.scalars().all()
+
+            now = datetime.now(UTC)
+
+            for analysis in analyses:
+                # Use the same stuck detection logic as trigger_analysis
+                if not is_analysis_stuck(analysis):
+                    continue
+
+                stuck_reason = get_stuck_reason(analysis)
+                if not stuck_reason:
+                    continue  # Shouldn't happen, but be safe
+
+                # Get repository info for logging
+                repo_info = f"repo_id={analysis.repository_id}"
+
+                # Set error message based on reason (same as trigger_analysis)
+                if stuck_reason == "pending_timeout":
+                    error_message = "Analysis timed out waiting for worker (pending-stuck)"
+                    pending_timeout_count += 1
+                    logger.warning(
+                        f"Marking analysis {analysis.id} as failed: pending_timeout "
+                        f"({repo_info}, status={analysis.status}, "
+                        f"created_at={analysis.created_at.isoformat() if analysis.created_at else 'N/A'})"
+                    )
+                else:  # heartbeat_timeout
+                    error_message = "Analysis timed out (no heartbeat - running-stuck)"
+                    heartbeat_timeout_count += 1
+                    logger.warning(
+                        f"Marking analysis {analysis.id} as failed: heartbeat_timeout "
+                        f"({repo_info}, status={analysis.status}, "
+                        f"state_updated_at={analysis.state_updated_at.isoformat() if analysis.state_updated_at else 'N/A'})"
+                    )
+
+                # Update analysis status
+                analysis.status = "failed"
+                analysis.error_message = error_message
+                analysis.completed_at = now
+                analysis.state_updated_at = now
+
+                cleaned_ids.append(str(analysis.id))
+
+            # Also count pinned analyses that would have been cleaned
+            pinned_result = db.execute(
+                select(Analysis).where(
+                    Analysis.status.in_(["pending", "running"]),
+                    Analysis.pinned.is_(True),
+                )
+            )
+            pinned_analyses = pinned_result.scalars().all()
+            for analysis in pinned_analyses:
+                if is_analysis_stuck(analysis):
+                    skipped_pinned_count += 1
+                    logger.info(
+                        f"Skipping pinned stuck analysis {analysis.id} "
+                        f"(repo_id={analysis.repository_id}, status={analysis.status})"
+                    )
+
             db.commit()
 
             if cleaned_ids:
-                logger.warning(f"Cleaned up {len(cleaned_ids)} stuck analyses: {cleaned_ids}")
+                logger.warning(
+                    f"Cleaned up {len(cleaned_ids)} stuck analyses: "
+                    f"pending_timeout={pending_timeout_count}, heartbeat_timeout={heartbeat_timeout_count}"
+                )
             else:
                 logger.debug("No stuck analyses found")
+
+            if skipped_pinned_count > 0:
+                logger.info(f"Skipped {skipped_pinned_count} pinned stuck analyses")
 
     except Exception as e:
         logger.error(f"Failed to cleanup stuck analyses: {e}")
@@ -60,6 +134,9 @@ def cleanup_stuck_analyses() -> dict:
         "status": "completed",
         "cleaned_count": len(cleaned_ids),
         "cleaned_ids": cleaned_ids,
+        "pending_timeout_count": pending_timeout_count,
+        "heartbeat_timeout_count": heartbeat_timeout_count,
+        "skipped_pinned_count": skipped_pinned_count,
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -211,14 +288,11 @@ def cleanup_vector_retention() -> dict:
     Returns:
         dict with cleanup statistics.
     """
-    from uuid import UUID
 
-    from sqlalchemy import and_, delete, func, or_, select
-    from sqlalchemy.orm import Session
+    from sqlalchemy import select
 
     from app.core.config import settings
     from app.core.database import get_sync_session
-    from app.models.analysis import Analysis
     from app.models.repository import Repository
     from app.services.vector_store import VectorStoreService
 
@@ -353,7 +427,7 @@ def _find_analyses_to_prune(
     Returns:
         List of Analysis objects to prune
     """
-    from sqlalchemy import and_, select
+    from sqlalchemy import select
 
     from app.models.analysis import Analysis
 
@@ -363,7 +437,7 @@ def _find_analyses_to_prune(
         .where(
             Analysis.repository_id == repository_id,
             Analysis.status == "completed",
-            Analysis.pinned == False,  # Never prune pinned
+            Analysis.pinned.is_(False),  # Never prune pinned
             Analysis.vectors_count > 0,  # Only consider analyses with vectors
         )
         .order_by(Analysis.created_at.desc())

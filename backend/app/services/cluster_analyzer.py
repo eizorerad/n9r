@@ -953,7 +953,7 @@ class ClusterAnalyzer:
         self, repo_id: str, commit_sha: str | None = None
     ) -> tuple[np.ndarray, list[dict]]:
         """Fetch all vectors and payloads for a repository.
-        
+
         Args:
             repo_id: Repository ID to fetch vectors for
             commit_sha: Optional commit SHA for commit-aware filtering.

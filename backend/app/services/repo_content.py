@@ -105,10 +105,10 @@ MIN_FILE_SIZE = 50
 
 def compute_content_hash(content: bytes) -> str:
     """Compute SHA-256 hash of file content.
-    
+
     Args:
         content: File content as bytes
-        
+
     Returns:
         64-character hex string (SHA-256 hash)
     """
@@ -117,11 +117,11 @@ def compute_content_hash(content: bytes) -> str:
 
 def generate_object_key(repository_id: uuid.UUID, commit_sha: str) -> str:
     """Generate a stable UUID-based object key for MinIO.
-    
+
     Args:
         repository_id: Repository UUID
         commit_sha: Git commit SHA
-        
+
     Returns:
         Object key in format: {repository_id}/{commit_sha}/{uuid}
     """
@@ -136,21 +136,21 @@ def generate_object_key(repository_id: uuid.UUID, commit_sha: str) -> str:
 
 class RepoContentService:
     """Production-grade repository content cache service.
-    
+
     Provides methods for:
     - Cache management (get_or_create_cache, get_cache_status)
     - File collection (collect_files_from_repo)
     - File upload (upload_files)
     - File retrieval (get_tree, get_file, get_files_batch)
     - Lifecycle management (mark_cache_ready, mark_cache_failed, save_tree)
-    
+
     **Feature: repo-content-cache**
     **Validates: Requirements 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 3.1, 3.2, 4.1, 4.2**
     """
 
     def __init__(self, storage_client: MinIOClient | None = None):
         """Initialize the service.
-        
+
         Args:
             storage_client: Optional MinIO client (uses default if not provided)
         """
@@ -167,18 +167,18 @@ class RepoContentService:
         commit_sha: str,
     ) -> RepoContentCache:
         """Get existing cache or create new one with 'pending' status.
-        
+
         Uses PostgreSQL UNIQUE constraint to prevent duplicate entries
         when multiple processes attempt to create cache simultaneously.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA (40 characters)
-            
+
         Returns:
             RepoContentCache instance (existing or newly created)
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 3.1**
         """
@@ -232,15 +232,15 @@ class RepoContentService:
         commit_sha: str,
     ) -> CacheStatus | None:
         """Get cache status without loading file data.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA
-            
+
         Returns:
             CacheStatus if cache exists, None otherwise
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 4.2**
         """
@@ -277,19 +277,19 @@ class RepoContentService:
         repo_path: Path | str,
     ) -> list[FileToUpload]:
         """Collect files from cloned repository for caching.
-        
+
         Applies the same filters as the embeddings system:
         - Code file extensions only
         - Max file size limit (100KB)
         - Min file size limit (50 bytes)
         - Skips excluded directories
-        
+
         Args:
             repo_path: Path to the cloned repository
-            
+
         Returns:
             List of FileToUpload objects with path, content, and hash
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 2.1, 2.2, 2.6**
         """
@@ -358,17 +358,17 @@ class RepoContentService:
         repo_path: Path | str,
     ) -> list[dict]:
         """Collect complete directory tree from cloned repository.
-        
+
         Unlike collect_files_from_repo which only collects code files,
         this method collects ALL files and directories for the file explorer.
-        
+
         Args:
             repo_path: Path to the cloned repository
-            
+
         Returns:
             List of file/directory entries with metadata:
             [{"name": "src", "path": "src", "type": "directory", "size": null}, ...]
-            
+
         **Feature: commit-centric-explorer**
         """
         if not repo_path:
@@ -442,18 +442,18 @@ class RepoContentService:
         files: list[FileToUpload],
     ) -> UploadResult:
         """Upload files to MinIO and record in PostgreSQL.
-        
+
         Idempotent: skips files that already exist with the same content hash.
         Updates cache status to 'uploading' during the operation.
-        
+
         Args:
             db: Database session
             cache: RepoContentCache instance
             files: List of files to upload
-            
+
         Returns:
             UploadResult with counts of uploaded, skipped, and failed files
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 2.3, 3.2**
         """
@@ -559,14 +559,14 @@ class RepoContentService:
         cache_id: uuid.UUID,
     ) -> None:
         """Mark cache as ready after all files uploaded.
-        
+
         Updates the cache status to 'ready' and computes final metadata
         (file_count, total_size_bytes) from the uploaded objects.
-        
+
         Args:
             db: Database session
             cache_id: Cache UUID
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 2.4**
         """
@@ -609,12 +609,12 @@ class RepoContentService:
         error: str,
     ) -> None:
         """Mark cache as failed with error message.
-        
+
         Args:
             db: Database session
             cache_id: Cache UUID
             error: Error message describing the failure
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 2.5**
         """
@@ -638,15 +638,15 @@ class RepoContentService:
         full_tree: list[dict] | None = None,
     ) -> None:
         """Save tree structure for fast directory listings.
-        
+
         Uses PostgreSQL upsert to handle concurrent saves.
-        
+
         Args:
             db: Database session
             cache_id: Cache UUID
             tree: List of code file paths (e.g., ["src/main.py", "src/utils.py"])
             full_tree: Complete directory tree with metadata for file explorer
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 1.1**
         """
@@ -681,18 +681,18 @@ class RepoContentService:
         commit_sha: str,
     ) -> list[str] | None:
         """Get cached tree structure for a repository commit.
-        
+
         Returns the list of file paths from the cache if the cache is ready.
         Returns None if cache doesn't exist or is not ready.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA
-            
+
         Returns:
             List of file paths if cache is ready, None otherwise
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 1.1, 6.3**
         """
@@ -735,11 +735,11 @@ class RepoContentService:
         cache_id: uuid.UUID,
     ) -> bool:
         """Check if cache has full_tree populated.
-        
+
         Args:
             db: Database session
             cache_id: Cache UUID
-            
+
         Returns:
             True if full_tree is not null, False otherwise
         """
@@ -758,19 +758,19 @@ class RepoContentService:
         path: str = "",
     ) -> list[dict] | None:
         """Get full directory tree for file explorer.
-        
+
         Returns the complete directory structure with metadata for the
         commit-centric file explorer. Optionally filters by path prefix.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA
             path: Optional path prefix to filter (e.g., "src" for src/ contents)
-            
+
         Returns:
             List of file/directory entries if cache is ready, None otherwise
-            
+
         **Feature: commit-centric-explorer**
         """
         # First check if cache exists and is ready
@@ -841,19 +841,19 @@ class RepoContentService:
         file_path: str,
     ) -> str | None:
         """Get file content from cache.
-        
+
         Retrieves file content from MinIO and verifies the content hash
         matches the stored hash for integrity.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA
             file_path: Path to the file (e.g., "src/main.py")
-            
+
         Returns:
             File content as string if found and valid, None otherwise
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 1.2, 1.4**
         """
@@ -941,19 +941,19 @@ class RepoContentService:
         file_paths: list[str],
     ) -> dict[str, str]:
         """Get multiple files from cache in batch (parallel MinIO requests).
-        
+
         Retrieves multiple files in parallel for better performance.
         Files that are not found or fail validation are omitted from the result.
-        
+
         Args:
             db: Database session
             repository_id: Repository UUID
             commit_sha: Git commit SHA
             file_paths: List of file paths to retrieve
-            
+
         Returns:
             Dict mapping file paths to their content (only successful retrievals)
-            
+
         **Feature: repo-content-cache**
         **Validates: Requirements 1.2**
         """

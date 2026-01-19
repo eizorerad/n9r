@@ -174,8 +174,7 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
   // Use global commit selection store instead of local state
   const { 
     selectedCommitSha, 
-    setSelectedCommit, 
-    clearSelection,
+    setSelectedCommit,
     repositoryId: storeRepositoryId 
   } = useCommitSelectionStore()
 
@@ -259,18 +258,24 @@ export function CommitTimeline({ repositoryId, defaultBranch, token, currentAnal
     return () => observer.disconnect()
   }, [handleObserver])
 
-  // Handle commit click - toggle selection or select new commit
+  // Handle commit click - select commit (no toggle behavior to avoid confusion)
+  // Previously: clicking same commit would deselect, but auto-select would immediately
+  // re-select a different commit, causing confusing behavior
   const handleCommitClick = (commit: Commit) => {
-    if (selectedCommitSha === commit.sha) {
-      clearSelection()
-    } else {
-      setSelectedCommit(commit.sha, commit.analysis_id || null, repositoryId)
-    }
+    // Always select the clicked commit - no toggle behavior
+    // This prevents the race condition where clearSelection() triggers auto-select
+    setSelectedCommit(commit.sha, commit.analysis_id || null, repositoryId)
   }
   
-  // Auto-select most recent analyzed commit on mount or when commits change
+  // Auto-select most recent analyzed commit on mount or when repository changes
+  // Note: We only auto-select when there's no selection AND we're on a new repository
+  // This prevents auto-select from interfering with user's manual selection
   useEffect(() => {
-    const shouldAutoSelect = !selectedCommitSha || storeRepositoryId !== repositoryId
+    // Only auto-select if:
+    // 1. No commit is currently selected, AND
+    // 2. Either this is initial mount OR we switched to a different repository
+    const isNewRepository = storeRepositoryId !== repositoryId
+    const shouldAutoSelect = (!selectedCommitSha && commits.length > 0) || isNewRepository
     
     if (shouldAutoSelect && commits.length > 0) {
       const mostRecentAnalyzed = commits.find(c => c.analysis_status === 'completed')

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Dict, Tuple
 
 from fastapi import HTTPException, Request, status
 
@@ -26,7 +25,7 @@ class _Bucket:
 
 
 # (key, window_seconds) -> bucket
-_BUCKETS: Dict[Tuple[str, int], _Bucket] = {}
+_BUCKETS: dict[tuple[str, int], _Bucket] = {}
 
 
 def _now() -> float:

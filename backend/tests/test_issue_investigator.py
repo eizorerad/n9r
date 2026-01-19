@@ -502,7 +502,7 @@ class TestToolResultUnit:
 
 class TestCLICommandParsing:
     """Tests for CLI command parsing that prevents shell injection.
-    
+
     TEMPORARY FIX: These tests verify the shlex-based parsing approach.
     Future improvements may include semantic analysis, configurable policies,
     or ML-based command classification.
@@ -541,8 +541,9 @@ class TestCLICommandParsing:
 
     def test_empty_command_raises_error(self):
         """Test that empty commands raise ValueError."""
-        from app.services.issue_investigator import _parse_shell_command
         import pytest
+
+        from app.services.issue_investigator import _parse_shell_command
 
         with pytest.raises(ValueError, match="Empty command"):
             _parse_shell_command("")
@@ -552,7 +553,7 @@ class TestCLICommandParsing:
 
     def test_shell_metacharacters_become_literal(self):
         """Test that shell metacharacters are treated as literal strings.
-        
+
         This is the key security feature - pipes, redirects, etc. are NOT
         interpreted by a shell, they become literal arguments.
         """
@@ -605,8 +606,9 @@ class TestCLICommandParsing:
 
     def test_malformed_quotes_raise_error(self):
         """Test that malformed quotes raise ValueError."""
-        from app.services.issue_investigator import _parse_shell_command
         import pytest
+
+        from app.services.issue_investigator import _parse_shell_command
 
         # Unclosed quote
         with pytest.raises(ValueError, match="Failed to parse"):
