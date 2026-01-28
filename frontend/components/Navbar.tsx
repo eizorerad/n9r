@@ -15,12 +15,12 @@ export default function Navbar() {
                 <Link href="/" className="flex items-center gap-2 group">
                     <Image
                         src="/logo.svg"
-                        alt="Necromancer Logo"
+                        alt="n9r Logo"
                         width={32}
                         height={32}
                         className="group-hover:scale-105 transition-transform"
                     />
-                    <span className="text-xl font-semibold">Necromancer</span>
+                    <span className="text-xl font-semibold">n9r</span>
                 </Link>
 
                 <div className="flex items-center gap-4">

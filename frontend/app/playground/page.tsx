@@ -160,13 +160,13 @@ function PlaygroundContent() {
           <div className="text-center mb-12 space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-800 border border-neutral-700 text-neutral-300 text-sm font-mono">
               <Activity className="h-4 w-4" />
-              Live Code Resurrection
+              Live Code Analysis
             </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-              Code Resurrection Chamber
+              Code Analysis Playground
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Scan any public GitHub repository and discover its immortality score.
+              Scan any public GitHub repository and discover its quality score.
               No sign-up required.
             </p>
           </div>
@@ -181,7 +181,7 @@ function PlaygroundContent() {
                 <div className="w-3 h-3 rounded-full bg-[#28c840]"></div>
               </div>
               <div className="flex-1 text-center">
-                <span className="text-neutral-400 text-xs font-mono">necromancer — playground</span>
+                <span className="text-neutral-400 text-xs font-mono">n9r — playground</span>
               </div>
               <div className="w-12"></div>
             </div>
@@ -207,7 +207,7 @@ function PlaygroundContent() {
                 </div>
                 <div className="flex-1 font-mono text-sm">
                   <div className="text-neutral-500 mb-1">
-                    <span className="text-[#c586c0]">import</span> <span className="text-neutral-400">{"{"}</span> <span className="text-[#9cdcfe]">resurrect</span> <span className="text-neutral-400">{"}"}</span> <span className="text-[#c586c0]">from</span> <span className="text-[#ce9178]">&quot;necromancer&quot;</span><span className="text-neutral-400">;</span>
+                    <span className="text-[#c586c0]">import</span> <span className="text-neutral-400">{"{"}</span> <span className="text-[#9cdcfe]">analyze</span> <span className="text-neutral-400">{"}"}</span> <span className="text-[#c586c0]">from</span> <span className="text-[#ce9178]">&quot;n9r&quot;</span><span className="text-neutral-400">;</span>
                   </div>
                   <div className="text-neutral-500 mb-1">&nbsp;</div>
                   <div className="flex items-center gap-2 mb-1">
@@ -227,7 +227,7 @@ function PlaygroundContent() {
                     <span className="text-neutral-400">;</span>
                   </div>
                   <div className="text-neutral-500">
-                    <span className="text-[#569cd6]">await</span> <span className="text-[#dcdcaa]">resurrect</span><span className="text-neutral-400">(</span><span className="text-[#9cdcfe]">target</span><span className="text-neutral-400">);</span> <span className="text-[#6a9955]">{"// Bring code back to life"}</span>
+                    <span className="text-[#569cd6]">await</span> <span className="text-[#dcdcaa]">analyze</span><span className="text-neutral-400">(</span><span className="text-[#9cdcfe]">target</span><span className="text-neutral-400">);</span> <span className="text-[#6a9955]">{"// Deep code analysis"}</span>
                   </div>
                 </div>
               </div>
@@ -265,12 +265,12 @@ function PlaygroundContent() {
                   {isLoading ? (
                     <>
                       <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                      Resurrecting...
+                      Analyzing...
                     </>
                   ) : (
                     <>
                       <span className="text-[#89d185] mr-1">▶</span>
-                      Run Resurrection
+                      Run Analysis
                     </>
                   )}
                 </Button>
@@ -288,7 +288,7 @@ function PlaygroundContent() {
               </div>
               <div className="flex items-center gap-4">
                 <span>TypeScript</span>
-                <span>Necromancer v1.0</span>
+                <span>n9r v1.0</span>
               </div>
             </div>
           </div>
@@ -568,15 +568,15 @@ function PlaygroundContent() {
                   <div className="text-center space-y-6">
                     <div className="space-y-2">
                       <h3 className="text-2xl font-bold">
-                        Ready to grant eternal life to your code?
+                        Ready to transform your codebase?
                       </h3>
                       <p className="text-muted-foreground max-w-lg mx-auto">
-                        Sign up for Necromancer to get AI-powered resurrection PRs, deep architectural analysis, and continuous code immortality monitoring.
+                        Sign up for n9r to get AI-powered fix PRs, deep architectural analysis, and continuous code quality monitoring.
                       </p>
                     </div>
                     <Link href="/login">
                       <Button className="h-12 px-8 text-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-200 font-mono border border-neutral-600 shadow-none transition-all hover:scale-105">
-                        Begin Resurrection
+                        Get Started
                       </Button>
                     </Link>
 
@@ -584,7 +584,7 @@ function PlaygroundContent() {
                       <div className="absolute inset-0 bg-gradient-to-t from-background/80 to-transparent z-10 pointer-events-none" />
                       <Image
                         src="/Screenshot_3123.png"
-                        alt="Necromancer Dashboard Preview"
+                        alt="n9r Dashboard Preview"
                         width={1200}
                         height={800}
                         className="w-full h-auto transform group-hover:scale-[1.02] transition-transform duration-700"

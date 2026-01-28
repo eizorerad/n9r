@@ -48,10 +48,10 @@ export default function DashboardPage() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo.svg"
-                alt="Necromancer"
+                alt="n9r"
                 className="w-8 h-8 group-hover:scale-105 transition-transform"
               />
-              <span className="text-lg font-semibold tracking-tight text-foreground">Necromancer</span>
+              <span className="text-lg font-semibold tracking-tight text-foreground">n9r</span>
             </Link>
             <span className="text-muted-foreground text-lg font-light">/</span>
             <span className="text-muted-foreground font-mono text-sm">Dashboard</span>

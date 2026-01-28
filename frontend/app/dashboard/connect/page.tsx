@@ -97,12 +97,12 @@ export default function ConnectRepositoryPage() {
             </Link>
             <div className="flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img 
-                src="/logo.svg" 
-                alt="Necromancer" 
+              <img
+                src="/logo.svg"
+                alt="n9r"
                 className="w-8 h-8"
               />
-              <span className="text-lg font-semibold tracking-tight text-neutral-200">Necromancer</span>
+              <span className="text-lg font-semibold tracking-tight text-neutral-200">n9r</span>
             </div>
             <span className="text-neutral-600 text-lg font-light">/</span>
             <span className="text-neutral-400 font-mono text-sm">Connect Repository</span>
@@ -116,7 +116,7 @@ export default function ConnectRepositoryPage() {
           <CardHeader>
             <CardTitle>Connect a Repository</CardTitle>
             <CardDescription>
-              Select a repository from your GitHub account to connect with Necromancer.
+              Select a repository from your GitHub account to connect with n9r.
             </CardDescription>
           </CardHeader>
           <CardContent>

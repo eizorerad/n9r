@@ -15,9 +15,9 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Necromancer - Immortal Code Architecture",
+  title: "n9r - AI-Powered Code Intelligence",
   description:
-    "Grant eternal life to your codebase. Transform vibe-coded corpses into undying, maintainable masterpieces.",
+    "Transform your codebase quality. Turn messy, vibe-coded projects into clean, maintainable masterpieces.",
   keywords: ["code quality", "AI", "refactoring", "tech debt", "vibe coding", "LLM code cleanup"],
 };
 

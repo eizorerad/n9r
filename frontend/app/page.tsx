@@ -5,16 +5,12 @@ import { Github, Zap } from "lucide-react";
 import LiquidEther from "@/components/LiquidEther";
 import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
-import FlyingPumpkin from "@/components/FlyingPumpkin";
-import FlyingGhost from "@/components/FlyingGhost";
 
 export default function Home() {
 
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background text-foreground">
-      <FlyingPumpkin />
-      <FlyingGhost />
       <Navbar />
 
       {/* Hero Section with LiquidEther */}
@@ -44,14 +40,14 @@ export default function Home() {
         <div className="relative z-10 container mx-auto px-4">
           <div className="inline-flex items-center gap-2 bg-background/50 backdrop-blur-sm border border-primary/20 text-primary px-4 py-2 rounded-full text-sm mb-8 shadow-sm">
             <Zap className="w-4 h-4" />
-            Immortal Code Architecture
+            AI-Powered Code Intelligence
           </div>
           <h1 className="text-5xl md:text-7xl font-bold mb-6 text-foreground drop-shadow-md">
-            Grant Eternal Life<br />to Your Codebase
+            Transform Your<br />Codebase Quality
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-12 drop-shadow-sm">
-            Transform vibe-coded corpses into undying, maintainable masterpieces.
-            No code stays dead forever.
+            Turn messy, vibe-coded projects into clean, maintainable masterpieces.
+            Deep analysis for sustainable code.
           </p>
 
           {/* Simple Input Panel */}
@@ -96,8 +92,8 @@ export default function Home() {
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="Necromancer" className="w-5 h-5 opacity-70" />
-            <span className="text-neutral-500 text-xs font-mono">© 2025 Necromancer</span>
+            <img src="/logo.svg" alt="n9r" className="w-5 h-5 opacity-70" />
+            <span className="text-neutral-500 text-xs font-mono">© 2025 n9r</span>
             <span className="text-neutral-600 text-xs">|</span>
             <span className="text-neutral-500 text-xs font-mono">v1.0.0</span>
           </div>
