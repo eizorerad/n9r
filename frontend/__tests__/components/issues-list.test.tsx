@@ -30,6 +30,7 @@ const mockIssues = [
         confidence: 0.9,
         status: 'open',
         auto_fixable: true,
+        found_by_models: ['gpt-4', 'claude-3'],
     },
     {
         id: 'issue-2',
@@ -42,6 +43,7 @@ const mockIssues = [
         confidence: 0.8,
         status: 'open',
         auto_fixable: false,
+        found_by_models: ['claude-3'],
     },
 ]
 

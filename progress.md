@@ -630,3 +630,59 @@ In [`ai_scan.py`](backend/app/api/v1/ai_scan.py):
 - Error messages don't leak existence info
 
 **Documentation**: Added Section 8 to [`analysis-status-contract.md`](docs/architecture/analysis-status-contract.md:1079) explaining the policy, implementation, affected endpoints, and security rationale.
+
+
+# 19-jan-2026 - SSE Client Stabilization (Problem 7)
+
+## Date and Time
+2026-01-19 20:15 (UTC+4)
+
+## Files Created
+- [`frontend/lib/sse-parser.ts`](frontend/lib/sse-parser.ts) - Robust SSE parser utility with event-boundary parsing, multiline data support, comment handling
+- [`frontend/__tests__/lib/sse-parser.test.ts`](frontend/__tests__/lib/sse-parser.test.ts) - 55 unit tests for SSE parser covering all edge cases
+- [`frontend/__tests__/hooks/use-analysis-stream.test.ts`](frontend/__tests__/hooks/use-analysis-stream.test.ts) - 19 integration tests for hook state transitions and reconnect logic
+
+## Files Modified
+- [`frontend/hooks/use-analysis-stream.ts`](frontend/hooks/use-analysis-stream.ts) - Major refactoring:
+  - Removed unused `isMountedRef`
+  - Added `AbortController` with signal passed to fetch
+  - Added `readerRef` for stream cleanup on unmount
+  - Integrated new SSE parser for event-based parsing
+  - Made `completed` status "sticky" until explicit `reset()` call
+  - Added reconnection with exponential backoff (configurable maxRetries, initialDelay, maxDelay)
+  - Added server action caching during reconnection attempts
+  - Exposed `retryCount` and `nextRetryIn` for UI feedback
+  - Added `reconnecting` status to AnalysisStatus type
+- [`frontend/components/run-analysis-button.tsx`](frontend/components/run-analysis-button.tsx) - Added `reset()` call before starting new analysis when status is `completed`
+- [`backend/app/api/v1/analyses.py`](backend/app/api/v1/analyses.py:543) - Fixed SSE keepalive handling to send comments as proper SSE format (`: keepalive\n`) instead of wrapping with `data:`
+- [`frontend/__tests__/components/issues-list.test.tsx`](frontend/__tests__/components/issues-list.test.tsx:21) - Added missing `found_by_models` property to mock issues
+- [`docs/problems_tasks.md`](docs/problems_tasks.md) - Marked all E1-E7 tasks as complete
+
+## What Was Done
+Comprehensive SSE client stabilization fixing connection lifecycle management, parsing reliability, and state machine consistency.
+
+**E1 - Code Stabilization**: Removed dead `isMountedRef`, added proper `AbortController` with signal to fetch, added `readerRef` for guaranteed stream cleanup on unmount/re-render. No more connection leaks.
+
+**E2 - Robust SSE Parser**: Created dedicated [`sse-parser.ts`](frontend/lib/sse-parser.ts) utility implementing proper SSE spec:
+- Event-boundary parsing (`\n\n`) instead of line-by-line
+- Multiline `data:` field concatenation with `\n`
+- Comment (`:`) ignoring for keepalive messages
+- Incomplete event buffering across chunks
+- Safe JSON parsing with structured error logging (no console spam)
+
+**E3 - State Machine Alignment**: Made `completed` status "sticky" until explicit `reset()` call. Button now shows "Analysis Complete" reliably without flickering. `reset()` called before starting new analysis.
+
+**E4 - Reconnect Strategy**: Implemented exponential backoff with jitter:
+- Configurable: `maxRetries` (5), `initialDelay` (1000ms), `maxDelay` (30000ms), `backoffMultiplier` (2)
+- Jitter formula: `delay * (0.5 + Math.random() * 0.5)` prevents thundering herd
+- Server action caching during reconnection (no re-fetch of `getApiUrl`/`getAccessToken`)
+- Smart error handling: don't retry 401/403/404, retry 5xx and network errors
+- Exposed `retryCount` and `nextRetryIn` for UI feedback
+
+**E5 - Backend Keepalive Fix**: Fixed SSE endpoint to send keepalive comments as proper SSE format (`: keepalive\n`) instead of `data: : keepalive\n\n`. Frontend parser now cleanly ignores keepalives.
+
+**E6 - Test Coverage**: 74 new tests total:
+- 55 unit tests for SSE parser (event boundaries, multiline data, comments, buffering, invalid JSON)
+- 19 integration tests for hook (state transitions, error handling, reconnect logic, AbortController)
+
+**Verification**: `pnpm tsc --noEmit` passes, all 126 frontend tests pass.

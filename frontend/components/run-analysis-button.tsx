@@ -17,7 +17,8 @@ export function RunAnalysisButton({ repositoryId, hasAnalysis }: RunAnalysisButt
     status,
     vciScore,
     error,
-    startAnalysis
+    startAnalysis,
+    reset
   } = useAnalysisStream(repositoryId)
   
   // Get selected commit from global store
@@ -26,6 +27,11 @@ export function RunAnalysisButton({ repositoryId, hasAnalysis }: RunAnalysisButt
   const handleClick = () => {
     if (status === 'pending' || status === 'running') {
       return
+    }
+
+    // Reset completed status before starting new analysis
+    if (status === 'completed') {
+      reset()
     }
 
     startTransition(() => {

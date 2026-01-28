@@ -541,7 +541,12 @@ async def stream_analysis_progress(
 
             # 2. Subscribe to real-time updates
             async for data in subscribe_analysis_progress(str(analysis_id)):
-                yield f"data: {data}\n\n"
+                # Check if this is an SSE comment (keepalive) - starts with ':'
+                # SSE comments should be sent directly without 'data:' prefix
+                if data.startswith(":"):
+                    yield f"{data}\n"
+                else:
+                    yield f"data: {data}\n\n"
 
         except asyncio.CancelledError:
             # Client disconnected
