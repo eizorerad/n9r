@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -303,7 +304,8 @@ class RepoContentService:
 
         files: list[FileToUpload] = []
 
-        for root, dirs, filenames in repo_path.walk():
+        for root_str, dirs, filenames in os.walk(repo_path):
+            root = Path(root_str)
             # Skip excluded directories (modify in-place to prevent descent)
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
 
@@ -382,7 +384,8 @@ class RepoContentService:
         entries: list[dict] = []
         seen_dirs: set[str] = set()
 
-        for root, dirs, filenames in repo_path.walk():
+        for root_str, dirs, filenames in os.walk(repo_path):
+            root = Path(root_str)
             # Skip .git and other specific system directories
             # We want to show .github, .vscode, etc., so only exclude .git and noise
             dirs[:] = [d for d in dirs if d not in {".git", "__pycache__"}]

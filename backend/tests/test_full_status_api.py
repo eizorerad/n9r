@@ -646,8 +646,10 @@ class TestAnalysisProgressContract:
             user=mock_user,
         )
 
-        # Verify progress is 15 for running (mid-point of 0-30%)
-        assert response.overall_progress == 15, f"Expected 15% for running, got {response.overall_progress}%"
+        # Verify progress for running (parallel: 50% analysis progress * 0.33 = 16%)
+        # The API uses compute_overall_progress_parallel which gives 33% per track
+        # With analysis_progress=50 (mid-point), static_track = 50 * 0.33 = 16
+        assert response.overall_progress == 16, f"Expected 16% for running, got {response.overall_progress}%"
         assert response.analysis_status.value == "running"
 
     @pytest.mark.asyncio
@@ -712,8 +714,9 @@ class TestAnalysisProgressContract:
             user=mock_user,
         )
 
-        # Verify progress is 30 for completed (end of analysis phase)
-        assert response.overall_progress == 30, f"Expected 30% for completed, got {response.overall_progress}%"
+        # Verify progress for completed (parallel: static_track = 33%)
+        # The API uses compute_overall_progress_parallel which gives 33% per track
+        assert response.overall_progress == 33, f"Expected 33% for completed, got {response.overall_progress}%"
         assert response.analysis_status.value == "completed"
 
     @pytest.mark.asyncio

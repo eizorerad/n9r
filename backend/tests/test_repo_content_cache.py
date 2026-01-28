@@ -1697,27 +1697,43 @@ class TestFullTreeCollection:
         finally:
             cleanup_temp_repo(repo_path)
 
-    def test_collect_full_tree_excludes_hidden_files(self):
+    def test_collect_full_tree_excludes_git_and_ds_store(self):
         """
         **Feature: commit-centric-explorer**
 
-        Property: Full tree should exclude hidden files and .git directory.
+        Property: Full tree should exclude .git directory and .DS_Store but include
+        other hidden files like .gitignore, .github, .vscode, etc.
         """
         files = {
             "main.py": b"# main\nprint('hello')\n" * 5,
-            ".hidden": b"hidden content\n" * 5,
             ".gitignore": b"*.pyc\n" * 5,
+            ".env.example": b"SECRET=xxx\n" * 5,
         }
         repo_path = create_temp_repo(files)
         try:
+            # Create .git directory (should be excluded)
+            git_dir = repo_path / ".git"
+            git_dir.mkdir()
+            (git_dir / "config").write_bytes(b"git config\n")
+
+            # Create .DS_Store (should be excluded)
+            (repo_path / ".DS_Store").write_bytes(b"ds_store\n")
+
             service = RepoContentService()
             full_tree = service.collect_full_tree(repo_path)
 
             file_paths = {e["path"] for e in full_tree if e["type"] == "file"}
+            dir_paths = {e["path"] for e in full_tree if e["type"] == "directory"}
 
-            # Hidden files should be excluded
-            assert ".hidden" not in file_paths
-            assert ".gitignore" not in file_paths
+            # .git directory should be excluded
+            assert ".git" not in dir_paths
+
+            # .DS_Store should be excluded
+            assert ".DS_Store" not in file_paths
+
+            # Other hidden files should be included (for explorer)
+            assert ".gitignore" in file_paths
+            assert ".env.example" in file_paths
 
             # Regular files should be included
             assert "main.py" in file_paths

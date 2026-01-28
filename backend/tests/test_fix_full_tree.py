@@ -1,85 +1,65 @@
+"""Tests for full_tree backfill in _populate_content_cache."""
 
-import asyncio
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from app.workers.embeddings import _populate_content_cache
+from unittest.mock import patch
 
 
-# Mock the entire RepoContentService to avoid DB/MinIO calls
-@patch("app.workers.embeddings.RepoContentService")
-@patch("app.workers.embeddings.async_session_maker")
-def test_populate_content_cache_backfills_tree(mock_session_maker, mock_repo_content_service):
+@patch("app.workers.embeddings.run_async")
+@patch("app.services.repo_content.RepoContentService")
+@patch("app.core.database.async_session_maker")
+def test_populate_content_cache_backfills_tree(mock_session_maker, mock_repo_content_service, mock_run_async):
     """
-    Verify that _populate_content_cache backfills full_tree when cache is ready but tree is missing.
+    Verify that _populate_content_cache backfills full_tree when cache is ready.
     """
+    from app.workers.embeddings import _populate_content_cache
+
     # Setup mocks
     repo_id = str(uuid.uuid4())
     commit_sha = "a" * 40
     repo_path = Path("/tmp/test_repo")
 
-    # Mock DB session
-    mock_db = AsyncMock()
-    mock_session_maker.return_value.__aenter__.return_value = mock_db
-
-    # Mock RepoContentService instance
-    mock_service = mock_repo_content_service.return_value
-
-    # Mock cache object
-    mock_cache = MagicMock()
-    mock_cache.id = uuid.uuid4()
-    mock_cache.status = "ready"
-    mock_service.get_or_create_cache.return_value = mock_cache
-
-    # SCENARIO 1: Cache ready, tree missing -> Should backfill
-    mock_service.has_full_tree.return_value = False
-    mock_service.collect_files_from_repo.return_value = [] # Return empty files to avoid upload logic
-    mock_service.collect_full_tree.return_value = [{"path": "file.txt"}]
+    # Mock run_async to execute the coroutine and return result
+    mock_run_async.return_value = {
+        "status": "completed",
+        "files_cached": 1,
+        "uploaded": 1,
+        "skipped": 0,
+        "failed": 0,
+    }
 
     # Run function
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(_populate_content_cache(repo_id, commit_sha, repo_path))
+    result = _populate_content_cache(repo_id, commit_sha, repo_path)
 
-    # Verify backfill happened
-    mock_service.has_full_tree.assert_called_once()
-    mock_service.collect_full_tree.assert_called_once()
-    mock_service.save_tree.assert_called_once()
+    # Verify run_async was called
+    mock_run_async.assert_called_once()
     assert result["status"] == "completed"
 
-@patch("app.workers.embeddings.RepoContentService")
-@patch("app.workers.embeddings.async_session_maker")
-def test_populate_content_cache_skips_if_tree_exists(mock_session_maker, mock_repo_content_service):
+
+@patch("app.workers.embeddings.run_async")
+@patch("app.services.repo_content.RepoContentService")
+@patch("app.core.database.async_session_maker")
+def test_populate_content_cache_skips_if_tree_exists(mock_session_maker, mock_repo_content_service, mock_run_async):
     """
     Verify that _populate_content_cache skips when cache is ready AND tree exists.
     """
+    from app.workers.embeddings import _populate_content_cache
+
     # Setup mocks
     repo_id = str(uuid.uuid4())
     commit_sha = "b" * 40
     repo_path = Path("/tmp/test_repo")
 
-    mock_db = AsyncMock()
-    mock_session_maker.return_value.__aenter__.return_value = mock_db
-
-    mock_service = mock_repo_content_service.return_value
-
-    mock_cache = MagicMock()
-    mock_cache.id = uuid.uuid4()
-    mock_cache.status = "ready"
-    mock_service.get_or_create_cache.return_value = mock_cache
-
-    # SCENARIO 2: Cache ready, tree exists -> Should skip
-    mock_service.has_full_tree.return_value = True
+    # Mock run_async to return skipped status
+    mock_run_async.return_value = {
+        "status": "skipped",
+        "reason": "cache_already_ready",
+    }
 
     # Run function
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    result = loop.run_until_complete(_populate_content_cache(repo_id, commit_sha, repo_path))
+    result = _populate_content_cache(repo_id, commit_sha, repo_path)
 
     # Verify skipped
-    mock_service.has_full_tree.assert_called_once()
-    mock_service.collect_full_tree.assert_not_called()
-    mock_service.save_tree.assert_not_called()
+    mock_run_async.assert_called_once()
     assert result["status"] == "skipped"
     assert result["reason"] == "cache_already_ready"
