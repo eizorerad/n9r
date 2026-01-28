@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # =============================================================================
 # Test _mark_analysis_running() - A2 requirements
 # =============================================================================
@@ -23,7 +22,7 @@ import pytest
 
 class TestMarkAnalysisRunning:
     """Test the _mark_analysis_running() function.
-    
+
     **Feature: status-transitions-fix**
     **Validates: A2 - pending→running transition**
     """
@@ -33,7 +32,7 @@ class TestMarkAnalysisRunning:
         """
         **Feature: status-transitions-fix**
         **Validates: A2 - Worker sets status="running"**
-        
+
         Test that _mark_analysis_running() sets status="running".
         """
         from app.workers.analysis import _mark_analysis_running
@@ -66,7 +65,7 @@ class TestMarkAnalysisRunning:
         """
         **Feature: status-transitions-fix**
         **Validates: A2 - Worker sets started_at only if null**
-        
+
         Test that _mark_analysis_running() sets started_at when it's null.
         """
         from app.workers.analysis import _mark_analysis_running
@@ -99,7 +98,7 @@ class TestMarkAnalysisRunning:
         """
         **Feature: status-transitions-fix**
         **Validates: A2 - started_at is NOT overwritten (idempotency)**
-        
+
         Test that _mark_analysis_running() does NOT overwrite started_at if already set.
         This ensures idempotency and correct duration calculation.
         """
@@ -133,7 +132,7 @@ class TestMarkAnalysisRunning:
         """
         **Feature: status-transitions-fix**
         **Validates: A2 - error_message is cleared on retry**
-        
+
         Test that _mark_analysis_running() clears error_message when retrying
         after a previous failure.
         """
@@ -167,7 +166,7 @@ class TestMarkAnalysisRunning:
         """
         **Feature: status-transitions-fix**
         **Validates: A2 - Graceful handling of nonexistent analysis**
-        
+
         Test that _mark_analysis_running() handles nonexistent analysis gracefully.
         """
         from app.workers.analysis import _mark_analysis_running
@@ -195,7 +194,7 @@ class TestMarkAnalysisRunning:
 
 class TestSaveAnalysisResults:
     """Test the _save_analysis_results() function.
-    
+
     **Feature: status-transitions-fix**
     **Validates: A3 - running→completed transition**
     """
@@ -205,7 +204,7 @@ class TestSaveAnalysisResults:
         """
         **Feature: status-transitions-fix**
         **Validates: A3 - started_at is NOT overwritten on completion**
-        
+
         Test that _save_analysis_results() does NOT overwrite started_at.
         """
         from app.workers.analysis import _save_analysis_results
@@ -250,7 +249,7 @@ class TestSaveAnalysisResults:
         """
         **Feature: status-transitions-fix**
         **Validates: A3 - Defensive fallback: started_at set if null**
-        
+
         Test that _save_analysis_results() sets started_at as fallback if null
         (for legacy records or rare race conditions).
         """
@@ -294,7 +293,7 @@ class TestSaveAnalysisResults:
         """
         **Feature: status-transitions-fix**
         **Validates: A3 - completed_at is set on completion**
-        
+
         Test that _save_analysis_results() sets completed_at.
         """
         from app.workers.analysis import _save_analysis_results
@@ -338,7 +337,7 @@ class TestSaveAnalysisResults:
 
 class TestMarkAnalysisFailed:
     """Test the _mark_analysis_failed() function.
-    
+
     **Feature: status-transitions-fix**
     **Validates: A4 - running→failed transition**
     """
@@ -349,7 +348,7 @@ class TestMarkAnalysisFailed:
         """
         **Feature: status-transitions-fix**
         **Validates: A4 - started_at is NOT overwritten on failure**
-        
+
         Test that _mark_analysis_failed() does NOT overwrite started_at.
         """
         from app.workers.analysis import _mark_analysis_failed
@@ -388,7 +387,7 @@ class TestMarkAnalysisFailed:
         """
         **Feature: status-transitions-fix**
         **Validates: A4 - Defensive fallback: started_at set if null**
-        
+
         Test that _mark_analysis_failed() sets started_at as fallback if null.
         """
         from app.workers.analysis import _mark_analysis_failed
@@ -423,7 +422,7 @@ class TestMarkAnalysisFailed:
         """
         **Feature: status-transitions-fix**
         **Validates: A4 - completed_at is set on failure**
-        
+
         Test that _mark_analysis_failed() sets completed_at.
         """
         from app.workers.analysis import _mark_analysis_failed
@@ -458,7 +457,7 @@ class TestMarkAnalysisFailed:
         """
         **Feature: status-transitions-fix**
         **Validates: A4 - error_message is truncated to 500 chars**
-        
+
         Test that _mark_analysis_failed() truncates long error messages.
         """
         from app.workers.analysis import _mark_analysis_failed
@@ -495,7 +494,7 @@ class TestMarkAnalysisFailed:
         """
         **Feature: status-transitions-fix**
         **Validates: A4 - Failure is published to Redis for SSE**
-        
+
         Test that _mark_analysis_failed() publishes failure to Redis.
         """
         from app.workers.analysis import _mark_analysis_failed
@@ -538,7 +537,7 @@ class TestMarkAnalysisFailed:
 
 class TestStatusTransitionSequence:
     """Test the complete status transition sequence.
-    
+
     **Feature: status-transitions-fix**
     **Validates: A2, A3, A4 - Full transition sequence**
     """
@@ -549,7 +548,7 @@ class TestStatusTransitionSequence:
         """
         **Feature: status-transitions-fix**
         **Validates: A2, A3 - Full success sequence preserves started_at**
-        
+
         Test that the full success sequence (pending→running→completed)
         preserves the original started_at timestamp.
         """
@@ -574,7 +573,7 @@ class TestStatusTransitionSequence:
 
         # Step 1: Mark as running
         _mark_analysis_running(str(mock_analysis.id))
-        
+
         # Capture the started_at set during running transition
         started_at_after_running = mock_analysis.started_at
         assert started_at_after_running is not None
@@ -602,7 +601,7 @@ class TestStatusTransitionSequence:
         """
         **Feature: status-transitions-fix**
         **Validates: A2, A4 - Full failure sequence preserves started_at**
-        
+
         Test that the full failure sequence (pending→running→failed)
         preserves the original started_at timestamp.
         """
@@ -627,7 +626,7 @@ class TestStatusTransitionSequence:
 
         # Step 1: Mark as running
         _mark_analysis_running(str(mock_analysis.id))
-        
+
         # Capture the started_at set during running transition
         started_at_after_running = mock_analysis.started_at
         assert started_at_after_running is not None

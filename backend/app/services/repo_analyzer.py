@@ -7,9 +7,10 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from app.services.ast_analyzer import get_ast_analyzer
 from app.services.lizard_analyzer import LizardAnalyzer
@@ -73,14 +74,14 @@ class RepoAnalyzer:
     """Analyzes repositories for code quality metrics."""
 
     def __init__(
-        self, 
-        repo_url: str, 
-        access_token: str | None = None, 
+        self,
+        repo_url: str,
+        access_token: str | None = None,
         commit_sha: str | None = None,
         heartbeat_callback: Callable[[], None] | None = None,
     ):
         """Initialize the repository analyzer.
-        
+
         Args:
             repo_url: URL of the repository to analyze
             access_token: Optional access token for private repositories
@@ -94,10 +95,10 @@ class RepoAnalyzer:
         self.commit_sha = commit_sha  # Specific commit to analyze
         self.temp_dir: Path | None = None
         self.heartbeat_callback = heartbeat_callback
-    
+
     def _send_heartbeat(self) -> None:
         """Send a heartbeat if callback is configured.
-        
+
         This method should be called during long operations to indicate
         the worker is still alive. The callback handles throttling internally.
         """
@@ -157,7 +158,7 @@ class RepoAnalyzer:
                     text=True,
                     timeout=300,
                 )
-                
+
                 # Send heartbeat after clone completes (can take a while for large repos)
                 self._send_heartbeat()
 
@@ -184,7 +185,7 @@ class RepoAnalyzer:
                         timeout=600,
                         cwd=str(self.temp_dir),
                     )
-                    
+
                     # Send heartbeat after unshallow fetch (can be very slow)
                     self._send_heartbeat()
 
@@ -210,7 +211,7 @@ class RepoAnalyzer:
                     text=True,
                     timeout=300,
                 )
-                
+
                 # Send heartbeat after clone completes
                 self._send_heartbeat()
 
@@ -350,7 +351,7 @@ class RepoAnalyzer:
 
             # Run lizard analysis (excluding Python - radon handles that)
             result = analyzer.analyze(self.temp_dir, exclude_python=True)
-            
+
             # Send heartbeat after lizard analysis completes
             self._send_heartbeat()
 
@@ -586,7 +587,7 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
-            
+
             # Send heartbeat after radon cc completes
             self._send_heartbeat()
 
@@ -661,7 +662,7 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
-            
+
             # Send heartbeat after radon hal completes
             self._send_heartbeat()
 
@@ -708,7 +709,7 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
-            
+
             # Send heartbeat after radon mi completes
             self._send_heartbeat()
 
@@ -757,7 +758,7 @@ class RepoAnalyzer:
                 text=True,
                 timeout=120,
             )
-            
+
             # Send heartbeat after radon raw completes
             self._send_heartbeat()
 
@@ -1281,7 +1282,7 @@ class RepoAnalyzer:
 
         # Count lines
         metrics = self.count_lines()
-        
+
         # Send heartbeat after line counting
         self._send_heartbeat()
 

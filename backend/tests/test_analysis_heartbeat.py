@@ -13,11 +13,10 @@ This module contains comprehensive tests for the heartbeat system including:
 
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # =============================================================================
 # Test Fixtures
@@ -31,8 +30,8 @@ def mock_analysis():
     analysis.id = uuid.uuid4()
     analysis.repository_id = uuid.uuid4()
     analysis.status = "pending"
-    analysis.created_at = datetime.now(timezone.utc)
-    analysis.state_updated_at = datetime.now(timezone.utc)
+    analysis.created_at = datetime.now(UTC)
+    analysis.state_updated_at = datetime.now(UTC)
     analysis.started_at = None
     analysis.completed_at = None
     analysis.error_message = None
@@ -57,7 +56,7 @@ def mock_settings():
 
 class TestUpdateHeartbeat:
     """Test the update_heartbeat() function in backend/app/workers/analysis.py.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Heartbeat for static analysis in DB**
     """
@@ -68,7 +67,7 @@ class TestUpdateHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - update_heartbeat() updates state_updated_at**
-        
+
         Test that update_heartbeat() updates the state_updated_at field.
         """
         from app.workers.analysis import _last_heartbeat_times, update_heartbeat
@@ -110,7 +109,7 @@ class TestUpdateHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - Heartbeat throttling (not more frequent than interval)**
-        
+
         Test that update_heartbeat() is throttled to avoid database spam.
         """
         from app.workers.analysis import _last_heartbeat_times, update_heartbeat
@@ -153,7 +152,7 @@ class TestUpdateHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - force=True bypasses throttling**
-        
+
         Test that update_heartbeat(force=True) bypasses throttling.
         """
         from app.workers.analysis import _last_heartbeat_times, update_heartbeat
@@ -196,7 +195,7 @@ class TestUpdateHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - Graceful handling of nonexistent analysis**
-        
+
         Test that update_heartbeat() handles nonexistent analysis gracefully.
         """
         from app.workers.analysis import _last_heartbeat_times, update_heartbeat
@@ -227,7 +226,7 @@ class TestUpdateHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - Heartbeat failures should not crash the worker**
-        
+
         Test that update_heartbeat() handles database errors gracefully.
         """
         from app.workers.analysis import _last_heartbeat_times, update_heartbeat
@@ -252,7 +251,7 @@ class TestUpdateHeartbeat:
 
 class TestPublishProgressHeartbeat:
     """Test that publish_progress() triggers heartbeat update.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - publish_progress triggers heartbeat update**
     """
@@ -263,23 +262,24 @@ class TestPublishProgressHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - publish_progress() triggers heartbeat update**
-        
+
         Test that the publish_progress helper in analyze_repository calls update_heartbeat.
         """
         # This test verifies the integration by checking that update_heartbeat
         # is called when publish_progress is invoked within analyze_repository.
         # Since publish_progress is a nested function, we test the behavior
         # by examining the analyze_repository code structure.
-        
+
         # The implementation shows that publish_progress calls update_heartbeat:
         # def publish_progress(stage: str, progress: int, message: str | None = None):
         #     ...
         #     update_heartbeat(analysis_id)
-        
+
         # We verify this by checking the source code structure
         import inspect
+
         from app.workers.analysis import analyze_repository
-        
+
         source = inspect.getsource(analyze_repository)
         assert "update_heartbeat(analysis_id)" in source, (
             "publish_progress should call update_heartbeat(analysis_id)"
@@ -288,7 +288,7 @@ class TestPublishProgressHeartbeat:
 
 class TestCleanupHeartbeatTracking:
     """Test cleanup_heartbeat_tracking() function.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Cleanup heartbeat tracking to prevent memory leaks**
     """
@@ -297,7 +297,7 @@ class TestCleanupHeartbeatTracking:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - cleanup_heartbeat_tracking removes tracking entry**
-        
+
         Test that cleanup_heartbeat_tracking() removes the tracking entry.
         """
         from app.workers.analysis import _last_heartbeat_times, cleanup_heartbeat_tracking
@@ -319,7 +319,7 @@ class TestCleanupHeartbeatTracking:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - cleanup_heartbeat_tracking handles nonexistent entry**
-        
+
         Test that cleanup_heartbeat_tracking() handles nonexistent entries gracefully.
         """
         from app.workers.analysis import cleanup_heartbeat_tracking
@@ -335,7 +335,7 @@ class TestCleanupHeartbeatTracking:
 
 class TestTriggerAnalysisStuckDetection:
     """Test trigger_analysis stuck detection behavior.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C3 - Redesign cleanup in API (trigger_analysis)**
     """
@@ -344,14 +344,14 @@ class TestTriggerAnalysisStuckDetection:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Pending analysis with recent created_at is NOT stuck**
-        
+
         Test that a pending analysis with recent created_at is not considered stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=5)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is False
@@ -360,7 +360,7 @@ class TestTriggerAnalysisStuckDetection:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Pending analysis with old created_at IS stuck**
-        
+
         Test that a pending analysis with old created_at is considered stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -368,7 +368,7 @@ class TestTriggerAnalysisStuckDetection:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
             # Created 35 minutes ago (exceeds 30 minute timeout)
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=35)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=35)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is True
@@ -377,14 +377,14 @@ class TestTriggerAnalysisStuckDetection:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Running analysis with fresh heartbeat is NOT stuck**
-        
+
         Test that a running analysis with fresh state_updated_at is not considered stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=5)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is False
@@ -393,7 +393,7 @@ class TestTriggerAnalysisStuckDetection:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Running analysis with stale heartbeat IS stuck**
-        
+
         Test that a running analysis with stale state_updated_at is considered stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -401,7 +401,7 @@ class TestTriggerAnalysisStuckDetection:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
             # Last heartbeat 20 minutes ago (exceeds 15 minute timeout)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=20)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is True
@@ -410,7 +410,7 @@ class TestTriggerAnalysisStuckDetection:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Terminal states (completed/failed/skipped) are never stuck**
-        
+
         Test that terminal states are never considered stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -419,8 +419,8 @@ class TestTriggerAnalysisStuckDetection:
             for status in ["completed", "failed", "skipped"]:
                 mock_analysis.status = status
                 # Even with very old timestamps
-                mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(days=30)
-                mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(days=30)
+                mock_analysis.created_at = datetime.now(UTC) - timedelta(days=30)
+                mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(days=30)
 
                 result = is_analysis_stuck(mock_analysis)
                 assert result is False, f"Status '{status}' should never be stuck"
@@ -428,7 +428,7 @@ class TestTriggerAnalysisStuckDetection:
 
 class TestGetStuckReason:
     """Test get_stuck_reason() helper function.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C3 - get_stuck_reason returns correct reasons**
     """
@@ -437,14 +437,14 @@ class TestGetStuckReason:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - get_stuck_reason returns 'pending_timeout' for stuck pending**
-        
+
         Test that get_stuck_reason returns 'pending_timeout' for stuck pending analysis.
         """
         from app.api.v1.analyses import get_stuck_reason
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=35)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=35)
 
             result = get_stuck_reason(mock_analysis)
             assert result == "pending_timeout"
@@ -453,14 +453,14 @@ class TestGetStuckReason:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - get_stuck_reason returns 'heartbeat_timeout' for stuck running**
-        
+
         Test that get_stuck_reason returns 'heartbeat_timeout' for stuck running analysis.
         """
         from app.api.v1.analyses import get_stuck_reason
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=20)
 
             result = get_stuck_reason(mock_analysis)
             assert result == "heartbeat_timeout"
@@ -469,14 +469,14 @@ class TestGetStuckReason:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - get_stuck_reason returns None for non-stuck analysis**
-        
+
         Test that get_stuck_reason returns None for non-stuck analysis.
         """
         from app.api.v1.analyses import get_stuck_reason
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=5)
 
             result = get_stuck_reason(mock_analysis)
             assert result is None
@@ -484,7 +484,7 @@ class TestGetStuckReason:
 
 class TestMarkAnalysisAsStuckFailed:
     """Test mark_analysis_as_stuck_failed() helper function.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C3 - mark_analysis_as_stuck_failed sets correct error messages**
     """
@@ -493,7 +493,7 @@ class TestMarkAnalysisAsStuckFailed:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Correct error message for pending_timeout**
-        
+
         Test that mark_analysis_as_stuck_failed sets correct error message for pending_timeout.
         """
         from app.api.v1.analyses import mark_analysis_as_stuck_failed
@@ -509,7 +509,7 @@ class TestMarkAnalysisAsStuckFailed:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C3 - Correct error message for heartbeat_timeout**
-        
+
         Test that mark_analysis_as_stuck_failed sets correct error message for heartbeat_timeout.
         """
         from app.api.v1.analyses import mark_analysis_as_stuck_failed
@@ -526,7 +526,7 @@ class TestMarkAnalysisAsStuckFailed:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C4 - Correct error message for scheduler cleanup**
-        
+
         Test that mark_analysis_as_stuck_failed includes scheduler source in message.
         """
         from app.api.v1.analyses import mark_analysis_as_stuck_failed
@@ -544,7 +544,7 @@ class TestMarkAnalysisAsStuckFailed:
 
 class TestCleanupStuckAnalyses:
     """Test cleanup_stuck_analyses() scheduled task.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C4 - Redesign scheduler-cleanup**
     """
@@ -555,7 +555,7 @@ class TestCleanupStuckAnalyses:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C4 - Pending analysis with old created_at is marked as failed**
-        
+
         Test that pending analysis with old created_at is marked as failed.
         """
         from app.workers.scheduled import cleanup_stuck_analyses
@@ -569,8 +569,8 @@ class TestCleanupStuckAnalyses:
         mock_analysis.id = uuid.uuid4()
         mock_analysis.repository_id = uuid.uuid4()
         mock_analysis.status = "pending"
-        mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=35)
-        mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=35)
+        mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=35)
+        mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=35)
         mock_analysis.pinned = False
 
         # Setup mock session
@@ -599,7 +599,7 @@ class TestCleanupStuckAnalyses:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C4 - Running analysis with fresh heartbeat is NOT touched**
-        
+
         Test that running analysis with fresh heartbeat is not touched.
         """
         from app.workers.scheduled import cleanup_stuck_analyses
@@ -613,8 +613,8 @@ class TestCleanupStuckAnalyses:
         mock_analysis.id = uuid.uuid4()
         mock_analysis.repository_id = uuid.uuid4()
         mock_analysis.status = "running"
-        mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        mock_analysis.created_at = datetime.now(UTC) - timedelta(hours=1)
+        mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=5)
         mock_analysis.pinned = False
 
         # Setup mock session
@@ -641,7 +641,7 @@ class TestCleanupStuckAnalyses:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C4 - Running analysis with stale heartbeat is marked as failed**
-        
+
         Test that running analysis with stale heartbeat is marked as failed.
         """
         from app.workers.scheduled import cleanup_stuck_analyses
@@ -655,8 +655,8 @@ class TestCleanupStuckAnalyses:
         mock_analysis.id = uuid.uuid4()
         mock_analysis.repository_id = uuid.uuid4()
         mock_analysis.status = "running"
-        mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(hours=1)
-        mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+        mock_analysis.created_at = datetime.now(UTC) - timedelta(hours=1)
+        mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=20)
         mock_analysis.pinned = False
 
         # Setup mock session
@@ -685,7 +685,7 @@ class TestCleanupStuckAnalyses:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C4 - Pinned analyses are NOT touched even if stuck**
-        
+
         Test that pinned analyses are not touched even if they appear stuck.
         """
         from app.workers.scheduled import cleanup_stuck_analyses
@@ -699,8 +699,8 @@ class TestCleanupStuckAnalyses:
         mock_pinned_analysis.id = uuid.uuid4()
         mock_pinned_analysis.repository_id = uuid.uuid4()
         mock_pinned_analysis.status = "running"
-        mock_pinned_analysis.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
-        mock_pinned_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        mock_pinned_analysis.created_at = datetime.now(UTC) - timedelta(hours=2)
+        mock_pinned_analysis.state_updated_at = datetime.now(UTC) - timedelta(hours=1)
         mock_pinned_analysis.pinned = True
 
         # Setup mock session - non-pinned query returns empty, pinned query returns our analysis
@@ -730,7 +730,7 @@ class TestCleanupStuckAnalyses:
 
 class TestIsAnalysisStuckEdgeCases:
     """Test is_analysis_stuck() edge cases.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C0 - Specification of stuck detection behavior**
     """
@@ -739,7 +739,7 @@ class TestIsAnalysisStuckEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Boundary condition: exactly at timeout**
-        
+
         Test boundary condition when pending analysis is exactly at timeout.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -747,7 +747,7 @@ class TestIsAnalysisStuckEdgeCases:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
             # Exactly at 30 minute boundary - should NOT be stuck (need to exceed)
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=30)
 
             result = is_analysis_stuck(mock_analysis)
             # At exactly the boundary, it's not stuck yet (need to exceed)
@@ -757,7 +757,7 @@ class TestIsAnalysisStuckEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Boundary condition: just over timeout**
-        
+
         Test boundary condition when pending analysis is just over timeout.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -765,7 +765,7 @@ class TestIsAnalysisStuckEdgeCases:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
             # Just over 30 minute boundary - should be stuck
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=30, seconds=1)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=30, seconds=1)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is True
@@ -774,7 +774,7 @@ class TestIsAnalysisStuckEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Handles naive datetime (no timezone info)**
-        
+
         Test that is_analysis_stuck handles naive datetime correctly.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -792,7 +792,7 @@ class TestIsAnalysisStuckEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Boundary condition: running exactly at heartbeat timeout**
-        
+
         Test boundary condition when running analysis is exactly at heartbeat timeout.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -800,7 +800,7 @@ class TestIsAnalysisStuckEdgeCases:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
             # Exactly at 15 minute boundary - should NOT be stuck
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=15)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=15)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is False
@@ -809,15 +809,15 @@ class TestIsAnalysisStuckEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Unknown status is treated as not stuck**
-        
+
         Test that unknown status is treated as not stuck.
         """
         from app.api.v1.analyses import is_analysis_stuck
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "unknown_status"
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(days=30)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(days=30)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(days=30)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(days=30)
 
             result = is_analysis_stuck(mock_analysis)
             assert result is False
@@ -825,7 +825,7 @@ class TestIsAnalysisStuckEdgeCases:
 
 class TestGetStuckReasonEdgeCases:
     """Test get_stuck_reason() edge cases.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C0 - get_stuck_reason returns correct reasons**
     """
@@ -834,7 +834,7 @@ class TestGetStuckReasonEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Terminal states return None**
-        
+
         Test that terminal states return None for stuck reason.
         """
         from app.api.v1.analyses import get_stuck_reason
@@ -842,8 +842,8 @@ class TestGetStuckReasonEdgeCases:
         with patch("app.api.v1.analyses.settings", mock_settings):
             for status in ["completed", "failed", "skipped"]:
                 mock_analysis.status = status
-                mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(days=30)
-                mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(days=30)
+                mock_analysis.created_at = datetime.now(UTC) - timedelta(days=30)
+                mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(days=30)
 
                 result = get_stuck_reason(mock_analysis)
                 assert result is None, f"Status '{status}' should return None"
@@ -852,15 +852,15 @@ class TestGetStuckReasonEdgeCases:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Unknown status returns None**
-        
+
         Test that unknown status returns None for stuck reason.
         """
         from app.api.v1.analyses import get_stuck_reason
 
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "unknown_status"
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(days=30)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(days=30)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(days=30)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(days=30)
 
             result = get_stuck_reason(mock_analysis)
             assert result is None
@@ -868,7 +868,7 @@ class TestGetStuckReasonEdgeCases:
 
 class TestCreateHeartbeatCallback:
     """Test create_heartbeat_callback() function.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Heartbeat callback for long operations**
     """
@@ -878,7 +878,7 @@ class TestCreateHeartbeatCallback:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - create_heartbeat_callback returns callable**
-        
+
         Test that create_heartbeat_callback returns a callable.
         """
         from app.workers.analysis import create_heartbeat_callback
@@ -893,7 +893,7 @@ class TestCreateHeartbeatCallback:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - Callback calls update_heartbeat with correct analysis_id**
-        
+
         Test that the callback calls update_heartbeat with the correct analysis_id.
         """
         from app.workers.analysis import create_heartbeat_callback
@@ -910,7 +910,7 @@ class TestCreateHeartbeatCallback:
 
 class TestMarkAnalysisRunningHeartbeat:
     """Test that _mark_analysis_running sets initial heartbeat.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Initial heartbeat on worker start**
     """
@@ -920,7 +920,7 @@ class TestMarkAnalysisRunningHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - _mark_analysis_running sets state_updated_at (initial heartbeat)**
-        
+
         Test that _mark_analysis_running sets state_updated_at for initial heartbeat.
         """
         from app.workers.analysis import _last_heartbeat_times, _mark_analysis_running
@@ -956,7 +956,7 @@ class TestMarkAnalysisRunningHeartbeat:
 
 class TestSaveAnalysisResultsHeartbeat:
     """Test that _save_analysis_results updates final heartbeat.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Final heartbeat on completion**
     """
@@ -966,7 +966,7 @@ class TestSaveAnalysisResultsHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - _save_analysis_results sets state_updated_at (final heartbeat)**
-        
+
         Test that _save_analysis_results sets state_updated_at for final heartbeat.
         """
         from app.workers.analysis import _last_heartbeat_times, _save_analysis_results
@@ -1010,7 +1010,7 @@ class TestSaveAnalysisResultsHeartbeat:
 
 class TestMarkAnalysisFailedHeartbeat:
     """Test that _mark_analysis_failed updates final heartbeat.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C2 - Final heartbeat on failure**
     """
@@ -1021,7 +1021,7 @@ class TestMarkAnalysisFailedHeartbeat:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C2 - _mark_analysis_failed sets state_updated_at (final heartbeat)**
-        
+
         Test that _mark_analysis_failed sets state_updated_at for final heartbeat.
         """
         from app.workers.analysis import _last_heartbeat_times, _mark_analysis_failed
@@ -1063,7 +1063,7 @@ class TestMarkAnalysisFailedHeartbeat:
 
 class TestHeartbeatIntegration:
     """Integration-style tests for the heartbeat system.
-    
+
     **Feature: heartbeat-stuck-detection**
     **Validates: C0-C4 - Full heartbeat system integration**
     """
@@ -1072,7 +1072,7 @@ class TestHeartbeatIntegration:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Pending uses created_at, not state_updated_at**
-        
+
         Test that pending stuck detection uses created_at, not state_updated_at.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -1080,8 +1080,8 @@ class TestHeartbeatIntegration:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "pending"
             # Old created_at but fresh state_updated_at
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=35)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=35)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=1)
 
             # Should be stuck based on created_at
             result = is_analysis_stuck(mock_analysis)
@@ -1091,7 +1091,7 @@ class TestHeartbeatIntegration:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Running uses state_updated_at, not created_at**
-        
+
         Test that running stuck detection uses state_updated_at, not created_at.
         """
         from app.api.v1.analyses import is_analysis_stuck
@@ -1099,8 +1099,8 @@ class TestHeartbeatIntegration:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
             # Fresh created_at but old state_updated_at
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(minutes=5)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(minutes=5)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=20)
 
             # Should be stuck based on state_updated_at
             result = is_analysis_stuck(mock_analysis)
@@ -1110,7 +1110,7 @@ class TestHeartbeatIntegration:
         """
         **Feature: heartbeat-stuck-detection**
         **Validates: C0 - Long running analysis with heartbeat is NOT stuck**
-        
+
         Test that a long-running analysis with recent heartbeat is not considered stuck.
         This is the key scenario that the heartbeat system is designed to handle.
         """
@@ -1119,9 +1119,9 @@ class TestHeartbeatIntegration:
         with patch("app.api.v1.analyses.settings", mock_settings):
             mock_analysis.status = "running"
             # Very old created_at (analysis running for 2 hours)
-            mock_analysis.created_at = datetime.now(timezone.utc) - timedelta(hours=2)
+            mock_analysis.created_at = datetime.now(UTC) - timedelta(hours=2)
             # But fresh heartbeat (updated 5 minutes ago)
-            mock_analysis.state_updated_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+            mock_analysis.state_updated_at = datetime.now(UTC) - timedelta(minutes=5)
 
             # Should NOT be stuck because heartbeat is fresh
             result = is_analysis_stuck(mock_analysis)

@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
@@ -111,7 +111,7 @@ def is_analysis_stuck(analysis: Analysis) -> bool:
     **Feature: heartbeat-stuck-detection**
     **Validates: Section 6.2 of analysis-status-contract.md**
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Terminal states are never stuck
     if analysis.status in ("completed", "failed", "skipped"):
@@ -123,7 +123,7 @@ def is_analysis_stuck(analysis: Analysis) -> bool:
         created_at = analysis.created_at
         # Ensure timezone-aware comparison
         if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
+            created_at = created_at.replace(tzinfo=UTC)
         return created_at < (now - pending_timeout)
 
     if analysis.status == "running":
@@ -132,7 +132,7 @@ def is_analysis_stuck(analysis: Analysis) -> bool:
         state_updated_at = analysis.state_updated_at
         # Ensure timezone-aware comparison
         if state_updated_at.tzinfo is None:
-            state_updated_at = state_updated_at.replace(tzinfo=timezone.utc)
+            state_updated_at = state_updated_at.replace(tzinfo=UTC)
         return state_updated_at < (now - heartbeat_timeout)
 
     # Unknown status - treat as not stuck (shouldn't happen)
@@ -179,7 +179,7 @@ def mark_analysis_as_stuck_failed(
     **Feature: heartbeat-stuck-detection**
     **Validates: Section 6.4 and 6.9 of analysis-status-contract.md**
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Set error message based on reason (per spec section 6.9)
     if reason == "pending_timeout":

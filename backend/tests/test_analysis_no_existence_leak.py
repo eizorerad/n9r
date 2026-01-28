@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
-
 # =============================================================================
 # Helper Functions for Creating Mocks
 # =============================================================================
@@ -112,7 +111,7 @@ class TestGetAnalysisForUserOr404:
     async def test_returns_404_for_nonexistent_analysis(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import get_analysis_for_user_or_404
@@ -134,7 +133,7 @@ class TestGetAnalysisForUserOr404:
     async def test_returns_404_for_other_user_analysis(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Analysis belonging to another user should return 404, not 403.
         This prevents information disclosure about valid analysis IDs.
         """
@@ -164,7 +163,7 @@ class TestGetAnalysisForUserOr404:
     async def test_returns_analysis_for_owner(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to access their analysis.
         """
         from app.api.v1.analyses import get_analysis_for_user_or_404
@@ -194,7 +193,7 @@ class TestStreamAnalysisProgress:
     async def test_stream_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to stream their analysis progress.
         """
         from app.api.v1.analyses import stream_analysis_progress
@@ -219,14 +218,14 @@ class TestStreamAnalysisProgress:
     async def test_stream_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to stream, not 403.
         """
         from app.api.v1.analyses import stream_analysis_progress
 
-        owner_id = uuid.uuid4()
+        uuid.uuid4()
         other_user_id = uuid.uuid4()
-        
+
         # DB returns None because the JOIN filters by owner_id
         mock_db = create_mock_db_returning_none()
         mock_user = create_mock_user(other_user_id)
@@ -245,7 +244,7 @@ class TestStreamAnalysisProgress:
     async def test_stream_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import stream_analysis_progress
@@ -275,7 +274,7 @@ class TestDeleteAnalysis:
     async def test_delete_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to delete their analysis (if pending/failed).
         """
         from app.api.v1.analyses import delete_analysis
@@ -298,7 +297,7 @@ class TestDeleteAnalysis:
     async def test_delete_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to delete, not 403.
         """
         from app.api.v1.analyses import delete_analysis
@@ -320,7 +319,7 @@ class TestDeleteAnalysis:
     async def test_delete_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import delete_analysis
@@ -350,7 +349,7 @@ class TestGetAnalysis:
     async def test_get_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to get their analysis details.
         """
         from app.api.v1.analyses import get_analysis
@@ -373,7 +372,7 @@ class TestGetAnalysis:
     async def test_get_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to get analysis, not 403.
         """
         from app.api.v1.analyses import get_analysis
@@ -395,7 +394,7 @@ class TestGetAnalysis:
     async def test_get_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import get_analysis
@@ -425,7 +424,7 @@ class TestGetAnalysisMetrics:
     async def test_metrics_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to get their analysis metrics.
         """
         from app.api.v1.analyses import get_analysis_metrics
@@ -448,7 +447,7 @@ class TestGetAnalysisMetrics:
     async def test_metrics_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to get metrics, not 403.
         """
         from app.api.v1.analyses import get_analysis_metrics
@@ -470,7 +469,7 @@ class TestGetAnalysisMetrics:
     async def test_metrics_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import get_analysis_metrics
@@ -500,7 +499,7 @@ class TestGetSemanticCache:
     async def test_semantic_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to get their semantic cache.
         """
         from app.api.v1.analyses import get_semantic_cache
@@ -523,7 +522,7 @@ class TestGetSemanticCache:
     async def test_semantic_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to get semantic cache, not 403.
         """
         from app.api.v1.analyses import get_semantic_cache
@@ -545,7 +544,7 @@ class TestGetSemanticCache:
     async def test_semantic_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import get_semantic_cache
@@ -575,7 +574,7 @@ class TestGenerateSemanticCache:
     async def test_generate_semantic_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to generate semantic cache, not 403.
         """
         from app.api.v1.analyses import generate_semantic_cache
@@ -597,7 +596,7 @@ class TestGenerateSemanticCache:
     async def test_generate_semantic_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import generate_semantic_cache
@@ -627,7 +626,7 @@ class TestTriggerAIScan:
     async def test_trigger_ai_scan_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to trigger AI scan, not 403.
         """
         from app.api.v1.ai_scan import trigger_ai_scan
@@ -650,7 +649,7 @@ class TestTriggerAIScan:
     async def test_trigger_ai_scan_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.ai_scan import trigger_ai_scan
@@ -681,7 +680,7 @@ class TestGetAIScanResults:
     async def test_get_ai_scan_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to get their AI scan results.
         """
         from app.api.v1.ai_scan import get_ai_scan_results
@@ -706,7 +705,7 @@ class TestGetAIScanResults:
     async def test_get_ai_scan_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to get AI scan results, not 403.
         """
         from app.api.v1.ai_scan import get_ai_scan_results
@@ -728,7 +727,7 @@ class TestGetAIScanResults:
     async def test_get_ai_scan_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.ai_scan import get_ai_scan_results
@@ -758,7 +757,7 @@ class TestStreamAIScanProgress:
     async def test_stream_ai_scan_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to stream their AI scan progress.
         """
         from app.api.v1.ai_scan import stream_ai_scan_progress
@@ -784,7 +783,7 @@ class TestStreamAIScanProgress:
     async def test_stream_ai_scan_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to stream AI scan, not 403.
         """
         from app.api.v1.ai_scan import stream_ai_scan_progress
@@ -806,7 +805,7 @@ class TestStreamAIScanProgress:
     async def test_stream_ai_scan_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.ai_scan import stream_ai_scan_progress
@@ -836,7 +835,7 @@ class TestGetAnalysisFullStatus:
     async def test_full_status_owner_can_access(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Owner should be able to get their analysis full status.
         """
         from app.api.v1.analyses import get_analysis_full_status
@@ -859,9 +858,9 @@ class TestGetAnalysisFullStatus:
     async def test_full_status_other_user_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Other user should get 404 when trying to get full status, not 403.
-        
+
         Note: get_analysis_full_status has its own authorization check
         (not using get_analysis_for_user_or_404), so we need to test it
         with a mock that returns an analysis owned by a different user.
@@ -870,7 +869,7 @@ class TestGetAnalysisFullStatus:
 
         owner_id = uuid.uuid4()
         other_user_id = uuid.uuid4()
-        
+
         analysis = create_mock_analysis(owner_id=owner_id)
         mock_db = create_mock_db_returning_analysis(analysis)
         mock_user = create_mock_user(other_user_id)
@@ -890,7 +889,7 @@ class TestGetAnalysisFullStatus:
     async def test_full_status_nonexistent_returns_404(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Non-existent analysis ID should return 404.
         """
         from app.api.v1.analyses import get_analysis_full_status
@@ -920,16 +919,16 @@ class TestNoExistenceLeakSummary:
     async def test_all_endpoints_return_404_not_403_for_other_user(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Verify that ALL analysis-scoped endpoints return 404 (not 403)
         when accessed by a user who doesn't own the analysis.
-        
+
         This is a meta-test that documents the security property.
         Individual endpoint tests above verify this property for each endpoint.
         """
         # This test documents the security property.
         # The actual verification is done by the individual endpoint tests above.
-        # 
+        #
         # Endpoints covered:
         # 1. GET /analyses/{analysis_id}/stream - TestStreamAnalysisProgress
         # 2. DELETE /analyses/{analysis_id} - TestDeleteAnalysis
@@ -946,7 +945,7 @@ class TestNoExistenceLeakSummary:
     def test_error_messages_do_not_leak_information(self):
         """
         **Feature: security-no-existence-leak**
-        
+
         Verify that error messages don't contain information that could
         help attackers distinguish between non-existent and unauthorized.
         """
@@ -957,7 +956,7 @@ class TestNoExistenceLeakSummary:
         # - "Permission denied"
         # - "You don't have access"
         # - Any indication that the resource exists
-        
+
         # This is verified by the individual tests checking:
         # assert "not found" in exc_info.value.detail.lower()
         # assert "access denied" not in exc_info.value.detail.lower()

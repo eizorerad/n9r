@@ -14,12 +14,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbSession
 from app.api.v1.analyses import get_analysis_for_user_or_404
-from app.models.analysis import Analysis
 from app.schemas.ai_scan import (
     AIScanCacheResponse,
     AIScanConfidence,

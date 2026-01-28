@@ -459,10 +459,10 @@ class TestComputedFields:
 
 class TestAnalysisProgressContract:
     """Test the analysis_progress field contract in /full-status response.
-    
+
     **Feature: status-transitions-fix**
     **Validates: A6.2 - /full-status contract for running status**
-    
+
     The analysis_progress field should reflect the static analysis progress:
     - pending: 0%
     - running: 50% (mid-point)
@@ -474,7 +474,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - pending status returns analysis_progress=0**
-        
+
         Test that when Analysis.status="pending", the /full-status endpoint
         returns analysis_progress=0.
         """
@@ -486,7 +486,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - running status returns analysis_progress=15 (mid-point of 0-30%)**
-        
+
         Test that when Analysis.status="running", the /full-status endpoint
         returns analysis_progress=15 (mid-point of analysis phase 0-30%).
         """
@@ -498,7 +498,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - completed status returns analysis_progress=30 (end of analysis phase)**
-        
+
         Test that when Analysis.status="completed", the /full-status endpoint
         returns analysis_progress=30 (end of analysis phase, before embeddings).
         """
@@ -510,7 +510,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - failed status returns analysis_progress=0**
-        
+
         Test that when Analysis.status="failed", the /full-status endpoint
         returns analysis_progress=0.
         """
@@ -523,7 +523,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - Full endpoint test for pending status**
-        
+
         Test that the actual /full-status endpoint returns correct progress
         when analysis status is pending.
         """
@@ -589,7 +589,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - Full endpoint test for running status**
-        
+
         Test that the actual /full-status endpoint returns correct progress
         when analysis status is running.
         """
@@ -655,7 +655,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - Full endpoint test for completed status**
-        
+
         Test that the actual /full-status endpoint returns correct progress
         when analysis status is completed (but embeddings not started).
         """
@@ -721,7 +721,7 @@ class TestAnalysisProgressContract:
         """
         **Feature: status-transitions-fix**
         **Validates: A6.2 - Full endpoint test for fully completed analysis**
-        
+
         Test that the actual /full-status endpoint returns 100% progress
         when all phases are completed.
         """
